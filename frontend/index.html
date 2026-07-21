@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>摸鱼工具箱</title>
+<link rel="icon" href="logo_128.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body data-theme="light">
+
+<!-- ====== Ambient background (for glass blur to show through) ====== -->
+<div class="bg-ambient">
+  <div class="bg-orb orb-1"></div>
+  <div class="bg-orb orb-2"></div>
+  <div class="bg-orb orb-3"></div>
+</div>
+
+<!-- ====== App shell ====== -->
+<div id="app">
+
+  <!-- Nav pill bar -->
+  <nav class="nav-bar glass">
+    <div class="nav-pills">
+      <button class="nav-pill active" data-page="ai" onclick="switchPage('ai')">
+        <span class="pill-icon">🎨</span> Illustrator
+      </button>
+      <button class="nav-pill" data-page="bc" onclick="switchPage('bc')">
+        <span class="pill-icon">🔢</span> 条码
+      </button>
+      <button class="nav-pill" data-page="more" onclick="switchPage('more')">
+        <span class="pill-icon">⚙️</span> 更多
+      </button>
+    </div>
+  </nav>
+
+  <!-- ================================================================ -->
+  <!-- Page: Illustrator -->
+  <!-- ================================================================ -->
+  <section id="page-ai" class="page active">
+
+    <!-- Toolbar -->
+    <div class="toolbar glass">
+      <button class="btn" onclick="pickFiles()">📂 添加文件</button>
+      <button class="btn" onclick="pickFolder()">📁 添加文件夹</button>
+      <button class="btn btn-danger" onclick="removeSelected()">✕ 移除选中</button>
+      <button class="btn btn-danger" onclick="clearAll()">🗑 清空</button>
+      <span class="toolbar-hint">— 或将 .ai 文件 / 文件夹拖放到下方列表 —</span>
+    </div>
+
+    <!-- File list -->
+    <div class="file-list glass" id="file-list-container"
+         ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)">
+      <div class="file-list-header">
+        <span class="col-num">#</span>
+        <span class="col-name">文件名</span>
+        <span class="col-size">大小</span>
+        <span class="col-status">状态</span>
+      </div>
+      <div class="file-list-body" id="file-list-body">
+        <div class="file-list-empty" id="file-list-empty">
+          <div class="empty-icon">📥</div>
+          <div class="empty-text">将 .ai 文件或文件夹拖放到此处</div>
+        </div>
+      </div>
+      <div class="file-list-footer" id="file-list-footer" style="display:none">
+        <span id="file-count">0 个文件</span>
+      </div>
+    </div>
+
+    <!-- Output row -->
+    <div class="output-row glass">
+      <label class="switch-label">
+        <input type="checkbox" id="same-folder" checked onchange="toggleOutputDir()">
+        <span>与原文件同目录输出</span>
+      </label>
+      <div class="output-dir" id="output-dir-row" style="display:none">
+        <span class="dir-label">输出目录:</span>
+        <input type="text" id="output-dir" class="input" placeholder="选择输出目录..." readonly>
+        <button class="btn btn-sm" onclick="pickOutputDir()">浏览</button>
+      </div>
+    </div>
+
+    <!-- Action buttons -->
+    <div class="actions glass">
+      <button class="btn btn-primary" id="btn-pdf" onclick="startPdfExport('default')">导出 PDF 文件</button>
+      <button class="btn btn-primary" id="btn-minimal" onclick="startPdfExport('minimal250')">导出最小化PDF 250ppi</button>
+      <button class="btn btn-outline" id="btn-outline" onclick="startOutline()">文字转曲</button>
+      <button class="btn btn-stop" id="btn-stop" onclick="stopWorker()" disabled>⏹ 停止</button>
+    </div>
+
+    <!-- Progress -->
+    <div class="progress-row glass" id="progress-row" style="display:none">
+      <div class="progress-bar">
+        <div class="progress-fill" id="progress-fill"></div>
+      </div>
+      <span class="progress-text" id="progress-text">0 / 0</span>
+    </div>
+
+    <!-- Log -->
+    <div class="log glass" id="log">
+      <div class="log-inner" id="log-inner"></div>
+    </div>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- Page: Barcode -->
+  <!-- ================================================================ -->
+  <section id="page-bc" class="page">
+
+    <div class="bc-layout">
+      <!-- Controls -->
+      <div class="bc-controls glass">
+        <div class="bc-row">
+          <label>条码类型</label>
+          <select id="bc-type" class="input"></select>
+        </div>
+        <div class="bc-row">
+          <label>编码</label>
+          <input type="text" id="bc-code" class="input" placeholder="输入条码数字..." onkeydown="if(event.key==='Enter')genBarcode()">
+        </div>
+        <button class="btn btn-primary" onclick="genBarcode()" style="width:100%">生成条码</button>
+
+        <!-- DPI selector -->
+        <div class="bc-row">
+          <label>DPI 分辨率</label>
+          <div class="bc-dpi-row">
+            <select id="bc-dpi" class="input" style="flex:1">
+              <option value="300">300 DPI</option>
+              <option value="600">600 DPI</option>
+              <option value="1200">1200 DPI</option>
+              <option value="custom">自定义</option>
+            </select>
+            <input type="number" id="bc-dpi-custom" class="input" style="width:70px;display:none"
+                   placeholder="DPI" min="72" max="2400" value="300"
+                   onchange="document.getElementById('bc-dpi').value='custom'">
+          </div>
+        </div>
+
+        <!-- Export format buttons -->
+        <div class="bc-section-label">导出文件</div>
+        <div class="bc-export-grid">
+          <button class="btn btn-sm" onclick="exportBarcode('EPS')">EPS</button>
+          <button class="btn btn-sm" onclick="exportBarcode('SVG')">SVG</button>
+          <button class="btn btn-sm" onclick="exportBarcode('PNG')">PNG</button>
+          <button class="btn btn-sm" onclick="exportBarcode('BMP')">BMP</button>
+          <button class="btn btn-sm" onclick="exportBarcode('TIF')">TIF</button>
+        </div>
+
+        <!-- One-click AI / PS -->
+        <div class="bc-section-label">一键转入</div>
+        <div class="bc-app-grid">
+          <button class="bc-app-btn" onclick="openInApp('ai')" title="在 Adobe Illustrator 中打开">
+            <span class="bc-app-icon ai-icon">Ai</span>
+            <span class="bc-app-label">Illustrator</span>
+          </button>
+          <button class="bc-app-btn" onclick="openInApp('ps')" title="在 Adobe Photoshop 中打开">
+            <span class="bc-app-icon ps-icon">Ps</span>
+            <span class="bc-app-label">Photoshop</span>
+          </button>
+        </div>
+
+        <div class="bc-status" id="bc-status"></div>
+      </div>
+
+      <!-- Preview -->
+      <div class="bc-preview glass" id="bc-preview">
+        <div class="bc-placeholder">输入编码后点击「生成条码」</div>
+        <div class="bc-svg-container" id="bc-svg-container" style="display:none"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- Page: More -->
+  <!-- ================================================================ -->
+  <section id="page-more" class="page">
+    <div class="more-layout">
+      <!-- Sidebar -->
+      <div class="more-sidebar glass">
+        <div class="sidebar-title">更多选项</div>
+        <button class="sidebar-btn active" data-panel="settings" onclick="switchMore('settings')">
+          <span>⚙️</span> 设置
+        </button>
+        <button class="sidebar-btn" data-panel="about" onclick="switchMore('about')">
+          <span>ℹ️</span> 关于
+        </button>
+      </div>
+
+      <!-- Content -->
+      <div class="more-content glass" id="more-content">
+        <!-- Settings panel (default) -->
+        <div id="panel-settings" class="more-panel">
+          <h2>外观</h2>
+          <p class="muted">选择界面主题，更改即时生效</p>
+          <div class="theme-options">
+            <label class="theme-opt" onclick="setTheme('light')">
+              <input type="radio" name="theme" value="light"> ☀️ 浅色模式
+            </label>
+            <label class="theme-opt" onclick="setTheme('dark')">
+              <input type="radio" name="theme" value="dark"> 🌙 深色模式
+            </label>
+            <label class="theme-opt" onclick="setTheme('system')">
+              <input type="radio" name="theme" value="system"> 🖥️ 跟随系统
+            </label>
+          </div>
+
+          <!-- Color picker -->
+          <div class="color-picker-section">
+            <h3>高光颜色</h3>
+            <p class="muted">自定义界面强调色</p>
+            <div class="cp-row">
+              <!-- HSL wheel -->
+              <div class="cp-wheel-wrap">
+                <canvas class="cp-wheel" id="cp-wheel" width="200" height="200"></canvas>
+                <div class="cp-wheel-marker" id="cp-marker"></div>
+              </div>
+              <!-- RGB sliders -->
+              <div class="cp-sliders">
+                <div class="cp-slider-row">
+                  <label class="r">R</label>
+                  <input type="range" class="cp-slider r" id="cp-r" min="0" max="255" value="94" oninput="onRgbSlider()">
+                  <span class="cp-val" id="cp-r-val">94</span>
+                </div>
+                <div class="cp-slider-row">
+                  <label class="g">G</label>
+                  <input type="range" class="cp-slider g" id="cp-g" min="0" max="255" value="92" oninput="onRgbSlider()">
+                  <span class="cp-val" id="cp-g-val">92</span>
+                </div>
+                <div class="cp-slider-row">
+                  <label class="b">B</label>
+                  <input type="range" class="cp-slider b" id="cp-b" min="0" max="255" value="214" oninput="onRgbSlider()">
+                  <span class="cp-val" id="cp-b-val">214</span>
+                </div>
+                <div class="cp-preview-row">
+                  <input type="text" class="cp-hex" id="cp-hex" value="#5E5CD6" maxlength="7" onchange="onHexInput()">
+                  <div class="cp-swatch" id="cp-swatch"></div>
+                  <button class="cp-reset" onclick="resetAccent()">重置默认</button>
+                </div>
+                <button class="btn btn-sm" onclick="followWindowsAccent()" style="margin-top:8px;width:100%">
+                  🖥️ 跟随 Windows 主题色
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- About panel -->
+        <div id="panel-about" class="more-panel" style="display:none">
+          <div style="display:flex;align-items:center;gap:20px;margin-bottom:16px">
+            <img src="logo_128.png" width="64" height="64" style="border-radius:16px">
+            <div>
+              <h1 style="margin:0">摸鱼工具箱</h1>
+              <p class="muted" style="margin:0">v3.0</p>
+            </div>
+          </div>
+          <div class="about-grid">
+            <div><strong>Illustrator</strong></div><div>批量导出 PDF / 最小化 PDF / 文字转曲</div>
+            <div><strong>条码生成器</strong></div><div>EAN / UPC / Code128 / 矢量 SVG 输出</div>
+            <div><strong>外观</strong></div><div>浅色 / 深色 / 追随系统</div>
+          </div>
+          <hr>
+          <p class="muted">依赖：Adobe Illustrator + Python</p>
+          <p class="muted" style="margin-top:12px">软件为 <strong>Lewis-Weng</strong> 设计</p>
+          <p class="muted">联系方式：Leclerc_Weng@gmail.com</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Status bar -->
+  <footer class="status-bar glass" id="status-bar">就绪</footer>
+
+</div><!-- /#app -->
+
+<script src="app.js"></script>
+</body>
+</html>

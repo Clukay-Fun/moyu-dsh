@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# PyInstaller 打包产物
+build/
+dist/
+*.spec
+
+# 打包/临时输出
+*.log
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
