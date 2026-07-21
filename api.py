@@ -3,6 +3,7 @@ Python ↔ JavaScript bridge for the webview UI.
 """
 
 import os
+import sys
 import io
 import json
 import queue
@@ -26,6 +27,30 @@ from converter import (
 )
 from barcode_engine import generate_svg, SUPPORTED_TYPES
 from theme import load_settings, save_settings, resolve_theme, THEME_LIGHT, THEME_DARK, THEME_SYSTEM
+
+import re as _re
+
+
+def _reveal_in_file_manager(path):
+    """在系统文件管理器中定位文件，按平台选择命令。"""
+    if not path or not os.path.exists(path):
+        return
+    if sys.platform.startswith("win"):
+        subprocess.run(["explorer", "/select,", os.path.normpath(path)])
+    elif sys.platform == "darwin":
+        subprocess.run(["open", "-R", path])
+    else:
+        subprocess.run(["xdg-open", os.path.dirname(path)])
+
+
+def _safe_filename(name, fallback="barcode", maxlen=64):
+    """把用户输入的 code 清洗成安全文件名主干：只保留字母/数字/-/_。
+
+    Code39/Code128 允许 `/`、`\\`、`.`、空格 等字符，若直接拼进路径可能
+    穿越到桌面/临时目录之外甚至覆盖任意可写文件。这里统一清洗以杜绝穿越。
+    """
+    safe = _re.sub(r"[^A-Za-z0-9_-]", "_", str(name)).strip("_-")
+    return safe[:maxlen] or fallback
 
 
 class Api:
@@ -118,7 +143,7 @@ class Api:
         idx = json.loads(index_json)
         if 0 <= idx < len(self._file_list):
             fp = self._file_list[idx][0]
-            os.system(f'explorer /select,"{fp}"')
+            _reveal_in_file_manager(fp)
 
     # =====================================================================
     # Workers
@@ -299,7 +324,7 @@ class Api:
             return json.dumps({"error": str(e)})
 
         import tempfile
-        tmp_svg = os.path.join(tempfile.gettempdir(), f"_bc_{code}.svg")
+        tmp_svg = os.path.join(tempfile.gettempdir(), f"_bc_{_safe_filename(code)}.svg")
         with open(tmp_svg, "w", encoding="utf-8") as f:
             f.write(svg)
 
@@ -333,7 +358,7 @@ class Api:
     def get_desktop_path(self, code, ext):
         """Build a save path on the Desktop: ~/Desktop/{code}.{ext}"""
         desktop = os.path.expanduser("~/Desktop")
-        base = os.path.join(desktop, code)
+        base = os.path.join(desktop, _safe_filename(code))
         path = base + ext
         # If file exists, append (1), (2), ...
         n = 1
@@ -350,7 +375,7 @@ class Api:
         code = opts["code"]; bc_type = opts["type"]
 
         import tempfile
-        filepath = os.path.join(tempfile.gettempdir(), f"{code}.svg")
+        filepath = os.path.join(tempfile.gettempdir(), f"{_safe_filename(code)}.svg")
 
         try:
             svg = generate_svg(code, bc_type)
@@ -383,7 +408,7 @@ class Api:
         dpi = opts.get("dpi", 300)
 
         import tempfile
-        filepath = os.path.join(tempfile.gettempdir(), f"{code}.png")
+        filepath = os.path.join(tempfile.gettempdir(), f"{_safe_filename(code)}.png")
 
         try:
             generate_svg(code, bc_type)
