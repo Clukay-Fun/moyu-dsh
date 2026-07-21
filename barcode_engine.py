@@ -74,8 +74,8 @@ _CODE128 = [
     '10011110010','11110100100','11110010100','11110010010','11011011110',
     '11011110110','11110110110','10101111000','10100011110','10001011110',
     '10111101000','10111100010','11110101000','11110100010','10111011110',
-    '10111101110','11101011110','11110101110','11010000100','11101101110',
-    '11010001110',
+    '10111101110','11101011110','11110101110','11010000100','11010010000',
+    '11010011100','1100011101011',
 ]
 _C128_SA=103; _C128_SB=104; _C128_SC=105; _C128_SP=106
 _CODE39 = {
@@ -197,6 +197,61 @@ def _upc_svg(modules, chars12):
     return '\n'.join(lines)
 
 
+def _ean8_svg(modules, code8):
+    """EAN-8 版式：67 模块，护线 3+5+3，数字 4+4 分居左右数据区下方。"""
+    total = len(modules)                      # 67
+    bar_w = total * MODULE_MM
+    x0 = (A4_W - bar_w) / 2                    # EAN-8 单独居中（比 EAN-13 窄）
+    y0 = BC_Y0
+    g_s = (0, 3); g_m = (31, 36); g_e = (total - 3, total)
+
+    # ---- bars ----------------------------------------------------------
+    bar_rects = []
+    x = 0.0; i = 0
+    while i < total:
+        bit = modules[i]; run = 1
+        while i + run < total and modules[i + run] == bit: run += 1
+        w = run * MODULE_MM
+        if bit == '1':
+            ing = ((g_s[0] <= i < g_s[1]) or
+                   (g_m[0] <= i < g_m[1]) or
+                   (g_e[0] <= i < g_e[1]))
+            h = GUARD_H if ing else DATA_H
+            bar_rects.append((x0 + x, y0 + BAR_TOP, w, h))
+        x += w; i += run
+
+    # ---- text: 左 4 位 (模块 3..31)，右 4 位 (模块 36..64) --------------
+    baseline = y0 + TEXT_BASE
+    left_s = x0 + 3 * MODULE_MM;  left_e = x0 + 31 * MODULE_MM
+    right_s = x0 + 36 * MODULE_MM; right_e = x0 + 64 * MODULE_MM
+    texts = []
+    wl = left_e - left_s
+    for k in range(4):
+        texts.append((left_s + wl * (k + 0.5) / 4, code8[k], MID_FS_PT))
+    wr = right_e - right_s
+    for k in range(4):
+        texts.append((right_s + wr * (k + 0.5) / 4, code8[4 + k], MID_FS_PT))
+
+    lines = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        f'<svg xmlns="http://www.w3.org/2000/svg"'
+        f' width="{A4_W}mm" height="{A4_H}mm"'
+        f' viewBox="0 0 {A4_W} {A4_H}">',
+        _FONT_FACE,
+        '<g id="Barcode_Group">',
+    ]
+    for rx, ry, rw, rh in bar_rects:
+        lines.append(
+            f'<rect x="{rx:.4f}" y="{ry:.4f}" width="{rw:.4f}" height="{rh:.4f}" fill="#000000"/>')
+    for cx, ch, fs_pt in texts:
+        lines.append(
+            f'<text class="bc-text" x="{cx:.3f}" y="{baseline:.3f}"'
+            f' text-anchor="middle" font-size="{fs_pt}pt">{ch}</text>')
+    lines.append('</g>')
+    lines.append('</svg>')
+    return '\n'.join(lines)
+
+
 def _simple_svg(modules, text):
     x0 = BC_X0 + QUIET_MM; y0 = BC_Y0
     rects = []; x=0.0; i=0
@@ -226,16 +281,28 @@ def _simple_svg(modules, text):
 
 def encode_upca(code):
     code=re.sub(r'\D','',code)
-    if len(code)==11: code+=str(_csum_u(code))
-    if len(code)!=12: raise ValueError(f"UPCA needs 11-12 digits, got {len(code)}")
+    if len(code)==11:
+        code+=str(_csum_u(code))
+    elif len(code)==12:
+        exp=_csum_u(code[:11])
+        if int(code[11])!=exp:
+            raise ValueError(f"UPC-A 校验位错误：末位应为 {exp}")
+    else:
+        raise ValueError(f"UPC-A 需要 11-12 位数字，收到 {len(code)}")
     mods=('101'+''.join(_LEFT[d] for d in code[:6])+
           '01010'+''.join(_RIGHT[d] for d in code[6:])+'101')
     return _upc_svg(mods, code)
 
 def encode_ean13(code):
     code=re.sub(r'\D','',code)
-    if len(code)==12: code+=str(_csum_e(code))
-    if len(code)!=13: raise ValueError(f"EAN-13 needs 12-13 digits, got {len(code)}")
+    if len(code)==12:
+        code+=str(_csum_e(code))
+    elif len(code)==13:
+        exp=_csum_e(code[:12])
+        if int(code[12])!=exp:
+            raise ValueError(f"EAN-13 校验位错误：末位应为 {exp}")
+    else:
+        raise ValueError(f"EAN-13 需要 12-13 位数字，收到 {len(code)}")
     first=code[0]; left=code[1:7]; right=code[7:]; parity=_EAN_1ST[first]
     mods='101'
     for i,d in enumerate(left): mods+=_LEFT[d] if parity[i]=='L' else _EAN_EV[d]
@@ -246,13 +313,24 @@ def encode_ean13(code):
 
 def encode_ean8(code):
     code=re.sub(r'\D','',code)
-    if len(code)==7: code+=str(_csum_e(code+'00000'))
-    if len(code)!=8: raise ValueError(f"EAN-8 needs 7-8 digits, got {len(code)}")
+    if len(code)==7:
+        code+=str(_csum_e(code+'00000'))
+    elif len(code)==8:
+        exp=_csum_e(code[:7]+'00000')
+        if int(code[7])!=exp:
+            raise ValueError(f"EAN-8 校验位错误：末位应为 {exp}")
+    else:
+        raise ValueError(f"EAN-8 需要 7-8 位数字，收到 {len(code)}")
     mods=('101'+''.join(_LEFT[d] for d in code[:4])+
           '01010'+''.join(_RIGHT[d] for d in code[4:])+'101')
-    return _upc_svg(mods, code)
+    return _ean8_svg(mods, code)
 
 def encode_code128(text):
+    if not text:
+        raise ValueError("Code128 输入不能为空")
+    for c in text:
+        if not (32 <= ord(c) <= 126):
+            raise ValueError(f"Code128 仅支持可打印 ASCII 字符，非法字符：{c!r}")
     hl=any(c.islower() for c in text)
     ad=all(c.isdigit() for c in text) and len(text)>=2
     if ad and len(text)%2==0:
@@ -266,6 +344,8 @@ def encode_code128(text):
 
 def encode_code39(text):
     text=text.upper().strip()
+    if not text:
+        raise ValueError("Code39 输入不能为空")
     for c in text:
         if c not in _CODE39: raise ValueError(f"Code39 invalid: {c}")
     mods=_CODE39['*']
