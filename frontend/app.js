@@ -14,7 +14,8 @@ let state = {
   gen: 0,
   bcSvg: null,
   bcCode: '',
-  bcType: 'ean13',
+  bcType: 'upca',
+  barcodeTypes: [],
 };
 
 // ---- init ------------------------------------------------------------
@@ -23,20 +24,156 @@ document.addEventListener('DOMContentLoaded', () => {
   loadBarcodeTypes();
   loadTheme();
   pollMessages();
+  startMochiTimer();
 });
 
 // =====================================================================
 // Page switching
 // =====================================================================
 
-function switchPage(name) {
+function switchPage(name, button) {
   state.page = name;
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.getElementById(`page-${name}`).classList.add('active');
-  document.querySelectorAll('.nav-pill').forEach(b => b.classList.remove('active'));
-  document.querySelector(`.nav-pill[data-page="${name}"]`).classList.add('active');
-  if (name === 'more') switchMore('settings');
+  document.querySelectorAll('.nav-item[data-page]').forEach(b => b.classList.remove('active'));
+  (button || document.querySelector(`.nav-item[data-page="${name}"]`))?.classList.add('active');
+  if (name === 'more') setTimeout(initColorPicker, 0);
 }
+
+// =====================================================================
+// Search and timer
+// =====================================================================
+
+const flyout = document.getElementById('flyout');
+
+function closeFlyout() { flyout.classList.remove('open'); }
+
+function showBarcodeTypes(owner) {
+  switchPage('bc', owner);
+  const palette = { upca: '#e0554e', ean13: '#e08a3c', ean8: '#8fceb8', code128: '#9fb0ec', code39: '#8a7cd0', itf: '#5ca2a8', auto: '#6d7287' };
+  flyout.innerHTML = '<div class="flyout-label">条码类型</div>';
+  state.barcodeTypes.forEach(type => {
+    const button = document.createElement('button');
+    const icon = type.value === 'upca' ? 'U' : type.value === 'ean13' ? '13' : type.value === 'ean8' ? '8' : type.value.replace('code', '').toUpperCase();
+    button.innerHTML = `<span class="fly-icon" style="background:${palette[type.value] || '#9fb0ec'}">${icon}</span>${type.label}`;
+    button.onclick = () => { setBarcodeType(type.value); closeFlyout(); };
+    flyout.appendChild(button);
+  });
+  const rect = owner.getBoundingClientRect();
+  const shell = document.querySelector('.window-shell').getBoundingClientRect();
+  flyout.style.left = `${rect.right - shell.left + 7}px`;
+  flyout.style.top = `${rect.top - shell.top}px`;
+  flyout.classList.add('open');
+}
+
+function setBarcodeType(type) {
+  state.bcType = type;
+  const info = state.barcodeTypes.find(item => item.value === type);
+  document.getElementById('bc-type-label').textContent = info ? info.label.split(' ')[0] : type.toUpperCase();
+}
+
+function setDpi(value, button) {
+  document.querySelectorAll('.segmented button').forEach(item => {
+    item.classList.remove('on');
+    delete item.dataset.dpi;
+  });
+  button.classList.add('on');
+  button.dataset.dpi = value;
+  document.getElementById('bc-dpi-custom').style.display = value === 'custom' ? 'block' : 'none';
+}
+
+let searchSelection = 0;
+const searchableFunctions = [
+  { label: '添加 AI 文件', group: '推荐', icon: '＋', shortcut: '⌘1', keywords: '添加 文件 illustrator ai', action: pickFiles },
+  { label: '添加文件夹', group: '推荐', icon: '▣', shortcut: '⌘2', keywords: '添加 文件夹 illustrator ai', action: pickFolder },
+  { label: '导出 PDF', group: 'Illustrator', icon: 'PDF', shortcut: '⌘3', keywords: 'pdf 导出 illustrator', action: () => document.getElementById('btn-pdf').click() },
+  { label: '最小化 PDF', group: 'Illustrator', icon: 'MIN', shortcut: '⌘4', keywords: 'pdf 最小化 illustrator', action: () => document.getElementById('btn-minimal').click() },
+  { label: '文字转曲', group: 'Illustrator', icon: 'Ai', shortcut: '⌘5', keywords: '文字 转曲 outline illustrator', action: () => document.getElementById('btn-outline').click() },
+  { label: 'UPC-A 条码', group: '条码', icon: 'U', shortcut: '⌘6', keywords: 'upca upc 条码 barcode', action: () => selectBarcodeFromSearch('upca') },
+  { label: 'EAN-13 条码', group: '条码', icon: '13', shortcut: '⌘7', keywords: 'ean 13 条码 barcode', action: () => selectBarcodeFromSearch('ean13') },
+  { label: 'EAN-8 条码', group: '条码', icon: '8', shortcut: '⌘8', keywords: 'ean 8 条码 barcode', action: () => selectBarcodeFromSearch('ean8') },
+  { label: 'Code128 条码', group: '条码', icon: '128', shortcut: '⌘9', keywords: 'code128 条码 barcode', action: () => selectBarcodeFromSearch('code128') },
+  { label: '外观与主题', group: '设置', icon: '◐', shortcut: '⌘0', keywords: '外观 主题 颜色 设置', action: () => switchPage('more') },
+];
+
+function selectBarcodeFromSearch(type) {
+  switchPage('bc');
+  setBarcodeType(type);
+}
+
+function searchFn(query) {
+  const results = document.getElementById('search-results');
+  const key = query.trim().toLowerCase();
+  const matches = searchableFunctions.filter(item => !key || `${item.label} ${item.group} ${item.keywords}`.toLowerCase().includes(key));
+  searchSelection = Math.min(searchSelection, Math.max(matches.length - 1, 0));
+  results.innerHTML = '';
+  results._matches = matches;
+  let currentGroup = '';
+  matches.forEach((item, index) => {
+    if (item.group !== currentGroup) {
+      currentGroup = item.group;
+      const label = document.createElement('p');
+      label.className = 'search-group-label';
+      label.textContent = currentGroup;
+      results.appendChild(label);
+    }
+    const button = document.createElement('button');
+    button.className = `search-result${index === searchSelection ? ' selected' : ''}`;
+    button.innerHTML = `<span class="search-icon">${item.icon}</span><span>${item.label}<small>${item.group}</small></span><kbd>${item.shortcut}</kbd>`;
+    button.onmouseenter = () => { searchSelection = index; updateSearchSelection(); };
+    button.onclick = () => runSearchResult(index);
+    results.appendChild(button);
+  });
+  if (!matches.length) results.innerHTML = '<p class="search-empty">没有匹配的功能</p>';
+  results.classList.add('open');
+}
+
+function updateSearchSelection() {
+  document.querySelectorAll('.search-result').forEach((element, index) => element.classList.toggle('selected', index === searchSelection));
+}
+
+function runSearchResult(index) {
+  const results = document.getElementById('search-results');
+  const item = results._matches?.[index];
+  if (!item) return;
+  item.action();
+  results.classList.remove('open');
+  document.getElementById('function-search').value = '';
+}
+
+function handleSearchKey(event) {
+  const results = document.getElementById('search-results');
+  const matches = results._matches || [];
+  if (event.key === 'Escape') { results.classList.remove('open'); event.currentTarget.blur(); return; }
+  if (!matches.length || !['ArrowDown', 'ArrowUp', 'Enter'].includes(event.key)) return;
+  event.preventDefault();
+  if (event.key === 'Enter') { runSearchResult(searchSelection); return; }
+  searchSelection = (searchSelection + (event.key === 'ArrowDown' ? 1 : -1) + matches.length) % matches.length;
+  updateSearchSelection();
+}
+
+document.addEventListener('keydown', event => {
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+    event.preventDefault();
+    const input = document.getElementById('function-search');
+    input.focus();
+    searchFn(input.value);
+  }
+});
+
+function startMochiTimer() {
+  const started = Date.now();
+  const update = () => {
+    const elapsed = Math.floor((Date.now() - started) / 1000);
+    document.getElementById('mochi-timer').textContent = `${String(Math.floor(elapsed / 60)).padStart(2, '0')}:${String(elapsed % 60).padStart(2, '0')}`;
+  };
+  update(); setInterval(update, 1000);
+}
+
+document.addEventListener('click', event => {
+  if (!event.target.closest('.nav-item[data-page="bc"]') && !event.target.closest('.flyout')) closeFlyout();
+  if (!event.target.closest('.search-wrap')) document.getElementById('search-results').classList.remove('open');
+});
 
 // =====================================================================
 // File list
@@ -257,10 +394,14 @@ function stopWorker() {
 }
 
 function setWorkerUI(running) {
-  document.getElementById('btn-pdf').disabled = running;
-  document.getElementById('btn-minimal').disabled = running;
-  document.getElementById('btn-outline').disabled = running;
-  document.getElementById('btn-stop').disabled = !running;
+  const controls = {
+    'btn-pdf': running, 'btn-minimal': running, 'btn-outline': running,
+    'btn-stop': !running,
+  };
+  Object.entries(controls).forEach(([id, disabled]) => {
+    const control = document.getElementById(id);
+    if (control) control.disabled = disabled;
+  });
 }
 
 // =====================================================================
@@ -281,6 +422,7 @@ async function pollMessages() {
 
 function handleMessage(m) {
   const log = document.getElementById('log-inner');
+  document.getElementById('log').style.display = 'block';
   switch (m.type) {
     case 'log':
       log.textContent += m.text + '\n';
@@ -337,71 +479,58 @@ async function loadBarcodeTypes() {
   if (typeof pywebview === 'undefined') { setTimeout(loadBarcodeTypes, 200); return; }
   const raw = await pywebview.api.barcode_types();
   const types = JSON.parse(raw);
-  const sel = document.getElementById('bc-type');
-  types.forEach(t => {
-    const opt = document.createElement('option');
-    opt.value = t.value;
-    opt.textContent = t.label;
-    sel.appendChild(opt);
-  });
-  // Default to UPCA
-  const upcaOpt = sel.querySelector('option[value="upca"]');
-  if (upcaOpt) { upcaOpt.selected = true; state.bcType = 'upca'; }
+  state.barcodeTypes = types;
+  setBarcodeType('upca');
 }
 
 async function genBarcode() {
-  const type = document.getElementById('bc-type').value;
   const code = document.getElementById('bc-code').value.trim();
   const status = document.getElementById('bc-status');
   if (!code) { status.textContent = '请输入条码编码'; return; }
-  state.bcType = type;
+  const type = state.bcType;
   state.bcCode = code;
 
-  const raw = await pywebview.api.generate_barcode(JSON.stringify({ code, type }));
-  const result = JSON.parse(raw);
-  if (result.error) {
-    status.textContent = result.error;
+  const format = {
+    upca: 'UPC', ean13: 'EAN13', ean8: 'EAN8', code128: 'CODE128',
+    code39: 'CODE39', itf: 'ITF', auto: 'CODE128',
+  }[type];
+  try {
+    const container = document.getElementById('bc-svg-container');
+    container.innerHTML = '';
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    container.appendChild(svg);
+    JsBarcode(svg, code, {
+      format,
+      lineColor: '#171820',
+      width: 2,
+      height: 92,
+      displayValue: true,
+      font: 'monospace',
+      fontSize: 16,
+      textMargin: 5,
+      margin: 12,
+    });
+    state.bcSvg = new XMLSerializer().serializeToString(svg);
+    status.textContent = `✓ ${type.toUpperCase()}: ${code}`;
+    document.querySelector('.bc-placeholder').style.display = 'none';
+    container.style.display = 'flex';
+  } catch (error) {
+    state.bcSvg = null;
+    status.textContent = error.message || '条码格式或编码不正确';
     document.getElementById('bc-svg-container').style.display = 'none';
     document.querySelector('.bc-placeholder').style.display = 'block';
-    return;
   }
-  state.bcSvg = result.svg;
-  status.textContent = `✓ ${type.toUpperCase()}: ${code}`;
-  document.querySelector('.bc-placeholder').style.display = 'none';
-
-  // Render SVG — keep native mm dimensions, just scale to fit
-  const container = document.getElementById('bc-svg-container');
-  container.innerHTML = '';
-  // Use insertAdjacentHTML which correctly handles SVG namespace + DOCTYPE
-  container.insertAdjacentHTML('beforeend', result.svg);
-  // CSS handles containment — just clear any inline styles
-  const svgEl = container.querySelector('svg');
-  if (svgEl) {
-    svgEl.removeAttribute('style');
-  }
-  container.style.display = 'flex';
 }
 
 // ---- DPI helpers -----------------------------------------------------
 function getExportDpi() {
-  const dpiSel = document.getElementById('bc-dpi');
-  if (dpiSel.value === 'custom') {
+  const selected = document.querySelector('.segmented button.on')?.dataset.dpi || '300';
+  if (selected === 'custom') {
     const v = parseInt(document.getElementById('bc-dpi-custom').value) || 300;
     return Math.max(72, Math.min(2400, v));
   }
-  return parseInt(dpiSel.value);
+  return parseInt(selected, 10);
 }
-
-// Toggle custom DPI input
-document.addEventListener('DOMContentLoaded', () => {
-  setTimeout(() => {
-    const dpiSel = document.getElementById('bc-dpi');
-    if (dpiSel) dpiSel.addEventListener('change', () => {
-      document.getElementById('bc-dpi-custom').style.display =
-        dpiSel.value === 'custom' ? 'inline-block' : 'none';
-    });
-  }, 500);
-});
 
 // ---- Export functions ------------------------------------------------
 async function exportBarcode(format) {
@@ -422,8 +551,8 @@ async function exportBarcode(format) {
     else status.textContent = `✗ ${r.error || '导出失败'}`;
   } else if (format === 'SVG') {
     status.textContent = '正在导出 SVG...';
-    const raw = await pywebview.api.export_barcode_svg(JSON.stringify({
-      code: cleanCode, type: cleanType,
+    const raw = await pywebview.api.export_generated_svg(JSON.stringify({
+      code: cleanCode, svg: state.bcSvg,
     }));
     const r = JSON.parse(raw);
     if (r.ok) status.textContent = `✓ 已保存到桌面: ${r.filename}`;
@@ -457,17 +586,6 @@ async function openInApp(app) {
   } else {
     status.textContent = `✗ ${r.error || '打开失败'}`;
   }
-}
-
-// =====================================================================
-// More — sidebar panels
-// =====================================================================
-
-function switchMore(panel) {
-  document.querySelectorAll('.more-panel').forEach(p => p.style.display = 'none');
-  document.getElementById(`panel-${panel}`).style.display = 'block';
-  document.querySelectorAll('.sidebar-btn').forEach(b => b.classList.remove('active'));
-  document.querySelector(`.sidebar-btn[data-panel="${panel}"]`).classList.add('active');
 }
 
 // =====================================================================
@@ -698,13 +816,3 @@ function applyAccent() {
 function rgbToHex(r, g, b) {
   return '#' + [r, g, b].map(c => c.toString(16).padStart(2, '0')).join('').toUpperCase();
 }
-
-// Init on settings panel first view
-const _origSwitchMore = switchMore;
-switchMore = function(panel) {
-  _origSwitchMore(panel);
-  if (panel === 'settings') {
-    setTimeout(initColorPicker, 100);
-  }
-};
-

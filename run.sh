@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# 摸鱼工具箱 — macOS 调试启动器
-# 项目主要面向 Windows 用户；AI/PS 联动（pywin32/COM）在 macOS 上不可用，
-# 但 UI、条码生成等功能可用于本地调试。
+# 摸鱼工具箱 — macOS 启动器
+# UI、条码及 Illustrator 自动化可用；首次自动安装 macOS 所需依赖。
 set -euo pipefail
 
 cd "$(dirname "$0")"

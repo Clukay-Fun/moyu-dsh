@@ -48,16 +48,18 @@ def _ensure_icon():
 
 def main():
     _ensure_icon()
+    api = Api()
 
     window = webview.create_window(
         title="摸鱼工具箱",
         url=INDEX,
-        js_api=Api(),
+        js_api=api,
         width=920,
         height=720,
         min_size=(760, 520),
         text_select=False,
     )
+    api.window = window
 
     webview.start(debug=False)
 

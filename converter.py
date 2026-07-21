@@ -9,6 +9,9 @@ import time
 import threading
 import queue
 import traceback
+import json
+import subprocess
+import sys
 
 # COM is imported inside the worker thread (apartment-threading requirement).
 
@@ -128,6 +131,67 @@ def _escape_for_js(s: str) -> str:
     return _JS_ESCAPE_RE.sub(_replacer, s)
 
 
+def _run_macos_javascript(script: str) -> str:
+    """Run ExtendScript in Illustrator through macOS' built-in osascript."""
+    controller = (
+        'const app = Application("Adobe Illustrator");\n'
+        'app.activate();\n'
+        f'const result = app.doJavascript({json.dumps(script)});\n'
+        'if (result !== undefined) console.log(result);\n'
+    )
+    result = subprocess.run(
+        ["osascript", "-l", "JavaScript", "-"],
+        input=controller,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode:
+        detail = (result.stderr or result.stdout).strip()
+        raise RuntimeError(
+            "无法控制 Adobe Illustrator。请确认已安装 Illustrator，并在 macOS"
+            "‘自动化’权限中允许本应用控制它。" + (f" {detail}" if detail else "")
+        )
+    return result.stdout.strip()
+
+
+def _macos_pdf_script(ai_path: str, pdf_path: str, mode: str) -> str:
+    """Build one self-contained JSX job for macOS Illustrator automation."""
+    options = "var _opts = new PDFSaveOptions();"
+    if mode == "minimal250":
+        options = """\
+var _opts = new PDFSaveOptions();
+_opts.preserveEditability = false;
+_opts.optimization = true;
+_opts.generateThumbnails = false;
+_opts.colorCompression = CompressionQuality.JPEGMINIMUM;
+_opts.grayscaleCompression = CompressionQuality.JPEGMINIMUM;
+_opts.compressArt = true;
+_opts.colorDownsamplingMethod = DownsampleMethod.BICUBICDOWNSAMPLE;
+_opts.colorDownsampling = 250;
+_opts.colorDownsamplingImageThreshold = 250;
+_opts.grayscaleDownsamplingMethod = DownsampleMethod.BICUBICDOWNSAMPLE;
+_opts.grayscaleDownsampling = 250;
+_opts.grayscaleDownsamplingImageThreshold = 250;
+_opts.monochromeDownsamplingMethod = DownsampleMethod.BICUBICDOWNSAMPLE;
+_opts.monochromeDownsampling = 250;
+_opts.monochromeDownsamplingImageThreshold = 250;"""
+    return """\
+try {
+    var _doc = app.open(File("%(ai_path)s"));
+    %(options)s
+    _doc.saveAs(new File("%(pdf_path)s"), _opts);
+    _doc.close(SaveOptions.DONOTSAVECHANGES);
+    "OK";
+} catch (_e) {
+    "ERR:" + _e.toString();
+}""" % {
+        "ai_path": _escape_for_js(ai_path.replace("\\", "/")),
+        "pdf_path": _escape_for_js(pdf_path.replace("\\", "/")),
+        "options": options,
+    }
+
+
 # ---------------------------------------------------------------------------
 # JavaScript template: open -> save-as-PDF -> close
 # ---------------------------------------------------------------------------
@@ -219,9 +283,49 @@ class BatchWorker(threading.Thread):
     def _progress(self, current, total, filename):
         self._emit(MSG_PROGRESS, current, total, filename, self.generation)
 
+    def _run_macos(self):
+        """Batch PDF export via AppleScript/JXA on macOS."""
+        success = fail = 0
+        total = len(self.file_list)
+        cancelled = False
+        for idx, filepath in enumerate(self.file_list, 1):
+            if self.cancelled:
+                cancelled = True
+                break
+            filename = os.path.basename(filepath)
+            self._log(f"[{idx}/{total}] {filename}")
+            if not os.path.isfile(filepath):
+                self._emit(MSG_ERROR, filename, "file not found", self.generation)
+                fail += 1
+                self._progress(idx, total, filename)
+                continue
+            base, _ext = os.path.splitext(filename)
+            out_dir = os.path.dirname(filepath) if (self.same_folder or not self.output_dir) else self.output_dir
+            pdf_path = os.path.join(out_dir, base + ".pdf")
+            started = time.time()
+            try:
+                result = _run_macos_javascript(_macos_pdf_script(filepath, pdf_path, self.mode))
+                if result == "OK" and os.path.isfile(pdf_path):
+                    success += 1
+                    self._log(f"  OK ({time.time()-started:.0f}s) -> {pdf_path}")
+                else:
+                    raise RuntimeError(result or "Illustrator did not create a PDF")
+            except Exception as exc:
+                fail += 1
+                self._log(f"  x {exc}")
+                self._emit(MSG_ERROR, filename, str(exc), self.generation)
+            self._progress(idx, total, filename)
+        if cancelled:
+            self._emit(MSG_CANCELLED, self.generation)
+        else:
+            self._emit(MSG_COMPLETE, success, fail, self.generation)
+
     # ---- main -----------------------------------------------------------
 
     def run(self):
+        if sys.platform == "darwin":
+            self._run_macos()
+            return
         try:
             import pythoncom
             import win32com.client
@@ -424,7 +528,51 @@ class OutlineWorker(threading.Thread):
     def _progress(self, current, total, filename):
         self._emit(MSG_PROGRESS, current, total, filename, self.generation)
 
+    def _run_macos(self):
+        """Text-to-outlines via AppleScript/JXA on macOS."""
+        success = fail = 0
+        total = len(self.file_list)
+        cancelled = False
+        for idx, filepath in enumerate(self.file_list, 1):
+            if self.cancelled:
+                cancelled = True
+                break
+            filename = os.path.basename(filepath)
+            self._log(f"[{idx}/{total}] {filename}")
+            if not os.path.isfile(filepath):
+                self._emit(MSG_ERROR, filename, "file not found", self.generation)
+                fail += 1
+                self._progress(idx, total, filename)
+                continue
+            base, ext = os.path.splitext(filename)
+            out_name = base + "-OL" + ext
+            out_path = os.path.join(os.path.dirname(filepath), out_name)
+            script = _OUTLINE_SCRIPT % {
+                "ai_path": _escape_for_js(filepath.replace("\\", "/")),
+                "out_path": _escape_for_js(out_path.replace("\\", "/")),
+            }
+            started = time.time()
+            try:
+                result = _run_macos_javascript(script)
+                if result.startswith("OK:") and os.path.isfile(out_path):
+                    success += 1
+                    self._log(f"  OK ({time.time()-started:.0f}s) -> {out_name}")
+                else:
+                    raise RuntimeError(result or "Illustrator did not create an outlined file")
+            except Exception as exc:
+                fail += 1
+                self._log(f"  x {exc}")
+                self._emit(MSG_ERROR, filename, str(exc), self.generation)
+            self._progress(idx, total, filename)
+        if cancelled:
+            self._emit(MSG_CANCELLED, self.generation)
+        else:
+            self._emit(MSG_COMPLETE, success, fail, self.generation)
+
     def run(self):
+        if sys.platform == "darwin":
+            self._run_macos()
+            return
         try:
             import pythoncom
             import win32com.client

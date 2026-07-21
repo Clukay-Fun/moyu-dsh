@@ -9,6 +9,7 @@ import json
 import queue
 import threading
 import subprocess
+import webview
 
 try:
     import pythoncom
@@ -56,6 +57,7 @@ def _safe_filename(name, fallback="barcode", maxlen=64):
 class Api:
 
     def __init__(self):
+        self.window = None
         self._worker = None
         self._gen = 0
         self._msg_queue = queue.Queue()
@@ -310,6 +312,22 @@ class Api:
         except Exception as e:
             return json.dumps({"error": str(e)})
 
+    def export_generated_svg(self, opts_json):
+        """Save a browser-generated JsBarcode SVG to the Desktop."""
+        opts = json.loads(opts_json)
+        code = opts.get("code", "barcode")
+        svg = opts.get("svg", "")
+        if not svg.lstrip().startswith("<svg"):
+            return json.dumps({"error": "无效的 SVG 数据"})
+        filepath = self.get_desktop_path(_safe_filename(code), ".svg")
+        try:
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write(svg)
+            return json.dumps({"ok": True, "filepath": filepath,
+                               "filename": os.path.basename(filepath)})
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
     def export_barcode_eps(self, opts_json):
         """Export barcode as vector EPS to Desktop via Illustrator COM."""
         opts = json.loads(opts_json)
@@ -481,27 +499,23 @@ class Api:
     # =====================================================================
 
     def pick_folder(self):
-        from tkinter import filedialog
-        import tkinter as tk
-        root = tk.Tk(); root.withdraw()
-        path = filedialog.askdirectory(title="选择输出目录")
-        root.destroy()
-        return path or ""
+        if not self.window:
+            return ""
+        paths = self.window.create_file_dialog(webview.FOLDER_DIALOG)
+        return paths[0] if paths else ""
 
     def pick_files(self):
-        from tkinter import filedialog
-        import tkinter as tk
-        root = tk.Tk(); root.withdraw()
-        paths = filedialog.askopenfilenames(
-            title="选择 AI 文件",
-            filetypes=[("Adobe Illustrator 文件", "*.ai"), ("所有文件", "*.*")])
-        root.destroy()
+        if not self.window:
+            return "[]"
+        paths = self.window.create_file_dialog(
+            webview.OPEN_DIALOG,
+            allow_multiple=True,
+            file_types=("Adobe Illustrator 文件 (*.ai)", "所有文件 (*.*)"),
+        )
         return json.dumps(list(paths)) if paths else "[]"
 
     def pick_folder_files(self):
-        from tkinter import filedialog
-        import tkinter as tk
-        root = tk.Tk(); root.withdraw()
-        path = filedialog.askdirectory(title="选择包含 AI 文件的文件夹")
-        root.destroy()
-        return path or ""
+        if not self.window:
+            return ""
+        paths = self.window.create_file_dialog(webview.FOLDER_DIALOG)
+        return paths[0] if paths else ""
