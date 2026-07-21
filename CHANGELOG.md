@@ -19,6 +19,7 @@
 
 ### Changed
 
+- Windows 源码启动器由 `run.bat` 统一更名为 `启动.bat`。
 - `api.py`：`pythoncom`/`win32com` 改为可选导入（`HAS_WIN32`），非 Windows 平台可正常启动。
 - 「打开文件位置」改为跨平台实现（Windows `explorer` / macOS `open -R` / Linux `xdg-open`），不再固定调用 Windows 命令。
 - EAN/UPC 输入完整长度时会校验末位校验位，错误则拒绝。

@@ -56,7 +56,7 @@
 | `theme.py` | 主题/设置读写（`settings.json`），Windows 下读注册表跟随系统主题。 |
 | `frontend/` | pywebview 前端资源：`index.html` / `app.js` / `style.css`。 |
 | `gui.py` | 早期 tkinter 单窗口界面（遗留实现，非当前主交付；改动前先确认是否仍需维护）。 |
-| `run.bat` / `run.sh` | Windows / macOS 启动器。 |
+| `启动.bat` / `run.sh` | Windows / macOS 启动器。 |
 | `tests/` | 自动化测试或验收脚本（待建）。 |
 
 ## 3. 不可动摇的约定
@@ -132,7 +132,7 @@ pip install -r requirements.txt   # Windows
 开发启动：
 
 ```bash
-python main.py     # 或 Windows 双击 run.bat / macOS 执行 ./run.sh
+python main.py     # 或 Windows 双击 启动.bat / macOS 执行 ./run.sh
 ```
 
 构建（Windows 免安装 EXE）：

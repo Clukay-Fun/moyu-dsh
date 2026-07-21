@@ -26,7 +26,7 @@ macOS（仅用于调试 UI 与条码功能，AI/PS 联动不可用）：
 
 ## 快速开始
 
-Windows 双击 `run.bat` 即可（自动检测 Python、补装依赖并启动）；或手动：
+Windows 双击 `启动.bat` 即可（自动检测 Python、补装依赖并启动）；或手动：
 
 ```bash
 python main.py
