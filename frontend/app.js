@@ -66,11 +66,16 @@ function renderFileList() {
     state.files.forEach((f, i) => {
       const row = document.createElement('div');
       row.className = 'file-row' + (state.selectedIndices.has(i) ? ' selected' : '');
-      row.innerHTML = `
-        <span class="col-num">${i + 1}</span>
-        <span class="col-name">${f.name}</span>
-        <span class="col-size">${f.size}</span>
-        <span class="col-status"></span>`;
+      // 用 textContent 构建，避免文件名含 HTML 造成前端注入
+      const cNum = document.createElement('span');
+      cNum.className = 'col-num'; cNum.textContent = i + 1;
+      const cName = document.createElement('span');
+      cName.className = 'col-name'; cName.textContent = f.name; cName.title = f.name;
+      const cSize = document.createElement('span');
+      cSize.className = 'col-size'; cSize.textContent = f.size;
+      const cStatus = document.createElement('span');
+      cStatus.className = 'col-status';
+      row.append(cNum, cName, cSize, cStatus);
       row.onclick = (e) => selectFile(i, e.ctrlKey || e.metaKey, e.shiftKey);
       row.oncontextmenu = (e) => { e.preventDefault(); showContextMenu(e, i); };
       row.ondblclick = () => removeFile(i);
