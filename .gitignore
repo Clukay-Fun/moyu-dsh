@@ -13,6 +13,7 @@ dist/
 
 # 打包/临时输出
 *.log
+/发布包/
 
 # macOS
 .DS_Store
