@@ -18,8 +18,19 @@ let state = {
   barcodeTypes: [],
 };
 
+const DEFAULT_BARCODE_TYPES = [
+  { label: 'UPCA  —— 通用商品条码', value: 'upca' },
+  { label: 'EAN-13 —— 国际商品条码', value: 'ean13' },
+  { label: 'EAN-8  —— 小包装条码', value: 'ean8' },
+  { label: 'Code128—— 物流仓储', value: 'code128' },
+  { label: 'Code39 —— 工业标识', value: 'code39' },
+  { label: 'ITF    —— 外箱条码', value: 'itf' },
+  { label: 'Auto   —— 自动识别 UPC/EAN', value: 'auto' },
+];
+
 // ---- init ------------------------------------------------------------
 document.addEventListener('DOMContentLoaded', () => {
+  state.barcodeTypes = DEFAULT_BARCODE_TYPES;
   loadFileList();
   loadBarcodeTypes();
   loadTheme();
@@ -477,10 +488,14 @@ function handleMessage(m) {
 
 async function loadBarcodeTypes() {
   if (typeof pywebview === 'undefined') { setTimeout(loadBarcodeTypes, 200); return; }
-  const raw = await pywebview.api.barcode_types();
-  const types = JSON.parse(raw);
-  state.barcodeTypes = types;
-  setBarcodeType('upca');
+  try {
+    const raw = await pywebview.api.barcode_types();
+    const types = JSON.parse(raw);
+    if (Array.isArray(types) && types.length) state.barcodeTypes = types;
+  } catch (error) {
+    console.warn('Barcode type bridge unavailable; using built-in types.', error);
+  }
+  setBarcodeType(state.bcType);
 }
 
 async function genBarcode() {

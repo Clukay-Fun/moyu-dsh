@@ -19,7 +19,7 @@ if not defined PYTHON (
 )
 
 echo [INFO] Using %PYTHON%
-%PYTHON% -m pip install --disable-pip-version-check pywin32 python-barcode pywebview
+%PYTHON% -m pip install --disable-pip-version-check -r requirements.txt
 if errorlevel 1 (
     echo [ERROR] Dependency installation failed.
     pause

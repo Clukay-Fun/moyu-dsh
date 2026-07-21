@@ -15,7 +15,7 @@ if not defined PYTHON (
   exit /b 1
 )
 
-%PYTHON% -m pip install --disable-pip-version-check pyinstaller pywin32 python-barcode pywebview
+%PYTHON% -m pip install --disable-pip-version-check -r requirements.txt pyinstaller
 %PYTHON% -m PyInstaller --noconfirm --clean --onefile --noconsole ^
   --name "MoyuToolbox" ^
   --icon icon.ico ^
