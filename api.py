@@ -498,16 +498,31 @@ class Api:
     # Dialogs
     # =====================================================================
 
-    def pick_folder(self):
+    def _create_file_dialog(self, dialog_type, **kwargs):
+        """在 Windows UI 线程中打开 pywebview 原生文件对话框。
+
+        pywebview 的 js_api 方法运行在工作线程；WinForms 对话框若直接从该
+        线程调用会静默失败并返回 None。macOS 仍可直接使用 pywebview 的窗口 API。
+        """
         if not self.window:
-            return ""
-        paths = self.window.create_file_dialog(webview.FOLDER_DIALOG)
+            return None
+
+        def open_dialog():
+            return self.window.create_file_dialog(dialog_type, **kwargs)
+
+        if sys.platform.startswith("win"):
+            import webview.platforms.winforms as winforms
+            form = winforms.BrowserView.instances.get(self.window.uid)
+            if form and form.InvokeRequired:
+                return form.Invoke(winforms.Func[winforms.Object](open_dialog))
+        return open_dialog()
+
+    def pick_folder(self):
+        paths = self._create_file_dialog(webview.FOLDER_DIALOG)
         return paths[0] if paths else ""
 
     def pick_files(self):
-        if not self.window:
-            return "[]"
-        paths = self.window.create_file_dialog(
+        paths = self._create_file_dialog(
             webview.OPEN_DIALOG,
             allow_multiple=True,
             file_types=("Adobe Illustrator 文件 (*.ai)", "所有文件 (*.*)"),
@@ -515,7 +530,5 @@ class Api:
         return json.dumps(list(paths)) if paths else "[]"
 
     def pick_folder_files(self):
-        if not self.window:
-            return ""
-        paths = self.window.create_file_dialog(webview.FOLDER_DIALOG)
+        paths = self._create_file_dialog(webview.FOLDER_DIALOG)
         return paths[0] if paths else ""

@@ -332,21 +332,29 @@ async function handleDrop(e) {
 
 // ---- toolbar actions -------------------------------------------------
 async function pickFiles() {
-  const raw = await pywebview.api.pick_files();
-  const paths = JSON.parse(raw);
-  if (paths.length > 0) {
-    const result = await pywebview.api.add_paths(JSON.stringify(paths));
-    state.files = JSON.parse(result);
-    renderFileList();
+  try {
+    const raw = await pywebview.api.pick_files();
+    const paths = JSON.parse(raw);
+    if (paths.length > 0) {
+      const result = await pywebview.api.add_paths(JSON.stringify(paths));
+      state.files = JSON.parse(result);
+      renderFileList();
+    }
+  } catch (error) {
+    alert(`无法打开文件选择窗口：${error.message || error}`);
   }
 }
 
 async function pickFolder() {
-  const folder = await pywebview.api.pick_folder_files();
-  if (folder) {
-    const result = await pywebview.api.add_paths(JSON.stringify([folder]));
-    state.files = JSON.parse(result);
-    renderFileList();
+  try {
+    const folder = await pywebview.api.pick_folder_files();
+    if (folder) {
+      const result = await pywebview.api.add_paths(JSON.stringify([folder]));
+      state.files = JSON.parse(result);
+      renderFileList();
+    }
+  } catch (error) {
+    alert(`无法打开文件夹选择窗口：${error.message || error}`);
   }
 }
 
