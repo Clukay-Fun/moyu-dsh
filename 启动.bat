@@ -1,45 +1,32 @@
 @echo off
 chcp 65001 >nul
-title 摸鱼工具箱
+setlocal
+title Moyu Toolbox
 
 cd /d "%~dp0"
+set "PYTHON="
 
-:: Try to find a working Python
-set PYTHON=
-
-set "CODEX_PY=%USERPROFILE%\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
-if exist "%CODEX_PY%" (
-    set PYTHON=%CODEX_PY%
-    goto :found_python
+where python >nul 2>&1 && set "PYTHON=python"
+if not defined PYTHON (
+    where py >nul 2>&1 && set "PYTHON=py -3"
 )
 
-python --version >nul 2>&1
-if %errorlevel% equ 0 (
-    set PYTHON=python
-    goto :found_python
+if not defined PYTHON (
+    echo [ERROR] Python 3 was not found.
+    echo Install Python from https://www.python.org/downloads/ and run this file again.
+    pause
+    exit /b 1
 )
 
-py --version >nul 2>&1
-if %errorlevel% equ 0 (
-    set PYTHON=py
-    goto :found_python
+echo [INFO] Using %PYTHON%
+%PYTHON% -m pip install --disable-pip-version-check pywin32 python-barcode pywebview
+if errorlevel 1 (
+    echo [ERROR] Dependency installation failed.
+    pause
+    exit /b 1
 )
 
-echo [错误] 未找到可用的 Python
-pause
-exit /b 1
-
-:found_python
-echo [信息] 使用 Python: %PYTHON%
-%PYTHON% --version
-
-:: Install missing packages
-%PYTHON% -c "import win32com" >nul 2>&1 || %PYTHON% -m pip install pywin32
-%PYTHON% -c "import barcode" >nul 2>&1 || %PYTHON% -m pip install python-barcode
-%PYTHON% -c "import webview" >nul 2>&1 || %PYTHON% -m pip install pywebview
-
-:: Launch
-echo [信息] 启动 包装设计工具箱 ...
+echo [INFO] Starting Moyu Toolbox...
 %PYTHON% main.py
-
+if errorlevel 1 echo [ERROR] Application exited with an error.
 pause
