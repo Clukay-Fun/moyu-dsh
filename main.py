@@ -59,7 +59,7 @@ def main():
         min_size=(760, 520),
         text_select=False,
     )
-    api.window = window
+    api._window = window
 
     webview.start(debug=False)
 

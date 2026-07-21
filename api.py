@@ -57,7 +57,9 @@ def _safe_filename(name, fallback="barcode", maxlen=64):
 class Api:
 
     def __init__(self):
-        self.window = None
+        # pywebview 会递归公开 js_api 的非私有属性；窗口对象必须私有，
+        # 否则会扫描其原生控件树并导致 API 注入递归失败。
+        self._window = None
         self._worker = None
         self._gen = 0
         self._msg_queue = queue.Queue()
@@ -504,15 +506,15 @@ class Api:
         pywebview 的 js_api 方法运行在工作线程；WinForms 对话框若直接从该
         线程调用会静默失败并返回 None。macOS 仍可直接使用 pywebview 的窗口 API。
         """
-        if not self.window:
+        if not self._window:
             return None
 
         def open_dialog():
-            return self.window.create_file_dialog(dialog_type, **kwargs)
+            return self._window.create_file_dialog(dialog_type, **kwargs)
 
         if sys.platform.startswith("win"):
             import webview.platforms.winforms as winforms
-            form = winforms.BrowserView.instances.get(self.window.uid)
+            form = winforms.BrowserView.instances.get(self._window.uid)
             if form and form.InvokeRequired:
                 return form.Invoke(winforms.Func[winforms.Object](open_dialog))
         return open_dialog()
