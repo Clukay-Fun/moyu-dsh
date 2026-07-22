@@ -43,6 +43,10 @@ class TestEncodingSucceeds(unittest.TestCase):
         self.assertIn("<svg", ok("6789-3067", "code39"))
         self.assertIn("<svg", ok("NNP", "code39"))
 
+    def test_qrcode(self):
+        self.assertIn("<svg", ok("https://example.com/product/123", "qrcode"))
+        self.assertIn("<svg", ok("包装条码 QR 测试", "qrcode"))
+
 
 class TestCode128TableCorrect(unittest.TestCase):
     def test_start_stop_symbols_match_standard(self):
@@ -80,6 +84,10 @@ class TestInputValidation(unittest.TestCase):
         for code, t in [("123", "upca"), ("123", "ean13"), ("123", "ean8")]:
             with self.assertRaises(ValueError):
                 ok(code, t)
+
+    def test_qrcode_rejects_empty_input(self):
+        with self.assertRaises(ValueError):
+            ok("", "qrcode")
 
 
 class TestSafeFilename(unittest.TestCase):

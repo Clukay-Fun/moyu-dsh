@@ -220,7 +220,8 @@ class Api:
                  ("Code128—— 物流仓储", "code128"),
                  ("Code39 —— 工业标识", "code39"),
                  ("ITF    —— 外箱条码", "itf"),
-                 ("Auto   —— 自动识别 UPC/EAN", "auto")]
+                 ("Auto   —— 自动识别 UPC/EAN", "auto"),
+                 ("QR     —— 二维码", "qrcode")]
         return json.dumps([{"label": n, "value": v} for n, v in types])
 
     def generate_barcode(self, opts_json):
@@ -237,6 +238,20 @@ class Api:
 
     def _barcode_to_raster(self, code, bc_type, dpi, fmt):
         """Render barcode to raster bytes at given DPI using ImageWriter."""
+        if bc_type == "qrcode":
+            import segno
+            from PIL import Image
+
+            png = io.BytesIO()
+            segno.make(code).save(png, kind="png", scale=max(1, round(dpi / 72)), border=4)
+            if fmt == "PNG":
+                return png.getvalue()
+            png.seek(0)
+            image = Image.open(png)
+            output = io.BytesIO()
+            image.save(output, format="BMP" if fmt == "BMP" else "TIFF", dpi=(dpi, dpi))
+            return output.getvalue()
+
         import barcode
         from barcode.writer import ImageWriter
 
@@ -307,22 +322,6 @@ class Api:
         filepath = self.get_desktop_path(code, ".svg")
         try:
             svg = generate_svg(code, bc_type)
-            with open(filepath, "w", encoding="utf-8") as f:
-                f.write(svg)
-            return json.dumps({"ok": True, "filepath": filepath,
-                               "filename": os.path.basename(filepath)})
-        except Exception as e:
-            return json.dumps({"error": str(e)})
-
-    def export_generated_svg(self, opts_json):
-        """Save a browser-generated JsBarcode SVG to the Desktop."""
-        opts = json.loads(opts_json)
-        code = opts.get("code", "barcode")
-        svg = opts.get("svg", "")
-        if not svg.lstrip().startswith("<svg"):
-            return json.dumps({"error": "无效的 SVG 数据"})
-        filepath = self.get_desktop_path(_safe_filename(code), ".svg")
-        try:
             with open(filepath, "w", encoding="utf-8") as f:
                 f.write(svg)
             return json.dumps({"ok": True, "filepath": filepath,

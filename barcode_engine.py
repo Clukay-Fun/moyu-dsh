@@ -4,6 +4,7 @@ A4 297×210 mm canvas, barcode centred.
 Text BELOW bars (not above). Clean guard-bar hierarchy.
 """
 
+import io
 import re, os as _os
 
 # =========================================================================
@@ -369,11 +370,22 @@ def encode_auto(code):
     elif len(code) in (7,8): return encode_ean8(code)
     raise ValueError(f"Cannot auto-detect type for {len(code)} digits")
 
+def encode_qrcode(text):
+    if not text:
+        raise ValueError("二维码输入不能为空")
+    try:
+        import segno
+    except ImportError as exc:
+        raise RuntimeError("缺少 segno 依赖，请运行 pip install -r requirements.txt") from exc
+    output = io.BytesIO()
+    segno.make(text).save(output, kind="svg", scale=5, border=4, xmldecl=True)
+    return output.getvalue().decode("utf-8")
+
 SUPPORTED_TYPES = {
     "upca":("UPCA",encode_upca),"ean13":("EAN-13",encode_ean13),
     "ean8":("EAN-8",encode_ean8),"code128":("Code128",encode_code128),
     "code39":("Code39",encode_code39),"itf":("ITF",encode_itf),
-    "auto":("Auto",encode_auto),
+    "auto":("Auto",encode_auto),"qrcode":("QR",encode_qrcode),
 }
 
 def generate_svg(code, bc_type):

@@ -1,3 +1,4 @@
 pywin32>=305
 python-barcode>=0.15
 pywebview==5.4
+segno>=1.6

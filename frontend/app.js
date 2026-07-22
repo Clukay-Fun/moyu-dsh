@@ -26,6 +26,7 @@ const DEFAULT_BARCODE_TYPES = [
   { label: 'Code39 —— 工业标识', value: 'code39' },
   { label: 'ITF    —— 外箱条码', value: 'itf' },
   { label: 'Auto   —— 自动识别 UPC/EAN', value: 'auto' },
+  { label: 'QR     —— 二维码', value: 'qrcode' },
 ];
 
 // ---- init ------------------------------------------------------------
@@ -61,11 +62,11 @@ function closeFlyout() { flyout.classList.remove('open'); }
 
 function showBarcodeTypes(owner) {
   switchPage('bc', owner);
-  const palette = { upca: '#e0554e', ean13: '#e08a3c', ean8: '#8fceb8', code128: '#9fb0ec', code39: '#8a7cd0', itf: '#5ca2a8', auto: '#6d7287' };
+  const palette = { upca: '#e0554e', ean13: '#e08a3c', ean8: '#8fceb8', code128: '#9fb0ec', code39: '#8a7cd0', itf: '#5ca2a8', auto: '#6d7287', qrcode: '#6578dd' };
   flyout.innerHTML = '<div class="flyout-label">条码类型</div>';
   state.barcodeTypes.forEach(type => {
     const button = document.createElement('button');
-    const icon = type.value === 'upca' ? 'U' : type.value === 'ean13' ? '13' : type.value === 'ean8' ? '8' : type.value.replace('code', '').toUpperCase();
+    const icon = type.value === 'upca' ? 'U' : type.value === 'ean13' ? '13' : type.value === 'ean8' ? '8' : type.value === 'qrcode' ? 'QR' : type.value.replace('code', '').toUpperCase();
     button.innerHTML = `<span class="fly-icon" style="background:${palette[type.value] || '#9fb0ec'}">${icon}</span>${type.label}`;
     button.onclick = () => { setBarcodeType(type.value); closeFlyout(); };
     flyout.appendChild(button);
@@ -513,27 +514,13 @@ async function genBarcode() {
   const type = state.bcType;
   state.bcCode = code;
 
-  const format = {
-    upca: 'UPC', ean13: 'EAN13', ean8: 'EAN8', code128: 'CODE128',
-    code39: 'CODE39', itf: 'ITF', auto: 'CODE128',
-  }[type];
   try {
+    const raw = await pywebview.api.generate_barcode(JSON.stringify({ code, type }));
+    const result = JSON.parse(raw);
+    if (result.error) throw new Error(result.error);
     const container = document.getElementById('bc-svg-container');
-    container.innerHTML = '';
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    container.appendChild(svg);
-    JsBarcode(svg, code, {
-      format,
-      lineColor: '#171820',
-      width: 2,
-      height: 92,
-      displayValue: true,
-      font: 'monospace',
-      fontSize: 16,
-      textMargin: 5,
-      margin: 12,
-    });
-    state.bcSvg = new XMLSerializer().serializeToString(svg);
+    state.bcSvg = result.svg;
+    container.innerHTML = result.svg;
     status.textContent = `✓ ${type.toUpperCase()}: ${code}`;
     document.querySelector('.bc-placeholder').style.display = 'none';
     container.style.display = 'flex';
@@ -561,21 +548,21 @@ async function exportBarcode(format) {
   if (!state.bcCode) { alert('请输入条码编码'); return; }
 
   const status = document.getElementById('bc-status');
-  const cleanCode = state.bcCode.replace(/[^a-zA-Z0-9]/g, '');
-  const cleanType = state.bcType;
+  const code = state.bcCode;
+  const type = state.bcType;
 
   if (format === 'EPS') {
     status.textContent = '正在导出 EPS...';
     const raw = await pywebview.api.export_barcode_eps(JSON.stringify({
-      code: cleanCode, type: cleanType,
+      code, type,
     }));
     const r = JSON.parse(raw);
     if (r.ok) status.textContent = `✓ 已保存到桌面: ${r.filename}`;
     else status.textContent = `✗ ${r.error || '导出失败'}`;
   } else if (format === 'SVG') {
     status.textContent = '正在导出 SVG...';
-    const raw = await pywebview.api.export_generated_svg(JSON.stringify({
-      code: cleanCode, svg: state.bcSvg,
+    const raw = await pywebview.api.export_barcode_svg(JSON.stringify({
+      code, type,
     }));
     const r = JSON.parse(raw);
     if (r.ok) status.textContent = `✓ 已保存到桌面: ${r.filename}`;
@@ -584,7 +571,7 @@ async function exportBarcode(format) {
     const dpi = getExportDpi();
     status.textContent = `正在导出 ${format} ${dpi}DPI...`;
     const raw = await pywebview.api.export_barcode_raster(JSON.stringify({
-      code: cleanCode, type: cleanType, format, dpi,
+      code, type, format, dpi,
     }));
     const r = JSON.parse(raw);
     if (r.ok) status.textContent = `✓ 已保存到桌面: ${r.filename} (${dpi}DPI)`;
