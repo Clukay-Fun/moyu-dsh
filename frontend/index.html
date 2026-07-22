@@ -35,26 +35,17 @@
       <div class="pages">
         <section id="page-ai" class="page active">
           <div class="page-heading"><span>Illustrator</span> › <b id="ai-action-label">批量处理</b></div>
-          <div class="ai-toolbar">
-            <button class="glass-button" onclick="pickFiles()">＋ 添加文件</button>
-            <button class="glass-button" onclick="pickFolder()">＋ 文件夹</button>
-            <button class="glass-button" onclick="clearAll()">清空</button>
-            <span class="toolbar-hint">或将 .ai 文件 / 文件夹拖放到下方列表</span>
+          <div class="ai-command-bar glass-card">
+            <div class="ai-file-actions"><button class="glass-button" onclick="pickFiles()">＋ 添加文件</button><button class="glass-button" onclick="pickFolder()">＋ 文件夹</button><button class="glass-button" onclick="clearAll()">清空</button></div>
+            <label class="switch-label"><input type="checkbox" id="same-folder" checked onchange="toggleOutputDir()"><span>与原文件同目录</span></label>
+            <div class="output-dir" id="output-dir-row" style="display:none"><span>输出目录</span><input type="text" id="output-dir" class="input" placeholder="选择输出目录…" readonly><button class="glass-button small" onclick="pickOutputDir()">浏览</button></div>
+            <span class="ai-command-spacer"></span>
+            <button class="primary-button" id="btn-pdf" onclick="startPdfExport('default')">导出 PDF</button><button class="glass-button" id="btn-minimal" onclick="startPdfExport('minimal250')">最小化 PDF</button><button class="glass-button" id="btn-outline" onclick="startOutline()">文字转曲</button><button class="glass-button danger-button" id="btn-stop" onclick="stopWorker()" disabled>停止任务</button>
           </div>
           <div class="file-list glass-card" id="file-list-container" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)">
             <div class="file-list-header"><span class="col-num">#</span><span class="col-name">文件名</span><span class="col-size">大小</span><span class="col-status">状态</span></div>
             <div class="file-list-body" id="file-list-body"><div class="file-list-empty" id="file-list-empty"><div>📥</div><p>将 .ai 文件或文件夹拖放到此处</p></div></div>
             <div class="file-list-footer" id="file-list-footer" style="display:none"><span id="file-count">0 个文件</span></div>
-          </div>
-          <div class="output-row glass-card">
-            <label class="switch-label"><input type="checkbox" id="same-folder" checked onchange="toggleOutputDir()"><span>与原文件同目录输出</span></label>
-            <div class="output-dir" id="output-dir-row" style="display:none"><span>输出目录</span><input type="text" id="output-dir" class="input" placeholder="选择输出目录…" readonly><button class="glass-button small" onclick="pickOutputDir()">浏览</button></div>
-          </div>
-          <div class="ai-actions glass-card">
-            <button class="primary-button" id="btn-pdf" onclick="startPdfExport('default')">导出 PDF</button>
-            <button class="glass-button" id="btn-minimal" onclick="startPdfExport('minimal250')">最小化 PDF</button>
-            <button class="glass-button" id="btn-outline" onclick="startOutline()">文字转曲</button>
-            <button class="glass-button danger-button" id="btn-stop" onclick="stopWorker()" disabled>停止任务</button>
           </div>
           <div class="progress-row glass-card" id="progress-row" style="display:none"><div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div><span class="progress-text" id="progress-text">0 / 0</span></div>
           <div class="log glass-card" id="log" style="display:none"><div class="log-inner" id="log-inner"></div></div>

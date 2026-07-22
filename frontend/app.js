@@ -53,6 +53,7 @@ function switchPage(name, button) {
   document.getElementById(`page-${name}`).classList.add('active');
   document.querySelectorAll('.nav-item[data-page]').forEach(b => b.classList.remove('active'));
   (button || document.querySelector(`.nav-item[data-page="${name}"]`))?.classList.add('active');
+  if (name !== 'bc') closeSecondaryMenu();
   if (name === 'more') setTimeout(initColorPicker, 0);
   if (name === 'image') setTimeout(initImageCanvas, 0);
 }
@@ -120,25 +121,28 @@ async function runOfficeToPdf() {
 // =====================================================================
 
 const flyout = document.getElementById('flyout');
+const secondaryMenu = document.getElementById('secondary-menu');
 
 function closeFlyout() { flyout.classList.remove('open'); }
+function closeSecondaryMenu() { secondaryMenu.classList.remove('open'); secondaryMenu.innerHTML = ''; }
+
+function renderBarcodeTypes() {
+  const palette = { upca: '#e0554e', ean13: '#e08a3c', ean8: '#8fceb8', code128: '#9fb0ec', code39: '#8a7cd0', itf: '#5ca2a8', auto: '#6d7287', qrcode: '#6578dd' };
+  secondaryMenu.innerHTML = '<p class="secondary-label">条码类型</p>';
+  state.barcodeTypes.forEach(type => {
+    const button = document.createElement('button');
+    button.className = `secondary-item${state.bcType === type.value ? ' active' : ''}`;
+    const icon = type.value === 'upca' ? 'U' : type.value === 'ean13' ? '13' : type.value === 'ean8' ? '8' : type.value === 'qrcode' ? 'QR' : type.value.replace('code', '').toUpperCase();
+    button.innerHTML = `<span class="secondary-icon" style="background:${palette[type.value] || '#9fb0ec'}">${icon}</span><span>${type.label}</span>`;
+    button.onclick = () => { setBarcodeType(type.value); renderBarcodeTypes(); };
+    secondaryMenu.appendChild(button);
+  });
+  secondaryMenu.classList.add('open');
+}
 
 function showBarcodeTypes(owner) {
   switchPage('bc', owner);
-  const palette = { upca: '#e0554e', ean13: '#e08a3c', ean8: '#8fceb8', code128: '#9fb0ec', code39: '#8a7cd0', itf: '#5ca2a8', auto: '#6d7287', qrcode: '#6578dd' };
-  flyout.innerHTML = '<div class="flyout-label">条码类型</div>';
-  state.barcodeTypes.forEach(type => {
-    const button = document.createElement('button');
-    const icon = type.value === 'upca' ? 'U' : type.value === 'ean13' ? '13' : type.value === 'ean8' ? '8' : type.value === 'qrcode' ? 'QR' : type.value.replace('code', '').toUpperCase();
-    button.innerHTML = `<span class="fly-icon" style="background:${palette[type.value] || '#9fb0ec'}">${icon}</span>${type.label}`;
-    button.onclick = () => { setBarcodeType(type.value); closeFlyout(); };
-    flyout.appendChild(button);
-  });
-  const rect = owner.getBoundingClientRect();
-  const shell = document.querySelector('.window-shell').getBoundingClientRect();
-  flyout.style.left = `${rect.right - shell.left + 7}px`;
-  flyout.style.top = `${rect.top - shell.top}px`;
-  flyout.classList.add('open');
+  renderBarcodeTypes();
 }
 
 function setBarcodeType(type) {
@@ -177,6 +181,7 @@ const searchableFunctions = [
 function selectBarcodeFromSearch(type) {
   switchPage('bc');
   setBarcodeType(type);
+  renderBarcodeTypes();
 }
 
 function searchFn(query) {
