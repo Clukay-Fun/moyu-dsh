@@ -656,6 +656,7 @@ async function loadBarcodeTypes() {
     console.warn('Barcode type bridge unavailable; using built-in types.', error);
   }
   setBarcodeType(state.bcType);
+  if (state.page === 'bc' && secondaryMenu.classList.contains('open')) renderBarcodeTypes();
 }
 
 async function genBarcode() {
