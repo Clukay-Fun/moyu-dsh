@@ -6,6 +6,7 @@ import os
 import sys
 import io
 import json
+import base64
 import queue
 import threading
 import subprocess
@@ -27,6 +28,10 @@ from converter import (
     MSG_PROGRESS, MSG_LOG, MSG_ERROR, MSG_COMPLETE, MSG_CANCELLED, MSG_ABORTED,
 )
 from barcode_engine import generate_svg, SUPPORTED_TYPES
+from pdf_engine import (
+    extract_pdf_pages, extract_pdf_text, images_to_pdf, merge_pdfs, pdf_to_docx,
+    pdf_to_pptx, pdf_to_xlsx, render_pdf_pages, rotate_pdf, split_pdf,
+)
 from theme import load_settings, save_settings, resolve_theme, THEME_LIGHT, THEME_DARK, THEME_SYSTEM
 
 import re as _re
@@ -52,6 +57,23 @@ def _safe_filename(name, fallback="barcode", maxlen=64):
     """
     safe = _re.sub(r"[^A-Za-z0-9_-]", "_", str(name)).strip("_-")
     return safe[:maxlen] or fallback
+
+
+def _parse_page_numbers(value):
+    """Parse a human-friendly page list such as ``1,3-5`` into page numbers."""
+    pages = []
+    for part in str(value).split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part:
+            start, end = (int(number.strip()) for number in part.split("-", 1))
+            if start > end:
+                raise ValueError("页码范围必须从小到大")
+            pages.extend(range(start, end + 1))
+        else:
+            pages.append(int(part))
+    return sorted(set(pages))
 
 
 class Api:
@@ -377,6 +399,7 @@ class Api:
     def get_desktop_path(self, code, ext):
         """Build a save path on the Desktop: ~/Desktop/{code}.{ext}"""
         desktop = os.path.expanduser("~/Desktop")
+        os.makedirs(desktop, exist_ok=True)
         base = os.path.join(desktop, _safe_filename(code))
         path = base + ext
         # If file exists, append (1), (2), ...
@@ -530,6 +553,181 @@ class Api:
         )
         return json.dumps(list(paths)) if paths else "[]"
 
+    def pick_image_file(self):
+        paths = self._create_file_dialog(
+            webview.OPEN_DIALOG,
+            file_types=("图片文件 (*.png;*.jpg;*.jpeg;*.webp;*.bmp;*.tif;*.tiff;*.ico;*.tga)",),
+        )
+        return paths[0] if paths else ""
+
+    def pick_image_files(self):
+        paths = self._create_file_dialog(
+            webview.OPEN_DIALOG, allow_multiple=True,
+            file_types=("图片文件 (*.png;*.jpg;*.jpeg;*.webp;*.bmp;*.tif;*.tiff;*.ico;*.tga)",),
+        )
+        return json.dumps(list(paths)) if paths else "[]"
+
+    def pick_pdf_files(self):
+        paths = self._create_file_dialog(
+            webview.OPEN_DIALOG, allow_multiple=True,
+            file_types=("PDF 文件 (*.pdf)",),
+        )
+        return json.dumps(list(paths)) if paths else "[]"
+
+    def pick_office_file(self):
+        paths = self._create_file_dialog(
+            webview.OPEN_DIALOG,
+            file_types=("Office 文件 (*.doc;*.docx;*.xls;*.xlsx;*.ppt;*.pptx)",),
+        )
+        return paths[0] if paths else ""
+
     def pick_folder_files(self):
         paths = self._create_file_dialog(webview.FOLDER_DIALOG)
         return paths[0] if paths else ""
+
+    # =====================================================================
+    # Images
+    # =====================================================================
+
+    def export_image(self, opts_json):
+        """Save a Fabric canvas image through Pillow in one of the supported formats."""
+        opts = json.loads(opts_json)
+        data_url = opts.get("dataUrl", "")
+        fmt = opts.get("format", "PNG").upper()
+        quality = max(1, min(100, int(opts.get("quality", 92))))
+        target_width = max(0, int(opts.get("width", 0) or 0))
+        target_height = max(0, int(opts.get("height", 0) or 0))
+        source_name = opts.get("sourceName", "image")
+        formats = {"PNG": ("PNG", ".png"), "JPG": ("JPEG", ".jpg"), "WEBP": ("WEBP", ".webp"),
+                   "BMP": ("BMP", ".bmp"), "TIFF": ("TIFF", ".tiff"), "ICO": ("ICO", ".ico"), "TGA": ("TGA", ".tga")}
+        if fmt not in formats or "," not in data_url:
+            return json.dumps({"error": "无效的图片导出参数"})
+        try:
+            from PIL import Image, ImageOps
+            raw = base64.b64decode(data_url.split(",", 1)[1])
+            image = ImageOps.exif_transpose(Image.open(io.BytesIO(raw)))
+            if target_width and target_height and image.size != (target_width, target_height):
+                image = image.resize((target_width, target_height), Image.Resampling.LANCZOS)
+            pil_format, extension = formats[fmt]
+            if pil_format == "JPEG" and image.mode in ("RGBA", "LA", "P"):
+                background = Image.new("RGB", image.size, "white")
+                background.paste(image.convert("RGBA"), mask=image.convert("RGBA").getchannel("A"))
+                image = background
+            elif pil_format == "JPEG" and image.mode != "RGB":
+                image = image.convert("RGB")
+            filepath = self.get_desktop_path(os.path.splitext(source_name)[0], extension)
+            save_opts = {"quality": quality} if pil_format in ("JPEG", "WEBP") else {}
+            image.save(filepath, format=pil_format, **save_opts)
+            return json.dumps({"ok": True, "filepath": filepath, "filename": os.path.basename(filepath)})
+        except Exception as exc:
+            return json.dumps({"error": str(exc)})
+
+    # =====================================================================
+    # PDF
+    # =====================================================================
+
+    def run_pdf_action(self, opts_json):
+        """Run one pure-Python PDF action and return the generated filenames."""
+        opts = json.loads(opts_json)
+        action = opts.get("action", "")
+        sources = [os.path.normpath(path) for path in opts.get("sources", []) if os.path.isfile(path)]
+        if not sources:
+            return json.dumps({"error": "请先选择有效文件"})
+        try:
+            source = sources[0]
+            stem = _safe_filename(os.path.splitext(os.path.basename(source))[0], "document")
+            desktop = os.path.expanduser("~/Desktop")
+            os.makedirs(desktop, exist_ok=True)
+            outputs = []
+            if action in ("pdf_png", "pdf_jpeg"):
+                outputs = render_pdf_pages(source, desktop, "PNG" if action == "pdf_png" else "JPEG")
+            elif action == "pdf_txt":
+                destination = self.get_desktop_path(stem, ".txt")
+                extract_pdf_text(source, destination)
+                outputs = [destination]
+            elif action == "merge":
+                destination = self.get_desktop_path("merged", ".pdf")
+                merge_pdfs(sources, destination)
+                outputs = [destination]
+            elif action == "split":
+                outputs = split_pdf(source, desktop)
+            elif action == "rotate":
+                destination = self.get_desktop_path(stem + "-rotated", ".pdf")
+                rotate_pdf(source, destination, int(opts.get("degrees", 90)))
+                outputs = [destination]
+            elif action == "extract_pages":
+                pages = _parse_page_numbers(opts.get("pages", ""))
+                if not pages:
+                    raise ValueError("请输入页码，例如 1,3-5")
+                destination = self.get_desktop_path(stem + "-pages", ".pdf")
+                extract_pdf_pages(source, destination, pages)
+                outputs = [destination]
+            elif action == "images_to_pdf":
+                destination = self.get_desktop_path("images", ".pdf")
+                images_to_pdf(sources, destination)
+                outputs = [destination]
+            elif action == "pdf_docx":
+                destination = self.get_desktop_path(stem, ".docx")
+                pdf_to_docx(source, destination)
+                outputs = [destination]
+            elif action == "pdf_xlsx":
+                destination = self.get_desktop_path(stem, ".xlsx")
+                pdf_to_xlsx(source, destination)
+                outputs = [destination]
+            elif action == "pdf_pptx":
+                destination = self.get_desktop_path(stem, ".pptx")
+                pdf_to_pptx(source, destination)
+                outputs = [destination]
+            else:
+                raise ValueError("不支持的 PDF 操作")
+            return json.dumps({"ok": True, "files": outputs, "filenames": [os.path.basename(path) for path in outputs]})
+        except Exception as exc:
+            return json.dumps({"error": str(exc)})
+
+    def office_to_pdf(self, source_path):
+        """Convert a Word, Excel or PowerPoint file through installed Microsoft Office."""
+        if not HAS_WIN32 or not sys.platform.startswith("win"):
+            return json.dumps({"error": "Office 转 PDF 需要 Windows + Microsoft Office"})
+        source_path = os.path.normpath(source_path)
+        if not os.path.isfile(source_path):
+            return json.dumps({"error": "请选择有效的 Office 文件"})
+        extension = os.path.splitext(source_path)[1].lower()
+        destination = self.get_desktop_path(os.path.splitext(os.path.basename(source_path))[0], ".pdf")
+        app = document = None
+        try:
+            pythoncom.CoInitialize()
+            if extension in (".doc", ".docx"):
+                app = win32com.client.DispatchEx("Word.Application")
+                app.Visible = False
+                document = app.Documents.Open(source_path, ReadOnly=True)
+                document.SaveAs(destination, FileFormat=17)
+            elif extension in (".xls", ".xlsx"):
+                app = win32com.client.DispatchEx("Excel.Application")
+                app.Visible = False
+                app.DisplayAlerts = False
+                document = app.Workbooks.Open(source_path, ReadOnly=True)
+                document.ExportAsFixedFormat(0, destination)
+            elif extension in (".ppt", ".pptx"):
+                app = win32com.client.DispatchEx("PowerPoint.Application")
+                document = app.Presentations.Open(source_path, WithWindow=False)
+                document.SaveAs(destination, 32)
+            else:
+                raise ValueError("仅支持 Word、Excel 或 PowerPoint 文件")
+            return json.dumps({"ok": True, "filepath": destination, "filename": os.path.basename(destination)})
+        except Exception as exc:
+            return json.dumps({"error": f"需要安装 Microsoft Office，或 Office 转换失败：{exc}"})
+        finally:
+            try:
+                if document is not None:
+                    document.Close(False)
+            except Exception:
+                pass
+            try:
+                if app is not None:
+                    app.Quit()
+            except Exception:
+                pass
+            try:
+                pythoncom.CoUninitialize()
+            except Exception:
+                pass

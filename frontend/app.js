@@ -16,6 +16,10 @@ let state = {
   bcCode: '',
   bcType: 'upca',
   barcodeTypes: [],
+  imageCanvas: null,
+  imageSourceName: '',
+  pdfSources: [],
+  pdfSourceKind: 'pdf',
 };
 
 const DEFAULT_BARCODE_TYPES = [
@@ -50,6 +54,65 @@ function switchPage(name, button) {
   document.querySelectorAll('.nav-item[data-page]').forEach(b => b.classList.remove('active'));
   (button || document.querySelector(`.nav-item[data-page="${name}"]`))?.classList.add('active');
   if (name === 'more') setTimeout(initColorPicker, 0);
+  if (name === 'image') setTimeout(initImageCanvas, 0);
+}
+
+// =====================================================================
+// PDF tools
+// =====================================================================
+
+async function pickPdfSources(kind) {
+  try {
+    let raw;
+    if (kind === 'office') {
+      const source = await pywebview.api.pick_office_file();
+      raw = JSON.stringify(source ? [source] : []);
+    } else {
+      raw = kind === 'image' ? await pywebview.api.pick_image_files() : await pywebview.api.pick_pdf_files();
+    }
+    const sources = JSON.parse(raw);
+    if (!sources.length) return;
+    state.pdfSources = sources;
+    state.pdfSourceKind = kind;
+    document.getElementById('pdf-source-summary').textContent = `已选择 ${sources.length} 个${kind === 'office' ? ' Office' : kind === 'image' ? '图片' : ' PDF'}文件`;
+    document.getElementById('pdf-result').textContent = sources.map(path => path.split(/[\\/]/).pop()).join('、');
+  } catch (error) {
+    document.getElementById('pdf-result').textContent = `✗ ${error.message || error}`;
+  }
+}
+
+function clearPdfSources() {
+  state.pdfSources = [];
+  document.getElementById('pdf-source-summary').textContent = '请先选择要处理的文件';
+  document.getElementById('pdf-result').textContent = '生成的文件会保存到桌面。';
+}
+
+async function runPdfAction(action) {
+  if (!state.pdfSources.length) return alert('请先选择文件');
+  if (action === 'images_to_pdf' && state.pdfSourceKind !== 'image') return alert('图片转 PDF 请先选择图片');
+  if (action !== 'images_to_pdf' && state.pdfSourceKind !== 'pdf') return alert('此操作请先选择 PDF 文件');
+  const resultNode = document.getElementById('pdf-result');
+  resultNode.textContent = '正在处理…';
+  try {
+    const raw = await pywebview.api.run_pdf_action(JSON.stringify({ action, sources: state.pdfSources, pages: document.getElementById('pdf-pages').value }));
+    const result = JSON.parse(raw);
+    resultNode.textContent = result.ok ? `✓ 已保存到桌面：${result.filenames.join('、')}` : `✗ ${result.error || '处理失败'}`;
+  } catch (error) {
+    resultNode.textContent = `✗ ${error.message || error}`;
+  }
+}
+
+async function runOfficeToPdf() {
+  if (state.pdfSourceKind !== 'office' || state.pdfSources.length !== 1) return alert('请通过「选择 Office」选择一个 Word、Excel 或 PowerPoint 文件');
+  const resultNode = document.getElementById('pdf-result');
+  resultNode.textContent = '正在调用 Microsoft Office…';
+  try {
+    const raw = await pywebview.api.office_to_pdf(state.pdfSources[0]);
+    const result = JSON.parse(raw);
+    resultNode.textContent = result.ok ? `✓ 已保存到桌面：${result.filename}` : `✗ ${result.error || '转换失败'}`;
+  } catch (error) {
+    resultNode.textContent = `✗ ${error.message || error}`;
+  }
 }
 
 // =====================================================================
@@ -105,6 +168,9 @@ const searchableFunctions = [
   { label: 'EAN-13 条码', group: '条码', icon: '13', shortcut: '⌘7', keywords: 'ean 13 条码 barcode', action: () => selectBarcodeFromSearch('ean13') },
   { label: 'EAN-8 条码', group: '条码', icon: '8', shortcut: '⌘8', keywords: 'ean 8 条码 barcode', action: () => selectBarcodeFromSearch('ean8') },
   { label: 'Code128 条码', group: '条码', icon: '128', shortcut: '⌘9', keywords: 'code128 条码 barcode', action: () => selectBarcodeFromSearch('code128') },
+  { label: '二维码', group: '条码', icon: 'QR', shortcut: '⌘Q', keywords: '二维码 qr qrcode 条码', action: () => selectBarcodeFromSearch('qrcode') },
+  { label: '编辑图片', group: '图片', icon: '▧', shortcut: '⌘I', keywords: '图片 裁剪 水印 格式 转换', action: () => switchPage('image') },
+  { label: 'PDF 工具', group: 'PDF', icon: 'PDF', shortcut: '⌘P', keywords: 'pdf 合并 拆分 转换 office word excel ppt', action: () => switchPage('pdf') },
   { label: '外观与主题', group: '设置', icon: '◐', shortcut: '⌘0', keywords: '外观 主题 颜色 设置', action: () => switchPage('more') },
 ];
 
@@ -595,6 +661,79 @@ async function openInApp(app) {
     status.textContent = `✓ 已在 ${app === 'ai' ? 'Illustrator' : 'Photoshop'} 中打开`;
   } else {
     status.textContent = `✗ ${r.error || '打开失败'}`;
+  }
+}
+
+// =====================================================================
+// Image editor
+// =====================================================================
+
+function initImageCanvas() {
+  if (state.imageCanvas || typeof fabric === 'undefined') return;
+  state.imageCanvas = new fabric.Canvas('image-canvas', { preserveObjectStacking: true, backgroundColor: '#f8f9fc' });
+}
+
+async function pickImageFile() {
+  try {
+    const path = await pywebview.api.pick_image_file();
+    if (!path) return;
+    initImageCanvas();
+    const url = encodeURI(`file:///${path.replace(/\\/g, '/')}`);
+    fabric.Image.fromURL(url, image => {
+      if (!image) { document.getElementById('image-status').textContent = '无法读取图片'; return; }
+      state.imageCanvas.clear();
+      state.imageCanvas.setDimensions({ width: image.width, height: image.height });
+      image.set({ left: 0, top: 0, selectable: false, evented: false });
+      state.imageCanvas.add(image);
+      state.imageCanvas.setActiveObject(image);
+      state.imageCanvas.requestRenderAll();
+      state.imageSourceName = path.split(/[\\/]/).pop();
+      document.getElementById('image-name').textContent = `${state.imageSourceName} · ${image.width} × ${image.height}px`;
+      document.getElementById('image-width').value = image.width;
+      document.getElementById('image-height').value = image.height;
+      document.getElementById('image-placeholder').style.display = 'none';
+    });
+  } catch (error) {
+    alert(`无法打开图片：${error.message || error}`);
+  }
+}
+
+function imageObject() {
+  return state.imageCanvas?.getObjects().find(item => item.type === 'image');
+}
+
+function applyImageCrop() {
+  const image = imageObject();
+  if (!image) return alert('请先添加图片');
+  const width = Math.min(image.width, parseInt(document.getElementById('image-crop-w').value) || image.width);
+  const height = Math.min(image.height, parseInt(document.getElementById('image-crop-h').value) || image.height);
+  image.set({ cropX: Math.max(0, Math.floor((image.width - width) / 2)), cropY: Math.max(0, Math.floor((image.height - height) / 2)), width, height, left: 0, top: 0 });
+  state.imageCanvas.setDimensions({ width, height });
+  state.imageCanvas.requestRenderAll();
+  document.getElementById('image-width').value = width;
+  document.getElementById('image-height').value = height;
+}
+
+function addTextWatermark() {
+  const text = document.getElementById('image-watermark').value.trim();
+  if (!text || !state.imageCanvas) return;
+  const watermark = new fabric.Textbox(text, { left: 24, top: 24, fill: '#ffffff', stroke: '#242634', strokeWidth: .7, fontSize: 28, fontWeight: '600', opacity: .78 });
+  state.imageCanvas.add(watermark).setActiveObject(watermark);
+  state.imageCanvas.requestRenderAll();
+}
+
+async function exportImage(format) {
+  if (!state.imageCanvas || !imageObject()) return alert('请先添加图片');
+  const width = parseInt(document.getElementById('image-width').value) || state.imageCanvas.width;
+  const height = parseInt(document.getElementById('image-height').value) || state.imageCanvas.height;
+  const status = document.getElementById('image-status');
+  status.textContent = `正在导出 ${format}…`;
+  try {
+    const raw = await pywebview.api.export_image(JSON.stringify({ dataUrl: state.imageCanvas.toDataURL({ format: 'png' }), format, width, height, quality: document.getElementById('image-quality').value, sourceName: state.imageSourceName || 'image' }));
+    const result = JSON.parse(raw);
+    status.textContent = result.ok ? `✓ 已保存到桌面: ${result.filename}` : `✗ ${result.error || '导出失败'}`;
+  } catch (error) {
+    status.textContent = `✗ ${error.message || error}`;
   }
 }
 

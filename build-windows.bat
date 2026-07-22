@@ -21,6 +21,8 @@ if not defined PYTHON (
   --icon icon.ico ^
   --add-data "frontend;frontend" ^
   --add-data "icon.ico;." ^
+  --add-data "licenses;licenses" ^
+  --add-data "THIRD_PARTY_NOTICES.md;." ^
   main.py
 
 if errorlevel 1 (

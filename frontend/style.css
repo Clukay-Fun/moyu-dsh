@@ -67,3 +67,20 @@ button, input, select { font:inherit; } button { color:inherit; }
 .search-result kbd { padding:3px 5px; border-radius:6px; background:rgba(0,0,0,.07); color:var(--faint); font:10px/1 ui-monospace,monospace; }
 .search-results .search-result.selected,.search-results .search-result:hover { background:var(--accent-10); color:var(--accent); }
 .search-empty { margin:10px 8px; color:var(--faint); font-size:12px; }
+.image-layout { min-height:0; flex:1; display:grid; grid-template-columns:minmax(0,1fr) 260px; gap:14px; }
+.image-workspace { min-height:0; padding:14px; display:flex; flex-direction:column; gap:10px; }
+.image-canvas-wrap { position:relative; min-height:0; flex:1; display:flex; align-items:center; justify-content:center; overflow:auto; border:1px solid var(--hairline); border-radius:var(--r-sm); background:repeating-conic-gradient(rgba(0,0,0,.022) 0% 25%,transparent 0% 50%) 50%/20px 20px,rgba(255,255,255,.08); }
+.image-canvas-wrap canvas { max-width:100%; max-height:100%; }
+#image-placeholder { position:absolute; color:var(--faint); }
+.image-controls { padding:14px; overflow:auto; }
+.image-control-row { display:flex; gap:6px; }.image-control-row .input { width:50%; }
+.image-export-grid { grid-template-columns:repeat(3,1fr); }
+.image-note { margin:9px 0; color:var(--faint); font-size:11px; line-height:1.5; }
+.pdf-toolbar { padding:12px; display:flex; align-items:center; gap:8px; }
+.pdf-layout { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+.pdf-actions { padding:14px; display:flex; flex-direction:column; gap:10px; }
+.pdf-action-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:7px; }
+.pdf-action-grid button { min-height:38px; border:1px solid rgba(255,255,255,.42); border-radius:var(--r-sm); background:rgba(255,255,255,.07); color:var(--muted); cursor:pointer; backdrop-filter:blur(16px); }
+.pdf-action-grid button:hover { color:var(--accent); background:var(--accent-10); }
+.pdf-warning { margin:0; color:#a16e3c; font-size:11px; line-height:1.55; }
+.pdf-result { min-height:42px; padding:12px; color:var(--faint); font-size:12px; }
