@@ -71,12 +71,11 @@ button, input, select { font:inherit; } button { color:inherit; }
 .search-result kbd { padding:3px 5px; border-radius:6px; background:rgba(0,0,0,.07); color:var(--faint); font:10px/1 ui-monospace,monospace; }
 .search-results .search-result.selected,.search-results .search-result:hover { background:var(--accent-10); color:var(--accent); }
 .search-empty { margin:10px 8px; color:var(--faint); font-size:12px; }
-.image-layout { min-height:0; flex:1; display:grid; grid-template-columns:minmax(0,1fr) 260px; gap:14px; }
-.image-workspace { min-height:0; padding:14px; display:flex; flex-direction:column; gap:10px; }
+.image-editor-shell { min-height:0; flex:1; display:flex; flex-direction:column; overflow:hidden; }.image-editor-top { flex:none; display:flex; align-items:center; gap:12px; padding:12px 14px; border-bottom:1px solid var(--hairline); }.image-editor-file { display:flex; align-items:center; gap:10px; min-width:0; }.image-editor-file span { color:var(--fg); font-weight:600; }.image-editor-file b { overflow:hidden; color:var(--faint); font-size:12px; font-weight:400; text-overflow:ellipsis; white-space:nowrap; }.image-editor-spacer { flex:1; }.image-editor-body { min-height:0; flex:1; display:grid; grid-template-columns:minmax(0,1fr) 260px; }.image-workspace { min-height:0; padding:14px; display:flex; flex-direction:column; gap:10px; }
 .image-canvas-wrap { position:relative; min-height:0; flex:1; display:flex; align-items:center; justify-content:center; overflow:auto; border:1px solid var(--hairline); border-radius:var(--r-sm); background:repeating-conic-gradient(rgba(0,0,0,.022) 0% 25%,transparent 0% 50%) 50%/20px 20px,rgba(255,255,255,.08); }
 .image-canvas-wrap canvas { max-width:100%; max-height:100%; }
 #image-placeholder { position:absolute; color:var(--faint); }
-.image-controls { padding:14px; overflow:auto; }
+.image-editor-bottom { flex:none; display:flex; justify-content:space-between; gap:14px; padding:9px 3px 0; color:var(--faint); font-size:11px; }.image-controls { padding:14px; overflow:auto; border-left:1px solid var(--hairline); }
 .image-control-row { display:flex; gap:6px; }.image-control-row .input { width:50%; }
 .image-export-grid { grid-template-columns:repeat(3,1fr); }
 .image-note { margin:9px 0; color:var(--faint); font-size:11px; line-height:1.5; }

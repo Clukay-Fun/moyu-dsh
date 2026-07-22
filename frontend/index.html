@@ -84,18 +84,21 @@
 
         <section id="page-image" class="page">
           <div class="page-heading"><span>图片</span> › <b>编辑与格式转换</b></div>
-          <div class="image-layout">
-            <div class="image-workspace glass-card">
-              <div class="ai-toolbar"><button class="glass-button" onclick="pickImageFile()">＋ 添加图片</button><span class="toolbar-hint" id="image-name">支持 PNG / JPG / WebP / BMP / TIFF / ICO / TGA</span></div>
-              <div class="image-canvas-wrap"><canvas id="image-canvas" width="900" height="480"></canvas><p id="image-placeholder">添加图片后可裁剪、添加文字水印并导出。</p></div>
-            </div>
-            <aside class="image-controls glass-card">
+          <div class="image-editor-shell glass-card">
+            <div class="image-editor-top"><div class="image-editor-file"><span>图片编辑器</span><b id="image-name">支持 PNG / JPG / WebP / BMP / TIFF / ICO / TGA</b></div><span class="image-editor-spacer"></span><button class="glass-button" onclick="pickImageFile()">＋ 添加图片</button></div>
+            <div class="image-editor-body">
+              <div class="image-workspace">
+                <div class="image-canvas-wrap"><canvas id="image-canvas" width="900" height="480"></canvas><p id="image-placeholder">添加图片后，可在右侧裁切、添加文字水印并导出。</p></div>
+                <div class="image-editor-bottom"><span>裁切：按右侧输入尺寸居中裁切</span><span>导出：使用右侧格式、尺寸与质量设置</span></div>
+              </div>
+              <aside class="image-controls">
               <div class="control-title">裁剪</div><div class="image-control-row"><input id="image-crop-w" class="input" type="number" min="1" placeholder="宽"><input id="image-crop-h" class="input" type="number" min="1" placeholder="高"></div><button class="glass-button full" onclick="applyImageCrop()">按尺寸居中裁剪</button>
               <div class="control-title">文字水印</div><input id="image-watermark" class="input" placeholder="输入水印文字"><button class="glass-button full" onclick="addTextWatermark()">添加水印</button>
               <div class="control-title">导出尺寸</div><div class="image-control-row"><input id="image-width" class="input" type="number" min="1" placeholder="宽 px"><input id="image-height" class="input" type="number" min="1" placeholder="高 px"></div>
               <div class="control-title">质量 <span id="image-quality-value">92</span></div><input id="image-quality" class="cp-slider" type="range" min="1" max="100" value="92" oninput="document.getElementById('image-quality-value').textContent=this.value">
               <div class="control-title">导出格式</div><div class="export-grid image-export-grid"><button onclick="exportImage('PNG')">PNG</button><button onclick="exportImage('JPG')">JPG</button><button onclick="exportImage('WEBP')">WebP</button><button onclick="exportImage('BMP')">BMP</button><button onclick="exportImage('TIFF')">TIFF</button><button onclick="exportImage('ICO')">ICO</button><button onclick="exportImage('TGA')">TGA</button></div><p class="image-note">透明 PNG 导出 JPG 时自动铺白底。</p><div class="bc-status" id="image-status"></div>
-            </aside>
+              </aside>
+            </div>
           </div>
         </section>
 
