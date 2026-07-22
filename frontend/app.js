@@ -17,7 +17,6 @@ let state = {
   bcType: 'upca',
   barcodeTypes: [],
   imageCanvas: null,
-  imageSourceName: '',
   pdfSources: [],
   pdfSourceKind: '',
   pdfInputKind: 'pdf',
@@ -66,24 +65,24 @@ function switchPage(name, button) {
 
 const PDF_ACTION_GROUPS = [
   { label: '转换', items: [
-    { label: '转 PNG', action: 'pdf_png', source: 'pdf', icon: 'PNG', description: '将 PDF 的每一页导出为 PNG 图片。' },
-    { label: '转 JPEG', action: 'pdf_jpeg', source: 'pdf', icon: 'JPG', description: '将 PDF 的每一页导出为 JPEG 图片。' },
-    { label: '转 TXT', action: 'pdf_txt', source: 'pdf', icon: 'TXT', description: '提取 PDF 中可读取的文字内容。' },
-    { label: '转 DOCX', action: 'pdf_docx', source: 'pdf', icon: 'DOC', description: '仅提取内容，不保证复杂版式。' },
-    { label: '转 XLSX', action: 'pdf_xlsx', source: 'pdf', icon: 'XLS', description: '仅处理规整表格；无表格会给出提示。' },
-    { label: '转 PPTX', action: 'pdf_pptx', source: 'pdf', icon: 'PPT', description: '每页 PDF 会生成一张图片幻灯片。' },
+    { label: '转 PNG', action: 'pdf_png', source: 'pdf', icon: 'PNG', color: '#3c9a5e', description: '将 PDF 的每一页导出为 PNG 图片。' },
+    { label: '转 JPEG', action: 'pdf_jpeg', source: 'pdf', icon: 'JPG', color: '#3c9a5e', description: '将 PDF 的每一页导出为 JPEG 图片。' },
+    { label: '转 TXT', action: 'pdf_txt', source: 'pdf', icon: 'TXT', color: '#707387', description: '提取 PDF 中可读取的文字内容。' },
+    { label: '转 DOCX', action: 'pdf_docx', source: 'pdf', icon: 'DOC', color: '#2b6cb0', description: '仅提取内容，不保证复杂版式。' },
+    { label: '转 XLSX', action: 'pdf_xlsx', source: 'pdf', icon: 'XLS', color: '#217346', description: '仅处理规整表格；无表格会给出提示。' },
+    { label: '转 PPTX', action: 'pdf_pptx', source: 'pdf', icon: 'PPT', color: '#d24726', description: '每页 PDF 会生成一张图片幻灯片。' },
   ] },
   { label: '编辑', items: [
-    { label: '合并 PDF', action: 'merge', source: 'pdf', icon: '合', description: '将选中的多个 PDF 合并为一个文件。' },
-    { label: '拆分 PDF', action: 'split', source: 'pdf', icon: '拆', description: '将 PDF 拆分为按页保存的文件。' },
-    { label: '旋转 PDF', action: 'rotate', source: 'pdf', icon: '旋', description: '将 PDF 页面顺时针旋转 90°。' },
-    { label: '提取页', action: 'extract_pages', source: 'pdf', icon: '页', description: '按页码提取需要的 PDF 页面。' },
+    { label: '合并 PDF', action: 'merge', source: 'pdf', icon: '合', color: '#e0554e', description: '将选中的多个 PDF 合并为一个文件。' },
+    { label: '拆分 PDF', action: 'split', source: 'pdf', icon: '拆', color: '#e0554e', description: '将 PDF 拆分为按页保存的文件。' },
+    { label: '旋转 PDF', action: 'rotate', source: 'pdf', icon: '旋', color: '#e0554e', description: '将 PDF 页面顺时针旋转 90°。' },
+    { label: '提取页', action: 'extract_pages', source: 'pdf', icon: '页', color: '#e0554e', description: '按页码提取需要的 PDF 页面。' },
   ] },
   { label: '转成 PDF', items: [
-    { label: '图片转 PDF', action: 'images_to_pdf', source: 'image', icon: 'IMG', description: '将选中的图片合并为一个 PDF。' },
-    { label: 'Word 转 PDF', action: 'office_to_pdf', source: 'office', icon: 'W', description: '通过本机 Microsoft Word 导出 PDF。' },
-    { label: 'Excel 转 PDF', action: 'office_to_pdf', source: 'office', icon: 'X', description: '通过本机 Microsoft Excel 导出 PDF。' },
-    { label: 'PPT 转 PDF', action: 'office_to_pdf', source: 'office', icon: 'P', description: '通过本机 Microsoft PowerPoint 导出 PDF。' },
+    { label: '图片转 PDF', action: 'images_to_pdf', source: 'image', icon: 'IMG', color: '#3c9a5e', description: '将选中的图片合并为一个 PDF。' },
+    { label: 'Word 转 PDF', action: 'office_to_pdf', source: 'office', icon: 'W', color: '#2b6cb0', description: '通过本机 Microsoft Word 导出 PDF。' },
+    { label: 'Excel 转 PDF', action: 'office_to_pdf', source: 'office', icon: 'X', color: '#217346', description: '通过本机 Microsoft Excel 导出 PDF。' },
+    { label: 'PPT 转 PDF', action: 'office_to_pdf', source: 'office', icon: 'P', color: '#d24726', description: '通过本机 Microsoft PowerPoint 导出 PDF。' },
   ] },
 ];
 
@@ -108,7 +107,7 @@ function renderPdfActions() {
     group.items.forEach(item => {
       const button = document.createElement('button');
       button.className = `secondary-item${state.pdfAction === item.action && state.pdfActionLabel === item.label ? ' active' : ''}`;
-      button.innerHTML = `<span class="secondary-icon">${item.icon}</span><span>${item.label}</span>`;
+      button.innerHTML = `<span class="secondary-icon" style="background:${item.color}">${item.icon}</span><span>${item.label}</span>`;
       button.onclick = () => { setPdfAction(item); renderPdfActions(); };
       secondaryMenu.appendChild(button);
     });
@@ -124,16 +123,16 @@ function setPdfAction(item) {
   state.pdfSourceKind = '';
   const sourceLabel = item.source === 'image' ? '图片' : item.source === 'office' ? 'Office 文件' : 'PDF';
   document.getElementById('pdf-action-label').textContent = item.label;
-  document.getElementById('pdf-action-icon').textContent = item.icon;
   document.getElementById('pdf-action-title').textContent = item.label;
   document.getElementById('pdf-action-description').textContent = item.description;
-  document.getElementById('pdf-pick-button').textContent = `＋ 选择${sourceLabel}`;
-  document.getElementById('pdf-source-summary').textContent = `请选择${sourceLabel}后执行「${item.label}」`;
+  document.getElementById('pdf-pick-button').textContent = `选择${sourceLabel}`;
+  document.getElementById('pdf-source-summary').textContent = '';
+  document.getElementById('pdf-source-summary').hidden = true;
   document.getElementById('pdf-run-button').textContent = item.action === 'office_to_pdf' ? '开始导出 PDF' : `开始${item.label}`;
+  document.getElementById('pdf-run-actions').hidden = true;
   document.getElementById('pdf-pages').style.display = item.action === 'extract_pages' ? 'block' : 'none';
-  document.getElementById('pdf-office-note').style.display = item.action === 'office_to_pdf' ? 'block' : 'none';
-  document.getElementById('pdf-content-note').style.display = ['pdf_docx', 'pdf_xlsx', 'pdf_pptx'].includes(item.action) ? 'block' : 'none';
-  document.getElementById('pdf-result').textContent = '生成的文件会保存到桌面。';
+  document.getElementById('pdf-result').textContent = '';
+  document.getElementById('pdf-result').hidden = true;
 }
 
 async function pickPdfSources(kind = state.pdfInputKind) {
@@ -149,18 +148,28 @@ async function pickPdfSources(kind = state.pdfInputKind) {
     if (!sources.length) return;
     state.pdfSources = sources;
     state.pdfSourceKind = kind;
-    document.getElementById('pdf-source-summary').textContent = `已选择 ${sources.length} 个${kind === 'office' ? ' Office' : kind === 'image' ? '图片' : ' PDF'}文件`;
-    document.getElementById('pdf-result').textContent = sources.map(path => path.split(/[\\/]/).pop()).join('、');
+    const summary = document.getElementById('pdf-source-summary');
+    summary.textContent = `已选择 ${sources.length} 个${kind === 'office' ? ' Office' : kind === 'image' ? '图片' : ' PDF'}文件`;
+    summary.hidden = false;
+    document.getElementById('pdf-run-actions').hidden = false;
+    const resultNode = document.getElementById('pdf-result');
+    resultNode.textContent = sources.map(path => path.split(/[\\/]/).pop()).join('、');
+    resultNode.hidden = false;
   } catch (error) {
-    document.getElementById('pdf-result').textContent = `✗ ${error.message || error}`;
+    const resultNode = document.getElementById('pdf-result');
+    resultNode.textContent = `✗ ${error.message || error}`;
+    resultNode.hidden = false;
   }
 }
 
 function clearPdfSources() {
   state.pdfSources = [];
   state.pdfSourceKind = '';
-  document.getElementById('pdf-source-summary').textContent = '请先选择要处理的文件';
-  document.getElementById('pdf-result').textContent = '生成的文件会保存到桌面。';
+  document.getElementById('pdf-source-summary').textContent = '';
+  document.getElementById('pdf-source-summary').hidden = true;
+  document.getElementById('pdf-run-actions').hidden = true;
+  document.getElementById('pdf-result').textContent = '';
+  document.getElementById('pdf-result').hidden = true;
 }
 
 function runSelectedPdfAction() {
@@ -213,7 +222,8 @@ function renderBarcodeTypes() {
     const button = document.createElement('button');
     button.className = `secondary-item${state.bcType === type.value ? ' active' : ''}`;
     const icon = type.value === 'upca' ? 'U' : type.value === 'ean13' ? '13' : type.value === 'ean8' ? '8' : type.value === 'qrcode' ? 'QR' : type.value.replace('code', '').toUpperCase();
-    button.innerHTML = `<span class="secondary-icon" style="background:${palette[type.value] || '#9fb0ec'}">${icon}</span><span>${type.label}</span>`;
+    const label = type.label.split('——')[0].trim();
+    button.innerHTML = `<span class="secondary-icon" style="background:${palette[type.value] || '#9fb0ec'}">${icon}</span><span>${label}</span>`;
     button.onclick = () => { setBarcodeType(type.value); renderBarcodeTypes(); };
     secondaryMenu.appendChild(button);
   });
@@ -764,62 +774,22 @@ async function pickImageFile() {
     const path = await pywebview.api.pick_image_file();
     if (!path) return;
     initImageCanvas();
-    const url = encodeURI(`file:///${path.replace(/\\/g, '/')}`);
+    const url = encodeURI(`file://${path.replace(/\\/g, '/')}`);
     fabric.Image.fromURL(url, image => {
-      if (!image) { document.getElementById('image-status').textContent = '无法读取图片'; return; }
+      if (!image) { alert('无法读取图片'); return; }
       state.imageCanvas.clear();
       state.imageCanvas.setDimensions({ width: image.width, height: image.height });
       image.set({ left: 0, top: 0, selectable: false, evented: false });
       state.imageCanvas.add(image);
       state.imageCanvas.setActiveObject(image);
       state.imageCanvas.requestRenderAll();
-      state.imageSourceName = path.split(/[\\/]/).pop();
-      document.getElementById('image-name').textContent = `${state.imageSourceName} · ${image.width} × ${image.height}px`;
-      document.getElementById('image-width').value = image.width;
-      document.getElementById('image-height').value = image.height;
+      document.getElementById('image-file-name').textContent = path.split(/[\\/]/).pop();
+      document.getElementById('image-dimensions').textContent = `${image.width} × ${image.height}px`;
+      document.getElementById('image-preview-toolbar').hidden = false;
       document.getElementById('image-placeholder').style.display = 'none';
     });
   } catch (error) {
     alert(`无法打开图片：${error.message || error}`);
-  }
-}
-
-function imageObject() {
-  return state.imageCanvas?.getObjects().find(item => item.type === 'image');
-}
-
-function applyImageCrop() {
-  const image = imageObject();
-  if (!image) return alert('请先添加图片');
-  const width = Math.min(image.width, parseInt(document.getElementById('image-crop-w').value) || image.width);
-  const height = Math.min(image.height, parseInt(document.getElementById('image-crop-h').value) || image.height);
-  image.set({ cropX: Math.max(0, Math.floor((image.width - width) / 2)), cropY: Math.max(0, Math.floor((image.height - height) / 2)), width, height, left: 0, top: 0 });
-  state.imageCanvas.setDimensions({ width, height });
-  state.imageCanvas.requestRenderAll();
-  document.getElementById('image-width').value = width;
-  document.getElementById('image-height').value = height;
-}
-
-function addTextWatermark() {
-  const text = document.getElementById('image-watermark').value.trim();
-  if (!text || !state.imageCanvas) return;
-  const watermark = new fabric.Textbox(text, { left: 24, top: 24, fill: '#ffffff', stroke: '#242634', strokeWidth: .7, fontSize: 28, fontWeight: '600', opacity: .78 });
-  state.imageCanvas.add(watermark).setActiveObject(watermark);
-  state.imageCanvas.requestRenderAll();
-}
-
-async function exportImage(format) {
-  if (!state.imageCanvas || !imageObject()) return alert('请先添加图片');
-  const width = parseInt(document.getElementById('image-width').value) || state.imageCanvas.width;
-  const height = parseInt(document.getElementById('image-height').value) || state.imageCanvas.height;
-  const status = document.getElementById('image-status');
-  status.textContent = `正在导出 ${format}…`;
-  try {
-    const raw = await pywebview.api.export_image(JSON.stringify({ dataUrl: state.imageCanvas.toDataURL({ format: 'png' }), format, width, height, quality: document.getElementById('image-quality').value, sourceName: state.imageSourceName || 'image' }));
-    const result = JSON.parse(raw);
-    status.textContent = result.ok ? `✓ 已保存到桌面: ${result.filename}` : `✗ ${result.error || '导出失败'}`;
-  } catch (error) {
-    status.textContent = `✗ ${error.message || error}`;
   }
 }
 
