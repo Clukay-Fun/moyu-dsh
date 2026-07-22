@@ -11,27 +11,27 @@
 <div class="window-shell">
   <div class="ambient"><i class="orb orb-lilac"></i><i class="orb orb-mint"></i><i class="orb orb-sand"></i></div>
   <div class="panel" id="panel">
-    <aside class="sidebar">
+    <header class="topbar">
       <div class="brand"><img src="logo_128.png" alt=""><strong>摸鱼工具箱</strong></div>
-      <button class="nav-item" data-page="pdf" onclick="switchPage('pdf', this)"><span>📄</span>PDF</button>
-      <button class="nav-item active" data-page="ai" onclick="switchPage('ai', this)"><span>🎨</span>Illustrator</button>
-      <button class="nav-item" data-page="bc" onclick="showBarcodeTypes(this)"><span>🔳</span>条码</button>
-      <button class="nav-item" data-page="image" onclick="switchPage('image', this)"><span>🖼️</span>图片</button>
-      <button class="nav-item soon" disabled><span>🎬</span>视频 <em>敬请期待</em></button>
-      <div class="sidebar-spacer"></div>
-      <button class="nav-item" data-page="more" onclick="switchPage('more', this)"><span>⚙️</span>设置</button>
-    </aside>
-
-    <main class="main-content">
-      <header class="topbar">
-        <div class="search-wrap">
-          <input id="function-search" class="search" placeholder="⌕  搜索功能…" oninput="searchFn(this.value)" onfocus="searchFn(this.value)" onkeydown="handleSearchKey(event)">
-          <div class="search-results" id="search-results"></div>
-        </div>
-        <p class="slogan">干活快一点，摸鱼久一点 🐟</p>
-        <div class="mochi-chip"><i></i>摸鱼中 <span id="mochi-timer">00:00</span></div>
-      </header>
-
+      <div class="search-wrap">
+        <input id="function-search" class="search" placeholder="⌕  搜索功能…" oninput="searchFn(this.value)" onfocus="searchFn(this.value)" onkeydown="handleSearchKey(event)">
+        <div class="search-results" id="search-results"></div>
+      </div>
+      <p class="slogan">干活快一点，摸鱼久一点 🐟</p>
+      <div class="mochi-chip"><i></i>摸鱼中 <span id="mochi-timer">00:00</span></div>
+    </header>
+    <div class="app-body">
+      <nav class="rail" aria-label="主导航">
+        <button class="nav-item nav-rail" data-page="pdf" aria-label="PDF" onclick="switchPage('pdf', this)"><span class="nav-glyph">📄</span><span class="nav-label">PDF</span></button>
+        <button class="nav-item nav-rail active" data-page="ai" aria-label="Illustrator" onclick="switchPage('ai', this)"><span class="nav-glyph">🎨</span><span class="nav-label">Illustrator</span></button>
+        <button class="nav-item nav-rail" data-page="bc" aria-label="条码" onclick="showBarcodeTypes(this)"><span class="nav-glyph">🔳</span><span class="nav-label">条码</span></button>
+        <button class="nav-item nav-rail" data-page="image" aria-label="图片" onclick="switchPage('image', this)"><span class="nav-glyph">🖼️</span><span class="nav-label">图片</span></button>
+        <button class="nav-item nav-rail soon" disabled aria-label="视频，敬请期待"><span class="nav-glyph">🎬</span><span class="nav-label">视频</span><em>敬请期待</em></button>
+        <span class="rail-spacer"></span>
+        <button class="nav-item nav-rail" data-page="more" aria-label="设置" onclick="switchPage('more', this)"><span class="nav-glyph">⚙️</span><span class="nav-label">设置</span></button>
+      </nav>
+      <aside class="secondary-menu" id="secondary-menu" aria-label="功能菜单"></aside>
+      <main class="main-content">
       <div class="pages">
         <section id="page-ai" class="page active">
           <div class="page-heading"><span>Illustrator</span> › <b id="ai-action-label">批量处理</b></div>
@@ -131,6 +131,7 @@
         </section>
       </div>
     </main>
+    </div>
   </div>
 </div>
 <div class="flyout" id="flyout"></div>
