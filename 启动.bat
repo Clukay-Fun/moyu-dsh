@@ -27,6 +27,15 @@ if errorlevel 1 (
 )
 
 echo [INFO] Starting Moyu Toolbox...
-%PYTHON% main.py
-if errorlevel 1 echo [ERROR] Application exited with an error.
-pause
+where pythonw >nul 2>&1 && set "PYTHONW=pythonw"
+if not defined PYTHONW (
+    where pyw >nul 2>&1 && set "PYTHONW=pyw -3"
+)
+if not defined PYTHONW (
+    echo [ERROR] pythonw.exe was not found. Reinstall Python with the standard launcher.
+    pause
+    exit /b 1
+)
+
+start "" /b %PYTHONW% main.py
+exit /b 0
