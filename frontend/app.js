@@ -19,7 +19,9 @@ let state = {
   imageCanvas: null,
   imageSourceName: '',
   pdfSources: [],
-  pdfSourceKind: 'pdf',
+  pdfSourceKind: '',
+  pdfInputKind: 'pdf',
+  pdfAction: 'pdf_png',
 };
 
 const DEFAULT_BARCODE_TYPES = [
@@ -62,7 +64,79 @@ function switchPage(name, button) {
 // PDF tools
 // =====================================================================
 
-async function pickPdfSources(kind) {
+const PDF_ACTION_GROUPS = [
+  { label: '转换', items: [
+    { label: '转 PNG', action: 'pdf_png', source: 'pdf', icon: 'PNG', description: '将 PDF 的每一页导出为 PNG 图片。' },
+    { label: '转 JPEG', action: 'pdf_jpeg', source: 'pdf', icon: 'JPG', description: '将 PDF 的每一页导出为 JPEG 图片。' },
+    { label: '转 TXT', action: 'pdf_txt', source: 'pdf', icon: 'TXT', description: '提取 PDF 中可读取的文字内容。' },
+    { label: '转 DOCX', action: 'pdf_docx', source: 'pdf', icon: 'DOC', description: '仅提取内容，不保证复杂版式。' },
+    { label: '转 XLSX', action: 'pdf_xlsx', source: 'pdf', icon: 'XLS', description: '仅处理规整表格；无表格会给出提示。' },
+    { label: '转 PPTX', action: 'pdf_pptx', source: 'pdf', icon: 'PPT', description: '每页 PDF 会生成一张图片幻灯片。' },
+  ] },
+  { label: '编辑', items: [
+    { label: '合并 PDF', action: 'merge', source: 'pdf', icon: '合', description: '将选中的多个 PDF 合并为一个文件。' },
+    { label: '拆分 PDF', action: 'split', source: 'pdf', icon: '拆', description: '将 PDF 拆分为按页保存的文件。' },
+    { label: '旋转 PDF', action: 'rotate', source: 'pdf', icon: '旋', description: '将 PDF 页面顺时针旋转 90°。' },
+    { label: '提取页', action: 'extract_pages', source: 'pdf', icon: '页', description: '按页码提取需要的 PDF 页面。' },
+  ] },
+  { label: '转成 PDF', items: [
+    { label: '图片转 PDF', action: 'images_to_pdf', source: 'image', icon: 'IMG', description: '将选中的图片合并为一个 PDF。' },
+    { label: 'Word 转 PDF', action: 'office_to_pdf', source: 'office', icon: 'W', description: '通过本机 Microsoft Word 导出 PDF。' },
+    { label: 'Excel 转 PDF', action: 'office_to_pdf', source: 'office', icon: 'X', description: '通过本机 Microsoft Excel 导出 PDF。' },
+    { label: 'PPT 转 PDF', action: 'office_to_pdf', source: 'office', icon: 'P', description: '通过本机 Microsoft PowerPoint 导出 PDF。' },
+  ] },
+];
+
+function currentPdfAction() {
+  return PDF_ACTION_GROUPS.flatMap(group => group.items).find(item => item.action === state.pdfAction && item.label === state.pdfActionLabel)
+    || PDF_ACTION_GROUPS.flatMap(group => group.items).find(item => item.action === state.pdfAction);
+}
+
+function showPdfActions(owner) {
+  switchPage('pdf', owner);
+  setPdfAction(currentPdfAction() || PDF_ACTION_GROUPS[0].items[0]);
+  renderPdfActions();
+}
+
+function renderPdfActions() {
+  secondaryMenu.innerHTML = '';
+  PDF_ACTION_GROUPS.forEach(group => {
+    const label = document.createElement('p');
+    label.className = 'secondary-label';
+    label.textContent = group.label;
+    secondaryMenu.appendChild(label);
+    group.items.forEach(item => {
+      const button = document.createElement('button');
+      button.className = `secondary-item${state.pdfAction === item.action && state.pdfActionLabel === item.label ? ' active' : ''}`;
+      button.innerHTML = `<span class="secondary-icon">${item.icon}</span><span>${item.label}</span>`;
+      button.onclick = () => { setPdfAction(item); renderPdfActions(); };
+      secondaryMenu.appendChild(button);
+    });
+  });
+  secondaryMenu.classList.add('open');
+}
+
+function setPdfAction(item) {
+  state.pdfAction = item.action;
+  state.pdfActionLabel = item.label;
+  state.pdfInputKind = item.source;
+  state.pdfSources = [];
+  state.pdfSourceKind = '';
+  const sourceLabel = item.source === 'image' ? '图片' : item.source === 'office' ? 'Office 文件' : 'PDF';
+  document.getElementById('pdf-action-label').textContent = item.label;
+  document.getElementById('pdf-action-icon').textContent = item.icon;
+  document.getElementById('pdf-action-title').textContent = item.label;
+  document.getElementById('pdf-action-description').textContent = item.description;
+  document.getElementById('pdf-pick-button').textContent = `＋ 选择${sourceLabel}`;
+  document.getElementById('pdf-source-summary').textContent = `请选择${sourceLabel}后执行「${item.label}」`;
+  document.getElementById('pdf-run-button').textContent = item.action === 'office_to_pdf' ? '开始导出 PDF' : `开始${item.label}`;
+  document.getElementById('pdf-pages').style.display = item.action === 'extract_pages' ? 'block' : 'none';
+  document.getElementById('pdf-office-note').style.display = item.action === 'office_to_pdf' ? 'block' : 'none';
+  document.getElementById('pdf-content-note').style.display = ['pdf_docx', 'pdf_xlsx', 'pdf_pptx'].includes(item.action) ? 'block' : 'none';
+  document.getElementById('pdf-result').textContent = '生成的文件会保存到桌面。';
+}
+
+async function pickPdfSources(kind = state.pdfInputKind) {
   try {
     let raw;
     if (kind === 'office') {
@@ -84,8 +158,14 @@ async function pickPdfSources(kind) {
 
 function clearPdfSources() {
   state.pdfSources = [];
+  state.pdfSourceKind = '';
   document.getElementById('pdf-source-summary').textContent = '请先选择要处理的文件';
   document.getElementById('pdf-result').textContent = '生成的文件会保存到桌面。';
+}
+
+function runSelectedPdfAction() {
+  if (state.pdfAction === 'office_to_pdf') return runOfficeToPdf();
+  return runPdfAction(state.pdfAction);
 }
 
 async function runPdfAction(action) {
@@ -174,7 +254,7 @@ const searchableFunctions = [
   { label: 'Code128 条码', group: '条码', icon: '128', shortcut: '⌘9', keywords: 'code128 条码 barcode', action: () => selectBarcodeFromSearch('code128') },
   { label: '二维码', group: '条码', icon: 'QR', shortcut: '⌘Q', keywords: '二维码 qr qrcode 条码', action: () => selectBarcodeFromSearch('qrcode') },
   { label: '编辑图片', group: '图片', icon: '▧', shortcut: '⌘I', keywords: '图片 裁剪 水印 格式 转换', action: () => switchPage('image') },
-  { label: 'PDF 工具', group: 'PDF', icon: 'PDF', shortcut: '⌘P', keywords: 'pdf 合并 拆分 转换 office word excel ppt', action: () => switchPage('pdf') },
+  { label: 'PDF 工具', group: 'PDF', icon: 'PDF', shortcut: '⌘P', keywords: 'pdf 合并 拆分 转换 office word excel ppt', action: () => showPdfActions() },
   { label: '外观与主题', group: '设置', icon: '◐', shortcut: '⌘0', keywords: '外观 主题 颜色 设置', action: () => switchPage('more') },
 ];
 

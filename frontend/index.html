@@ -22,7 +22,7 @@
     </header>
     <div class="app-body">
       <nav class="rail" aria-label="主导航">
-        <button class="nav-item nav-rail" data-page="pdf" aria-label="PDF" onclick="switchPage('pdf', this)"><span class="nav-glyph">📄</span><span class="nav-label">PDF</span></button>
+        <button class="nav-item nav-rail" data-page="pdf" aria-label="PDF" onclick="showPdfActions(this)"><span class="nav-glyph">📄</span><span class="nav-label">PDF</span></button>
         <button class="nav-item nav-rail active" data-page="ai" aria-label="Illustrator" onclick="switchPage('ai', this)"><span class="nav-glyph">🎨</span><span class="nav-label">Illustrator</span></button>
         <button class="nav-item nav-rail" data-page="bc" aria-label="条码" onclick="showBarcodeTypes(this)"><span class="nav-glyph">🔳</span><span class="nav-label">条码</span></button>
         <button class="nav-item nav-rail" data-page="image" aria-label="图片" onclick="switchPage('image', this)"><span class="nav-glyph">🖼️</span><span class="nav-label">图片</span></button>
@@ -72,23 +72,12 @@
         </section>
 
         <section id="page-pdf" class="page">
-          <div class="page-heading"><span>PDF</span> › <b>转换与页面工具</b></div>
-          <div class="pdf-toolbar glass-card"><button class="glass-button" onclick="pickPdfSources('pdf')">＋ 选择 PDF</button><button class="glass-button" onclick="pickPdfSources('image')">＋ 选择图片</button><button class="glass-button" onclick="pickPdfSources('office')">＋ 选择 Office</button><button class="glass-button" onclick="clearPdfSources()">清空</button><span id="pdf-source-summary" class="toolbar-hint">请先选择要处理的文件</span></div>
-          <div class="pdf-layout">
-            <div class="pdf-actions glass-card">
-              <div class="control-title">PDF 转换</div>
-              <div class="pdf-action-grid"><button onclick="runPdfAction('pdf_png')">PDF 转 PNG</button><button onclick="runPdfAction('pdf_jpeg')">PDF 转 JPEG</button><button onclick="runPdfAction('pdf_txt')">PDF 转 TXT</button><button onclick="runPdfAction('images_to_pdf')">图片转 PDF</button></div>
-              <div class="control-title">页面工具</div>
-              <div class="pdf-action-grid"><button onclick="runPdfAction('merge')">合并 PDF</button><button onclick="runPdfAction('split')">拆分 PDF</button><button onclick="runPdfAction('rotate')">旋转 90°</button><button onclick="runPdfAction('extract_pages')">提取页</button></div>
-              <input id="pdf-pages" class="input" placeholder="提取页码，例如 1,3-5">
-            </div>
-            <div class="pdf-actions glass-card">
-              <div class="control-title">Office ↔ PDF</div>
-              <button class="primary-button full" onclick="runOfficeToPdf()">Office 转 PDF</button>
-              <p class="image-note">需要 Windows 与已安装的 Microsoft Office；未安装会明确提示。</p>
-              <div class="pdf-action-grid"><button onclick="runPdfAction('pdf_docx')">PDF 转 DOCX</button><button onclick="runPdfAction('pdf_xlsx')">PDF 转 XLSX</button><button onclick="runPdfAction('pdf_pptx')">PDF 转 PPTX</button></div>
-              <p class="pdf-warning">仅提取内容，不保证版式与可编辑性。XLSX 仅处理规整表格；PPTX 每页为一张图片。</p>
-            </div>
+          <div class="page-heading"><span>PDF</span> › <b id="pdf-action-label">PDF 转 PNG</b></div>
+          <div class="pdf-toolbar glass-card"><button class="glass-button" id="pdf-pick-button" onclick="pickPdfSources()">＋ 选择 PDF</button><button class="glass-button" onclick="clearPdfSources()">清空</button><span id="pdf-source-summary" class="toolbar-hint">请先选择要处理的文件</span></div>
+          <div class="pdf-workspace glass-card">
+            <div class="pdf-action-intro"><span class="pdf-action-icon" id="pdf-action-icon">PNG</span><div><h2 id="pdf-action-title">PDF 转 PNG</h2><p id="pdf-action-description">将 PDF 的每一页导出为 PNG 图片。</p></div></div>
+            <div class="pdf-action-options"><input id="pdf-pages" class="input" placeholder="提取页码，例如 1,3-5" style="display:none"><p class="image-note" id="pdf-office-note" style="display:none">需要 Windows 与已安装的 Microsoft Office；未安装会明确提示。</p><p class="pdf-warning" id="pdf-content-note">仅提取内容，不保证版式与可编辑性。XLSX 仅处理规整表格；PPTX 每页为一张图片。</p></div>
+            <button class="primary-button" id="pdf-run-button" onclick="runSelectedPdfAction()">开始转换</button>
           </div>
           <div class="pdf-result glass-card" id="pdf-result">生成的文件会保存到桌面。</div>
         </section>
