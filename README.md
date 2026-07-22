@@ -26,6 +26,9 @@ macOS（仅用于调试 UI 与条码功能，AI/PS 联动不可用）：
 ./run.sh
 ```
 
+在 Finder 中日常启动 macOS 版，请双击 `启动.app`，不会打开终端。
+`启动.command` 保留为显示终端的排错入口。
+
 ## 快速开始
 
 Windows 推荐双击 `启动.vbs`（无终端窗口；自动检测 Python、补装依赖并启动）。
