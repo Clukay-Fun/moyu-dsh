@@ -242,7 +242,7 @@
                     <button class="gbtn screenshot-annotation" type="button" data-screen-tool="brush" disabled>画笔</button>
                     <button class="gbtn screenshot-annotation" type="button" data-screen-tool="text" disabled>文字</button>
                     <span class="toolbar-space"></span>
-                    <button class="gbtn placeholder-action" type="button" data-milestone="M5b">滚动截图</button>
+                    <button class="gbtn" id="start-scroll-screenshot" type="button">滚动截图</button>
                     <button class="gbtn placeholder-action" type="button" data-milestone="M5c">OCR</button>
                     <button class="gbtn placeholder-action" type="button" data-milestone="M5d">钉住</button>
                     <button class="gbtn" id="copy-screenshot" type="button" disabled>复制</button>
@@ -262,6 +262,32 @@
                     <span class="result-dot" id="screenshot-status-dot"></span>
                     <span id="screenshot-status-text">等待截图</span>
                   </div>
+                </div>
+                <div class="scroll-spike-overlay" id="scroll-spike-overlay" hidden>
+                  <section class="glass-card scroll-spike-dialog" role="dialog" aria-modal="true" aria-labelledby="scroll-spike-title">
+                    <header>
+                      <div>
+                        <b id="scroll-spike-title">应用内滚动截图 Spike</b>
+                        <span>仅验证本软件可控滚动区域，不支持截取第三方应用。</span>
+                      </div>
+                      <button class="gbtn" id="cancel-scroll-screenshot" type="button">取消</button>
+                    </header>
+                    <div class="controlled-scroll-source" id="controlled-scroll-source">
+                      <div class="controlled-scroll-document">
+                        <div class="controlled-scroll-cover">
+                          <small>MOYU TOOLS · CAPTURE SPIKE</small>
+                          <h2>应用内长内容示例</h2>
+                          <p>滚动区域由本应用精确控制，可按帧截取并无缝拼接。</p>
+                        </div>
+                        <div class="controlled-scroll-list" id="controlled-scroll-list"></div>
+                        <footer>滚动截图技术验证 · 仅限应用内内容</footer>
+                      </div>
+                    </div>
+                    <footer class="scroll-spike-actions">
+                      <span>输出会载入截图编辑器，可继续标注、复制或保存。</span>
+                      <button class="primary" id="confirm-scroll-screenshot" type="button">生成应用内长图</button>
+                    </footer>
+                  </section>
                 </div>
               </section>
 

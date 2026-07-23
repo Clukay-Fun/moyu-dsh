@@ -899,8 +899,14 @@ const screenshotEmpty = document.querySelector('#screenshot-empty')
 const screenshotStatusText = document.querySelector('#screenshot-status-text')
 const screenshotStatusDot = document.querySelector('#screenshot-status-dot')
 const startScreenshotButton = document.querySelector('#start-screenshot')
+const startScrollScreenshotButton = document.querySelector('#start-scroll-screenshot')
 const copyScreenshotButton = document.querySelector('#copy-screenshot')
 const saveScreenshotButton = document.querySelector('#save-screenshot')
+const scrollSpikeOverlay = document.querySelector('#scroll-spike-overlay')
+const controlledScrollSource = document.querySelector('#controlled-scroll-source')
+const controlledScrollList = document.querySelector('#controlled-scroll-list')
+const confirmScrollScreenshotButton = document.querySelector('#confirm-scroll-screenshot')
+const cancelScrollScreenshotButton = document.querySelector('#cancel-scroll-screenshot')
 const screenshotCanvas = new fabric.Canvas('screenshot-canvas-element', {
   preserveObjectStacking: true,
   selection: true
@@ -929,6 +935,7 @@ function updateScreenshotControls() {
   copyScreenshotButton.disabled = !hasImage || screenshotState.busy
   saveScreenshotButton.disabled = !hasImage || screenshotState.busy
   startScreenshotButton.disabled = screenshotState.busy
+  startScrollScreenshotButton.disabled = screenshotState.busy
 }
 
 function screenshotPreviewSize() {
@@ -983,6 +990,157 @@ async function loadScreenshotResult(result) {
   updateScreenshotControls()
   setScreenshotStatus(`已截取 ${sourceCanvas.width} × ${sourceCanvas.height} px`, 'success')
 }
+
+const controlledScrollItems = [
+  ['01', '区域截图', '选择屏幕区域并载入标注画布', '#6978e6'],
+  ['02', '矩形与箭头', '用醒目的几何标记突出重点', '#7b6bd6'],
+  ['03', '画笔标注', '直接在截图上绘制自由线条', '#4da4b0'],
+  ['04', '文字说明', '添加可移动、可缩放的文字注释', '#db8f43'],
+  ['05', '复制到剪贴板', '生成完整分辨率 PNG 并复制', '#4a9a70'],
+  ['06', '保存 PNG', '通过主进程安全选择落盘位置', '#d05f62'],
+  ['07', '应用内滚动截图', '精确控制滚动量并逐帧捕获', '#5b79c7'],
+  ['08', '长图无缝拼接', '按真实滚动坐标消除重叠内容', '#9a69b8'],
+  ['09', '继续标注', '长图载入同一套 Fabric 编辑器', '#3d91a6'],
+  ['10', '边界清晰', '第三方窗口滚动截图不在本次承诺内', '#737789']
+]
+
+controlledScrollItems.forEach(([index, title, copy, color]) => {
+  const item = document.createElement('article')
+  item.className = 'controlled-scroll-item'
+  item.style.setProperty('--scroll-item-color', color)
+  const icon = document.createElement('i')
+  icon.textContent = index
+  const content = document.createElement('div')
+  const heading = document.createElement('b')
+  heading.textContent = title
+  const description = document.createElement('span')
+  description.textContent = copy
+  content.append(heading, description)
+  item.append(icon, content)
+  controlledScrollList.append(item)
+})
+
+function nextAnimationFrames(count = 2) {
+  return new Promise((resolve) => {
+    const step = (remaining) => {
+      if (remaining <= 0) resolve()
+      else requestAnimationFrame(() => step(remaining - 1))
+    }
+    step(count)
+  })
+}
+
+async function decodePngCanvas(data) {
+  const blob = new Blob([data], { type: 'image/png' })
+  const bitmap = await createImageBitmap(blob)
+  const canvas = document.createElement('canvas')
+  canvas.width = bitmap.width
+  canvas.height = bitmap.height
+  canvas.getContext('2d').drawImage(bitmap, 0, 0)
+  bitmap.close()
+  return canvas
+}
+
+async function captureControlledScroll() {
+  const originalScrollTop = controlledScrollSource.scrollTop
+  controlledScrollSource.classList.add('capturing')
+  await nextAnimationFrames(2)
+  const clientHeight = controlledScrollSource.clientHeight
+  const scrollHeight = controlledScrollSource.scrollHeight
+  const maxScrollTop = Math.max(0, scrollHeight - clientHeight)
+  const positions = []
+
+  for (let scrollTop = 0; scrollTop < maxScrollTop; scrollTop += clientHeight) {
+    positions.push(scrollTop)
+  }
+  positions.push(maxScrollTop)
+
+  let outputCanvas
+  let outputContext
+  let pixelScale = 1
+
+  try {
+    for (const [index, scrollTop] of [...new Set(positions)].entries()) {
+      controlledScrollSource.scrollTop = scrollTop
+      await nextAnimationFrames(3)
+      const rect = controlledScrollSource.getBoundingClientRect()
+      const frame = await window.api.captureScrollFrame({
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height
+      })
+      const frameCanvas = await decodePngCanvas(frame.data)
+
+      if (!outputCanvas) {
+        pixelScale = frameCanvas.width / rect.width
+        outputCanvas = document.createElement('canvas')
+        outputCanvas.width = frameCanvas.width
+        outputCanvas.height = Math.max(1, Math.round(scrollHeight * pixelScale))
+        outputContext = outputCanvas.getContext('2d')
+      }
+
+      const targetY = Math.round(scrollTop * pixelScale)
+      const remainingHeight = outputCanvas.height - targetY
+      outputContext.drawImage(
+        frameCanvas,
+        0,
+        0,
+        frameCanvas.width,
+        Math.min(frameCanvas.height, remainingHeight),
+        0,
+        targetY,
+        frameCanvas.width,
+        Math.min(frameCanvas.height, remainingHeight)
+      )
+      setScreenshotStatus(`正在拼接 ${index + 1} / ${positions.length} 帧…`, 'busy')
+    }
+  } finally {
+    controlledScrollSource.scrollTop = originalScrollTop
+    controlledScrollSource.classList.remove('capturing')
+  }
+
+  if (!outputCanvas) throw new Error('没有捕获到滚动内容')
+  return { canvas: outputCanvas, frameCount: [...new Set(positions)].length }
+}
+
+startScrollScreenshotButton.addEventListener('click', () => {
+  scrollSpikeOverlay.hidden = false
+  controlledScrollSource.scrollTop = 0
+  confirmScrollScreenshotButton.focus()
+})
+
+cancelScrollScreenshotButton.addEventListener('click', () => {
+  scrollSpikeOverlay.hidden = true
+  startScrollScreenshotButton.focus()
+})
+
+confirmScrollScreenshotButton.addEventListener('click', async () => {
+  if (screenshotState.busy) return
+  screenshotState.busy = true
+  confirmScrollScreenshotButton.disabled = true
+  updateScreenshotControls()
+  setScreenshotStatus('正在截取应用内长内容…', 'busy')
+
+  try {
+    const result = await captureControlledScroll()
+    scrollSpikeOverlay.hidden = true
+    await loadScreenshotResult({
+      data: new Uint8Array(await (await canvasToBlob(result.canvas, 'image/png')).arrayBuffer())
+    })
+    setScreenshotStatus(
+      `应用内长图已拼接 · ${result.frameCount} 帧 · ${result.canvas.width} × ${result.canvas.height} px`,
+      'success'
+    )
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    setScreenshotStatus(`滚动截图失败：${reason}`, 'error')
+  } finally {
+    screenshotState.busy = false
+    confirmScrollScreenshotButton.disabled = false
+    updateScreenshotControls()
+  }
+})
 
 function addScreenshotObject(type) {
   if (!screenshotState.sourceCanvas) return
@@ -1073,8 +1231,26 @@ async function renderScreenshotPng() {
   screenshotCanvas.isDrawingMode = false
   screenshotCanvas.discardActiveObject()
   screenshotCanvas.requestRenderAll()
-  const multiplier = screenshotState.width / screenshotCanvas.getWidth()
-  const rendered = screenshotCanvas.toCanvasElement(multiplier)
+  const rendered = document.createElement('canvas')
+  rendered.width = screenshotState.width
+  rendered.height = screenshotState.height
+  const context = rendered.getContext('2d')
+  context.drawImage(screenshotState.sourceCanvas, 0, 0)
+
+  if (screenshotState.baseImage) {
+    screenshotState.baseImage.visible = false
+    screenshotCanvas.requestRenderAll()
+  }
+  let annotationLayer
+  try {
+    annotationLayer = screenshotCanvas.toCanvasElement()
+  } finally {
+    if (screenshotState.baseImage) {
+      screenshotState.baseImage.visible = true
+      screenshotCanvas.requestRenderAll()
+    }
+  }
+  context.drawImage(annotationLayer, 0, 0, rendered.width, rendered.height)
   const blob = await canvasToBlob(rendered, 'image/png')
   return new Uint8Array(await blob.arrayBuffer())
 }

@@ -420,6 +420,39 @@ ipcMain.handle('screenshot:start', async (event) => {
   return { status: 'started', sessionId }
 })
 
+ipcMain.handle('screenshot:capture-scroll-frame', async (event, rect) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) {
+    throw new Error('滚动截图只允许截取本应用主窗口')
+  }
+
+  const bounds = mainWindow.getContentBounds()
+  const normalized = {
+    x: Math.round(Number(rect?.x)),
+    y: Math.round(Number(rect?.y)),
+    width: Math.round(Number(rect?.width)),
+    height: Math.round(Number(rect?.height))
+  }
+  const isValid =
+    Object.values(normalized).every(Number.isFinite) &&
+    normalized.x >= 0 &&
+    normalized.y >= 0 &&
+    normalized.width >= 40 &&
+    normalized.height >= 40 &&
+    normalized.x + normalized.width <= bounds.width &&
+    normalized.y + normalized.height <= bounds.height
+
+  if (!isValid) {
+    throw new Error('滚动截图区域无效或超出应用窗口')
+  }
+
+  const frame = await event.sender.capturePage(normalized)
+  if (frame.isEmpty()) throw new Error('无法截取应用内滚动区域')
+  return {
+    data: new Uint8Array(frame.toPNG()),
+    size: frame.getSize()
+  }
+})
+
 ipcMain.handle('screenshot:get-session', (_event, sessionId) => {
   const session = screenshotSessions.get(sessionId)
   if (!session) throw new Error('截图会话已失效')
