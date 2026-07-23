@@ -1,3 +1,5 @@
+import JsBarcode from 'jsbarcode'
+
 const appLogoUrl = new URL('../../assets/logo_128.png', import.meta.url).href
 
 document.querySelectorAll('[data-app-logo]').forEach((image) => {
@@ -129,6 +131,7 @@ const searchInput = document.querySelector('#feature-search')
 const searchResults = document.querySelector('#search-results')
 const toast = document.querySelector('#toast')
 let toastTimer
+let barcodeRenderedValue = ''
 
 function renderSubmenu(module) {
   const groups = submenuData[module]
@@ -186,7 +189,7 @@ function activateModule(module, action = '') {
     page.classList.toggle('active', page.id === `page-${module}`)
   })
 
-  if (action && submenuData[module]) {
+  if (action && submenuData[module] && (module !== 'bc' || action === 'EAN-13')) {
     state.selections[module] = action
   }
 
@@ -196,6 +199,9 @@ function activateModule(module, action = '') {
     updatePdfState(state.selections.pdf)
   } else if (module === 'bc') {
     document.querySelector('#bc-crumb').textContent = state.selections.bc
+    if (action && action !== 'EAN-13') {
+      showToast(`“${action}”将在 M1b 接入，当前只支持 EAN-13`)
+    }
   } else if (module === 'image' && action) {
     setImageMode(action)
   }
@@ -218,6 +224,11 @@ function updatePdfState(action) {
 }
 
 function chooseSubmenu(module, action) {
+  if (module === 'bc' && action !== 'EAN-13') {
+    showToast(`“${action}”将在 M1b 接入，当前只支持 EAN-13`)
+    return
+  }
+
   state.selections[module] = action
   renderSubmenu(module)
 
@@ -280,6 +291,157 @@ document.addEventListener('click', (event) => {
   const name = button.textContent.trim()
   showToast(`“${name}”将在 ${button.dataset.milestone} 接入`)
 })
+
+const barcodeInput = document.querySelector('#barcode-value')
+const barcodeSvg = document.querySelector('#barcode-svg')
+const barcodeMessage = document.querySelector('#barcode-message')
+const generateBarcodeButton = document.querySelector('#generate-barcode')
+const saveBarcodeSvgButton = document.querySelector('#save-barcode-svg')
+const saveBarcodePngButton = document.querySelector('#save-barcode-png')
+
+function setBarcodeExportEnabled(enabled) {
+  saveBarcodeSvgButton.disabled = !enabled
+  saveBarcodePngButton.disabled = !enabled
+}
+
+function setBarcodeMessage(message, type = '') {
+  barcodeMessage.textContent = message
+  barcodeMessage.className = `barcode-message${type ? ` ${type}` : ''}`
+  barcodeInput.classList.toggle('invalid', type === 'error')
+}
+
+function generateBarcode() {
+  const value = barcodeInput.value.trim()
+  barcodeSvg.replaceChildren()
+  barcodeRenderedValue = ''
+  setBarcodeExportEnabled(false)
+
+  try {
+    JsBarcode(barcodeSvg, value, {
+      format: 'EAN13',
+      width: 2.4,
+      height: 110,
+      margin: 18,
+      textMargin: 8,
+      font: 'Consolas, monospace',
+      fontSize: 20,
+      lineColor: '#171820',
+      background: '#ffffff',
+      displayValue: true
+    })
+
+    barcodeSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+    barcodeRenderedValue = value
+    setBarcodeExportEnabled(true)
+    setBarcodeMessage('EAN-13 已生成，可保存为 SVG 或 PNG。', 'success')
+    return true
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    const friendlyReason = /not a valid input|invalid input/i.test(reason)
+      ? 'EAN-13 需要 12 位数字，或带正确校验位的 13 位数字。'
+      : reason
+    setBarcodeMessage(`无法生成：${friendlyReason}`, 'error')
+    showToast('条码内容无效，请输入 12 位数字或带正确校验位的 13 位数字')
+    return false
+  }
+}
+
+function serializeBarcodeSvg() {
+  const clone = barcodeSvg.cloneNode(true)
+  clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+  return `<?xml version="1.0" encoding="UTF-8"?>\n${new XMLSerializer().serializeToString(clone)}`
+}
+
+function svgToPngBytes(svgText) {
+  return new Promise((resolve, reject) => {
+    const blob = new Blob([svgText], { type: 'image/svg+xml;charset=utf-8' })
+    const objectUrl = URL.createObjectURL(blob)
+    const image = new Image()
+
+    image.addEventListener('load', () => {
+      try {
+        const width = Math.max(1, Math.ceil(Number.parseFloat(barcodeSvg.getAttribute('width')) || image.naturalWidth))
+        const height = Math.max(1, Math.ceil(Number.parseFloat(barcodeSvg.getAttribute('height')) || image.naturalHeight))
+        const scale = 2
+        const canvas = document.createElement('canvas')
+        const context = canvas.getContext('2d')
+
+        canvas.width = width * scale
+        canvas.height = height * scale
+        context.scale(scale, scale)
+        context.drawImage(image, 0, 0, width, height)
+        URL.revokeObjectURL(objectUrl)
+
+        canvas.toBlob(async (pngBlob) => {
+          if (!pngBlob) {
+            reject(new Error('PNG 编码失败'))
+            return
+          }
+
+          resolve(new Uint8Array(await pngBlob.arrayBuffer()))
+        }, 'image/png')
+      } catch (error) {
+        URL.revokeObjectURL(objectUrl)
+        reject(error)
+      }
+    }, { once: true })
+
+    image.addEventListener('error', () => {
+      URL.revokeObjectURL(objectUrl)
+      reject(new Error('SVG 预览无法转换为 PNG'))
+    }, { once: true })
+
+    image.src = objectUrl
+  })
+}
+
+async function saveBarcode(type) {
+  if (!barcodeRenderedValue || barcodeInput.value.trim() !== barcodeRenderedValue) {
+    setBarcodeMessage('内容已改变，请先重新生成条码。', 'error')
+    return
+  }
+
+  const button = type === 'svg' ? saveBarcodeSvgButton : saveBarcodePngButton
+  const originalLabel = button.textContent
+  button.disabled = true
+  button.textContent = '正在保存…'
+
+  try {
+    const svgText = serializeBarcodeSvg()
+    const data = type === 'svg' ? svgText : await svgToPngBytes(svgText)
+    const result = await window.api.saveBarcodeFile({
+      type,
+      name: `EAN13-${barcodeRenderedValue}`,
+      data
+    })
+
+    if (result.status === 'saved') {
+      setBarcodeMessage(`${type.toUpperCase()} 已保存。`, 'success')
+      showToast(`${type.toUpperCase()} 条码已保存`)
+    } else {
+      setBarcodeMessage('已取消保存。')
+    }
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    setBarcodeMessage(`保存失败：${reason}`, 'error')
+    showToast('条码保存失败，请检查目标位置是否可写')
+  } finally {
+    button.textContent = originalLabel
+    setBarcodeExportEnabled(true)
+  }
+}
+
+generateBarcodeButton.addEventListener('click', generateBarcode)
+barcodeInput.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') generateBarcode()
+})
+barcodeInput.addEventListener('input', () => {
+  barcodeRenderedValue = ''
+  setBarcodeExportEnabled(false)
+  setBarcodeMessage('内容已修改，请重新生成。')
+})
+saveBarcodeSvgButton.addEventListener('click', () => saveBarcode('svg'))
+saveBarcodePngButton.addEventListener('click', () => saveBarcode('png'))
 
 function renderSearchResults(query) {
   const normalized = query.trim().toLowerCase()
@@ -583,19 +745,6 @@ colorWheel.addEventListener('pointerup', () => {
   colorDragging = false
 })
 
-function renderBarcodePlaceholder() {
-  const bars = document.querySelector('#bars')
-  const sequence = [1, 1, 2, 1, 1, 3, 1, 2, 3, 1, 1, 1, 2, 2, 1, 3, 1, 1, 2, 1, 3, 2, 1, 1, 1, 3, 2, 1, 1, 2, 1, 1, 3, 1, 2, 1, 1, 3]
-
-  sequence.forEach((width, index) => {
-    const bar = document.createElement('i')
-    bar.style.width = `${width * 2.5}px`
-    bar.style.height = `${index < 3 || index > sequence.length - 4 ? 104 : 82}px`
-    bar.style.background = index % 2 ? 'transparent' : '#1c1c22'
-    bars.append(bar)
-  })
-}
-
 async function verifyPreloadBridge() {
   try {
     document.body.dataset.ipc = await window.api.ping()
@@ -615,6 +764,6 @@ drawColorWheel()
 rgbToHsl(colorState.r, colorState.g, colorState.b)
 updateColorControls()
 applyAccent()
-renderBarcodePlaceholder()
+generateBarcode()
 activateModule('pdf', defaultSelections.pdf)
 verifyPreloadBridge()

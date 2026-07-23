@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' ws:; img-src 'self' data:"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' ws:; img-src 'self' data: blob:"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>摸鱼工具箱</title>
@@ -120,12 +120,13 @@
                 <div class="barcode-grid">
                   <div class="glass-card barcode-work">
                     <div class="barcode-input">
-                      <input value="036000291458" aria-label="条码内容" readonly />
-                      <button class="gbtn placeholder-action" type="button" data-milestone="M1a">生成条码</button>
+                      <input id="barcode-value" value="036000291458" inputmode="numeric" maxlength="13" aria-label="条码内容" />
+                      <button class="primary" id="generate-barcode" type="button">生成条码</button>
                     </div>
                     <div class="artboard">
-                      <div class="barcode-mock"><div class="bars" id="bars"></div><div class="barcode-digits">0 36000 29145 8</div></div>
+                      <svg id="barcode-svg" role="img" aria-label="EAN-13 条码预览"></svg>
                     </div>
+                    <p class="barcode-message" id="barcode-message" role="status" aria-live="polite"></p>
                   </div>
                   <div class="control-column">
                     <div class="glass-card control-card">
@@ -137,8 +138,8 @@
                       </div>
                       <span class="label">导出文件</span>
                       <div class="format-grid">
-                        <button class="placeholder-action" type="button" data-milestone="M1a">SVG</button>
-                        <button class="placeholder-action" type="button" data-milestone="M1a">PNG</button>
+                        <button id="save-barcode-svg" type="button">保存 SVG</button>
+                        <button id="save-barcode-png" type="button">保存 PNG</button>
                       </div>
                     </div>
                     <div class="glass-card control-card">

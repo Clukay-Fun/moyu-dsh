@@ -583,6 +583,15 @@ input:focus-visible {
   transform: scale(0.98);
 }
 
+.gbtn:disabled,
+.primary:disabled,
+.format-grid button:disabled {
+  cursor: not-allowed;
+  filter: none;
+  opacity: 0.48;
+  transform: none;
+}
+
 .primary {
   border: 1px solid rgba(255, 255, 255, 0.4);
   color: #fff;
@@ -814,6 +823,11 @@ input:focus-visible {
   background: var(--card-thin);
 }
 
+.barcode-input input.invalid {
+  border-color: rgba(224, 85, 78, 0.65);
+  box-shadow: 0 0 0 3px rgba(224, 85, 78, 0.1);
+}
+
 .artboard {
   display: flex;
   min-height: 0;
@@ -826,6 +840,29 @@ input:focus-visible {
   background:
     repeating-conic-gradient(rgba(0, 0, 0, 0.022) 0% 25%, transparent 0% 50%) 50% / 20px 20px,
     rgba(255, 255, 255, 0.08);
+}
+
+.artboard svg {
+  display: block;
+  max-width: min(92%, 760px);
+  max-height: 88%;
+  overflow: visible;
+  filter: drop-shadow(0 7px 14px rgba(35, 39, 65, 0.08));
+}
+
+.barcode-message {
+  min-height: 18px;
+  margin: -5px 2px 0;
+  color: var(--faint);
+  font-size: 11px;
+}
+
+.barcode-message.error {
+  color: #d54f50;
+}
+
+.barcode-message.success {
+  color: #4a9a6a;
 }
 
 .barcode-mock {
