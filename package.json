@@ -12,7 +12,8 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
-    "build:win": "npm run build && electron-builder --win portable --x64",
+    "build:sidecar:win": "powershell -ExecutionPolicy Bypass -File scripts/build-ai-sidecar.ps1",
+    "build:win": "npm run build:sidecar:win && npm run build && electron-builder --win portable --x64",
     "preview": "electron-vite preview"
   },
   "build": {
@@ -29,6 +30,12 @@
       "package.json"
     ],
     "win": {
+      "extraResources": [
+        {
+          "from": "build/sidecars/moyu-ai-sidecar.exe",
+          "to": "sidecars/moyu-ai-sidecar.exe"
+        }
+      ],
       "target": [
         {
           "target": "portable",
@@ -49,6 +56,7 @@
   "dependencies": {
     "@tesseract.js-data/chi_sim": "1.0.0",
     "@tesseract.js-data/eng": "1.0.0",
+    "ag-psd": "31.0.2",
     "fabric": "5.5.2-browser",
     "jsbarcode": "3.12.3",
     "pdf-lib": "1.17.1",

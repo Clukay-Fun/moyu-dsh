@@ -7,6 +7,13 @@ contextBridge.exposeInMainWorld(
     saveBarcodeFile: (payload) => ipcRenderer.invoke('barcode:save-file', payload),
     saveBarcodeFiles: (payload) => ipcRenderer.invoke('barcode:save-files', payload),
     saveImageFile: (payload) => ipcRenderer.invoke('image:save-file', payload),
+    getAiStatus: () => ipcRenderer.invoke('ai:get-status'),
+    pickAiImages: (payload) => ipcRenderer.invoke('ai:pick-images', payload),
+    pickAiFolder: () => ipcRenderer.invoke('ai:pick-folder'),
+    removeAiInputs: (inputIds) => ipcRenderer.invoke('ai:remove-inputs', inputIds),
+    runAiTask: (payload) => ipcRenderer.invoke('ai:run', payload),
+    saveAiResults: (resultIds) => ipcRenderer.invoke('ai:save-results', resultIds),
+    exportAiPsd: (resultId) => ipcRenderer.invoke('ai:export-psd', resultId),
     savePdfFile: (payload) => ipcRenderer.invoke('pdf:save-file', payload),
     savePdfFiles: (payload) => ipcRenderer.invoke('pdf:save-files', payload),
     showPdfOutput: (path) => ipcRenderer.invoke('pdf:show-item', path),
@@ -34,6 +41,16 @@ contextBridge.exposeInMainWorld(
       const listener = (_event, progress) => callback(progress)
       ipcRenderer.on('pdf:save-progress', listener)
       return () => ipcRenderer.removeListener('pdf:save-progress', listener)
+    },
+    onAiModelProgress: (callback) => {
+      const listener = (_event, progress) => callback(progress)
+      ipcRenderer.on('ai:model-progress', listener)
+      return () => ipcRenderer.removeListener('ai:model-progress', listener)
+    },
+    onAiTaskProgress: (callback) => {
+      const listener = (_event, progress) => callback(progress)
+      ipcRenderer.on('ai:task-progress', listener)
+      return () => ipcRenderer.removeListener('ai:task-progress', listener)
     },
     onScreenshotCaptured: (callback) => {
       const listener = (_event, result) => callback(result)

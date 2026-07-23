@@ -9,11 +9,23 @@ import {
   screen,
   shell
 } from 'electron'
+import { writePsdBuffer } from 'ag-psd'
 import { createWorker, OEM } from 'tesseract.js'
-import { randomUUID } from 'node:crypto'
-import { copyFile, mkdir, stat, writeFile } from 'node:fs/promises'
+import { spawn } from 'node:child_process'
+import { createHash, randomUUID } from 'node:crypto'
+import {
+  copyFile,
+  mkdir,
+  open,
+  readFile,
+  readdir,
+  rename,
+  stat,
+  unlink,
+  writeFile
+} from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import { dirname, join } from 'node:path'
+import { basename, dirname, extname, join } from 'node:path'
 
 const require = createRequire(import.meta.url)
 
@@ -66,10 +78,41 @@ const PDF_OUTPUT_TYPES = {
 
 const screenshotSessions = new Map()
 const pinnedScreenshotSessions = new Map()
+const aiInputSessions = new Map()
+const aiResultSessions = new Map()
+const aiModelDownloads = new Map()
 let ocrWorkerPromise = null
 let ocrProgressTarget = null
 let ocrBusy = false
 let mainWindow = null
+
+const AI_MODELS = {
+  rmbg: {
+    name: 'RMBG-1.4',
+    fileName: 'rmbg-1.4.onnx',
+    size: 176153355,
+    sha256: '8cafcf770b06757c4eaced21b1a88e57fd2b66de01b8045f35f01535ba742e0f',
+    url: 'https://huggingface.co/briaai/RMBG-1.4/resolve/2ceba5a5efaec153162aedea169f76caf9b46cf8/onnx/model.onnx?download=true',
+    license: 'BRIA RMBG-1.4 · 仅限非商业使用'
+  },
+  migan: {
+    name: 'MI-GAN Pipeline v2',
+    fileName: 'migan-pipeline-v2.onnx',
+    size: 28079181,
+    sha256: '6f1f3530a1a2324b19752018ce756088b07973cda8d7d890034ace5c8a48c40b',
+    url: 'https://huggingface.co/andraniksargsyan/migan/resolve/1538c135034b8cfe7a8472f34d09c8a5a45b17a7/migan_pipeline_v2.onnx?download=true',
+    license: '模型文件无独立许可 · 仅限当前自用学习'
+  }
+}
+
+const AI_IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp'])
+const AI_MAX_FILE_BYTES = 50 * 1024 * 1024
+const AI_MAX_FILES = 100
+const AI_COMMAND_TIMEOUT_MS = 10 * 60 * 1000
+let aiSidecar = null
+let aiSidecarBuffer = ''
+let aiSidecarStarting = null
+const aiSidecarPending = new Map()
 
 const OCR_MODELS = [
   {
@@ -122,6 +165,363 @@ function normalizeOcrText(text) {
   return String(text || '')
     .replace(/([\p{Script=Han}])\s+(?=[\p{Script=Han}])/gu, '$1')
     .trim()
+}
+
+function assertMainWindowSender(event) {
+  if (!mainWindow || event.sender !== mainWindow.webContents) {
+    throw new Error('此操作只允许从主窗口发起')
+  }
+}
+
+function getAiModelDirectory() {
+  return join(app.getPath('userData'), 'models', 'ai')
+}
+
+function getAiResultDirectory() {
+  return join(app.getPath('userData'), 'ai-results')
+}
+
+function getAiSidecarLaunch() {
+  if (process.platform === 'win32') {
+    const executable = app.isPackaged
+      ? join(process.resourcesPath, 'sidecars', 'moyu-ai-sidecar.exe')
+      : join(app.getAppPath(), 'build', 'sidecars', 'moyu-ai-sidecar.exe')
+    return { command: executable, args: [] }
+  }
+
+  if (!app.isPackaged) {
+    return {
+      command: process.env.MOYU_AI_PYTHON || 'python3',
+      args: [join(app.getAppPath(), 'sidecar', 'ai', 'worker.py')]
+    }
+  }
+
+  throw new Error('AI 图像 sidecar 当前仅随 Windows 发布包提供')
+}
+
+async function hashFile(filePath) {
+  const digest = createHash('sha256')
+  const handle = await open(filePath, 'r')
+  const buffer = Buffer.allocUnsafe(1024 * 1024)
+  try {
+    let position = 0
+    while (true) {
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, position)
+      if (!bytesRead) break
+      digest.update(buffer.subarray(0, bytesRead))
+      position += bytesRead
+    }
+  } finally {
+    await handle.close()
+  }
+  return digest.digest('hex')
+}
+
+async function inspectAiModel(key, verifyHash = false) {
+  const model = AI_MODELS[key]
+  if (!model) throw new Error(`未知 AI 模型：${key}`)
+  const filePath = join(getAiModelDirectory(), model.fileName)
+  const info = await stat(filePath).catch(() => null)
+  if (!info || info.size !== model.size) {
+    return { ready: false, filePath, model }
+  }
+  if (verifyHash && (await hashFile(filePath)) !== model.sha256) {
+    await unlink(filePath).catch(() => {})
+    return { ready: false, filePath, model }
+  }
+  return { ready: true, filePath, model }
+}
+
+function sendAiModelProgress(sender, payload) {
+  if (!sender.isDestroyed()) sender.send('ai:model-progress', payload)
+}
+
+async function downloadAiModel(key, sender) {
+  const existing = await inspectAiModel(key, true)
+  if (existing.ready) return existing.filePath
+  if (aiModelDownloads.has(key)) return aiModelDownloads.get(key)
+
+  const task = (async () => {
+    const { model, filePath } = existing
+    const temporaryPath = `${filePath}.download`
+    await mkdir(getAiModelDirectory(), { recursive: true })
+    await unlink(temporaryPath).catch(() => {})
+    sendAiModelProgress(sender, {
+      key,
+      name: model.name,
+      status: 'downloading',
+      received: 0,
+      total: model.size,
+      progress: 0
+    })
+
+    const response = await fetch(model.url, { redirect: 'follow' })
+    if (!response.ok || !response.body) {
+      throw new Error(`${model.name} 下载失败（HTTP ${response.status}）`)
+    }
+
+    const handle = await open(temporaryPath, 'w')
+    const reader = response.body.getReader()
+    const digest = createHash('sha256')
+    let received = 0
+    try {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        const chunk = Buffer.from(value)
+        await handle.write(chunk)
+        digest.update(chunk)
+        received += chunk.length
+        sendAiModelProgress(sender, {
+          key,
+          name: model.name,
+          status: 'downloading',
+          received,
+          total: model.size,
+          progress: Math.min(1, received / model.size)
+        })
+      }
+    } finally {
+      await handle.close()
+    }
+
+    if (received !== model.size || digest.digest('hex') !== model.sha256) {
+      await unlink(temporaryPath).catch(() => {})
+      throw new Error(`${model.name} 文件校验失败，已删除不完整下载`)
+    }
+    await rename(temporaryPath, filePath)
+    sendAiModelProgress(sender, {
+      key,
+      name: model.name,
+      status: 'ready',
+      received,
+      total: model.size,
+      progress: 1
+    })
+    return filePath
+  })()
+    .catch((error) => {
+      sendAiModelProgress(sender, {
+        key,
+        name: AI_MODELS[key].name,
+        status: 'error',
+        message: error.message
+      })
+      throw error
+    })
+    .finally(() => {
+      aiModelDownloads.delete(key)
+    })
+
+  aiModelDownloads.set(key, task)
+  return task
+}
+
+function rejectAiSidecarPending(error) {
+  aiSidecarPending.forEach(({ reject, timer }) => {
+    clearTimeout(timer)
+    reject(error)
+  })
+  aiSidecarPending.clear()
+}
+
+function handleAiSidecarLine(line) {
+  let response
+  try {
+    response = JSON.parse(line)
+  } catch {
+    return
+  }
+  const pending = aiSidecarPending.get(response.id)
+  if (!pending) return
+  clearTimeout(pending.timer)
+  aiSidecarPending.delete(response.id)
+  if (response.ok) pending.resolve(response.result)
+  else pending.reject(new Error(response.error || 'AI sidecar 执行失败'))
+}
+
+async function ensureAiSidecar() {
+  if (aiSidecar && !aiSidecar.killed && aiSidecar.exitCode === null) return aiSidecar
+  if (aiSidecarStarting) return aiSidecarStarting
+
+  aiSidecarStarting = new Promise((resolve, reject) => {
+    let launch
+    try {
+      launch = getAiSidecarLaunch()
+    } catch (error) {
+      reject(error)
+      return
+    }
+    const child = spawn(launch.command, launch.args, {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true,
+      env: { ...process.env, PYTHONUNBUFFERED: '1' }
+    })
+    let settled = false
+    let stderr = ''
+
+    child.stdout.setEncoding('utf8')
+    child.stdout.on('data', (chunk) => {
+      aiSidecarBuffer += chunk
+      const lines = aiSidecarBuffer.split(/\r?\n/)
+      aiSidecarBuffer = lines.pop() || ''
+      lines.filter(Boolean).forEach(handleAiSidecarLine)
+    })
+    child.stderr.setEncoding('utf8')
+    child.stderr.on('data', (chunk) => {
+      stderr = `${stderr}${chunk}`.slice(-4000)
+    })
+    child.once('spawn', () => {
+      settled = true
+      aiSidecar = child
+      resolve(child)
+    })
+    child.once('error', (error) => {
+      if (!settled) reject(new Error(`无法启动 AI sidecar：${error.message}`))
+    })
+    child.once('exit', (code) => {
+      const wasActive = aiSidecar === child
+      if (wasActive) aiSidecar = null
+      if (!settled) {
+        reject(new Error(`AI sidecar 启动失败（${code ?? 'unknown'}）：${stderr.trim()}`))
+      }
+      rejectAiSidecarPending(
+        new Error(`AI sidecar 已退出（${code ?? 'unknown'}）${stderr.trim() ? `：${stderr.trim()}` : ''}`)
+      )
+    })
+  }).finally(() => {
+    aiSidecarStarting = null
+  })
+  return aiSidecarStarting
+}
+
+async function callAiSidecar(command) {
+  const child = await ensureAiSidecar()
+  const id = randomUUID()
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      aiSidecarPending.delete(id)
+      reject(new Error('AI 任务执行超时'))
+    }, AI_COMMAND_TIMEOUT_MS)
+    aiSidecarPending.set(id, { resolve, reject, timer })
+    child.stdin.write(`${JSON.stringify({ ...command, id })}\n`, (error) => {
+      if (!error) return
+      clearTimeout(timer)
+      aiSidecarPending.delete(id)
+      reject(error)
+    })
+  })
+}
+
+function aiPreviewFromPath(filePath, maxSide = 1200) {
+  const image = nativeImage.createFromPath(filePath)
+  if (image.isEmpty()) throw new Error(`无法读取图片：${basename(filePath)}`)
+  const size = image.getSize()
+  const scale = Math.min(1, maxSide / Math.max(size.width, size.height))
+  const preview = scale < 1
+    ? image.resize({
+        width: Math.max(1, Math.round(size.width * scale)),
+        height: Math.max(1, Math.round(size.height * scale)),
+        quality: 'good'
+      })
+    : image
+  return {
+    width: size.width,
+    height: size.height,
+    previewData: new Uint8Array(preview.toPNG())
+  }
+}
+
+async function psdImageDataFromPath(filePath) {
+  const data = await readFile(filePath)
+  const image = nativeImage.createFromBuffer(data)
+  if (image.isEmpty()) throw new Error(`无法解析 PSD 图层图片：${basename(filePath)}`)
+  const { width, height } = image.getSize()
+  const bitmap = image.toBitmap()
+  const rgba = new Uint8ClampedArray(bitmap.length)
+
+  for (let index = 0; index < bitmap.length; index += 4) {
+    const alpha = bitmap[index + 3]
+    const multiplier = alpha > 0 && alpha < 255 ? 255 / alpha : 1
+    rgba[index] = Math.min(255, Math.round(bitmap[index + 2] * multiplier))
+    rgba[index + 1] = Math.min(255, Math.round(bitmap[index + 1] * multiplier))
+    rgba[index + 2] = Math.min(255, Math.round(bitmap[index] * multiplier))
+    rgba[index + 3] = alpha
+  }
+
+  return { width, height, data: rgba }
+}
+
+async function registerAiInput(filePath, ownerId) {
+  const info = await stat(filePath)
+  if (!info.isFile() || info.size > AI_MAX_FILE_BYTES) {
+    throw new Error(`${basename(filePath)} 不是文件或超过 50 MB`)
+  }
+  const extension = extname(filePath).toLowerCase()
+  if (!AI_IMAGE_EXTENSIONS.has(extension)) {
+    throw new Error(`${basename(filePath)} 不是受支持的 PNG/JPG/WebP 图片`)
+  }
+  const preview = aiPreviewFromPath(filePath)
+  const id = randomUUID()
+  aiInputSessions.set(id, {
+    id,
+    ownerId,
+    path: filePath,
+    name: basename(filePath),
+    size: info.size,
+    width: preview.width,
+    height: preview.height
+  })
+  return {
+    id,
+    name: basename(filePath),
+    size: info.size,
+    width: preview.width,
+    height: preview.height,
+    previewData: preview.previewData
+  }
+}
+
+function getAiInput(event, inputId) {
+  const input = aiInputSessions.get(inputId)
+  if (!input || input.ownerId !== event.sender.id) throw new Error('AI 图片会话不存在或无权访问')
+  return input
+}
+
+function getAiResult(event, resultId) {
+  const result = aiResultSessions.get(resultId)
+  if (!result || result.ownerId !== event.sender.id) throw new Error('AI 结果会话不存在或无权访问')
+  return result
+}
+
+async function registerAiResult(event, outputPath, input, metadata) {
+  const preview = aiPreviewFromPath(outputPath)
+  const info = await stat(outputPath)
+  const id = randomUUID()
+  const result = {
+    id,
+    ownerId: event.sender.id,
+    path: outputPath,
+    inputPath: input.path,
+    inputName: input.name,
+    name: basename(outputPath),
+    size: info.size,
+    width: preview.width,
+    height: preview.height,
+    metadata
+  }
+  aiResultSessions.set(id, result)
+  return {
+    id,
+    inputId: input.id,
+    inputName: input.name,
+    name: result.name,
+    size: result.size,
+    width: result.width,
+    height: result.height,
+    previewData: preview.previewData,
+    metadata
+  }
 }
 
 async function copyFileIfChanged(source, destination) {
@@ -315,6 +715,302 @@ ipcMain.handle('image:save-file', async (event, payload) => {
 
   await writeFile(result.filePath, data)
   return { status: 'saved', path: result.filePath }
+})
+
+ipcMain.handle('ai:get-status', async (event) => {
+  assertMainWindowSender(event)
+  const models = {}
+  for (const [key, model] of Object.entries(AI_MODELS)) {
+    const state = await inspectAiModel(key)
+    models[key] = {
+      name: model.name,
+      ready: state.ready,
+      size: model.size,
+      license: model.license
+    }
+  }
+
+  let sidecarReady = false
+  let sidecarMessage = ''
+  try {
+    const launch = getAiSidecarLaunch()
+    if (process.platform === 'win32') {
+      sidecarReady = Boolean(await stat(launch.command).catch(() => null))
+      if (!sidecarReady) sidecarMessage = '请先构建 Windows AI sidecar'
+    } else {
+      sidecarReady = !app.isPackaged
+      sidecarMessage = '非 Windows 开发环境需安装 sidecar Python 依赖'
+    }
+  } catch (error) {
+    sidecarMessage = error.message
+  }
+
+  return {
+    sidecarReady,
+    sidecarMessage,
+    models,
+    platform: process.platform
+  }
+})
+
+ipcMain.handle('ai:pick-images', async (event, payload) => {
+  assertMainWindowSender(event)
+  const ownerWindow = BrowserWindow.fromWebContents(event.sender)
+  const result = await dialog.showOpenDialog(ownerWindow, {
+    title: '选择 AI 图像处理文件',
+    properties: ['openFile', ...(payload?.multiple === false ? [] : ['multiSelections'])],
+    filters: [
+      { name: '图片', extensions: ['png', 'jpg', 'jpeg', 'webp'] }
+    ]
+  })
+  if (result.canceled) return { status: 'cancelled', files: [] }
+  if (result.filePaths.length > AI_MAX_FILES) throw new Error(`一次最多选择 ${AI_MAX_FILES} 张图片`)
+
+  const files = []
+  const errors = []
+  for (const filePath of result.filePaths) {
+    try {
+      files.push(await registerAiInput(filePath, event.sender.id))
+    } catch (error) {
+      errors.push(error.message)
+    }
+  }
+  return { status: 'selected', files, errors }
+})
+
+ipcMain.handle('ai:pick-folder', async (event) => {
+  assertMainWindowSender(event)
+  const ownerWindow = BrowserWindow.fromWebContents(event.sender)
+  const result = await dialog.showOpenDialog(ownerWindow, {
+    title: '选择批量图片文件夹',
+    properties: ['openDirectory']
+  })
+  if (result.canceled || !result.filePaths[0]) return { status: 'cancelled', files: [] }
+
+  const directory = result.filePaths[0]
+  const entries = await readdir(directory, { withFileTypes: true })
+  const candidates = entries
+    .filter((entry) => entry.isFile() && AI_IMAGE_EXTENSIONS.has(extname(entry.name).toLowerCase()))
+    .slice(0, AI_MAX_FILES)
+  const files = []
+  const errors = []
+  for (const entry of candidates) {
+    try {
+      files.push(await registerAiInput(join(directory, entry.name), event.sender.id))
+    } catch (error) {
+      errors.push(error.message)
+    }
+  }
+  return {
+    status: 'selected',
+    files,
+    errors,
+    truncated: candidates.length === AI_MAX_FILES && entries.length > AI_MAX_FILES
+  }
+})
+
+ipcMain.handle('ai:remove-inputs', (event, inputIds) => {
+  assertMainWindowSender(event)
+  const ids = Array.isArray(inputIds) ? inputIds : []
+  ids.forEach((id) => {
+    const input = aiInputSessions.get(id)
+    if (input?.ownerId === event.sender.id) aiInputSessions.delete(id)
+  })
+  return { status: 'removed', count: ids.length }
+})
+
+ipcMain.handle('ai:run', async (event, payload) => {
+  assertMainWindowSender(event)
+  const mode = payload?.mode
+  if (!['remove', 'batch', 'id-photo', 'inpaint'].includes(mode)) {
+    throw new Error('不支持的 AI 图像任务')
+  }
+
+  const requestedIds = Array.isArray(payload?.inputIds) ? payload.inputIds : []
+  if (!requestedIds.length || requestedIds.length > AI_MAX_FILES) {
+    throw new Error(`AI 任务图片数量必须在 1–${AI_MAX_FILES} 之间`)
+  }
+  if (['id-photo', 'inpaint'].includes(mode) && requestedIds.length !== 1) {
+    throw new Error('证件照与图像修补任务一次只处理一张图片')
+  }
+
+  const inputs = requestedIds.map((id) => getAiInput(event, id))
+  const modelPath = await downloadAiModel(mode === 'inpaint' ? 'migan' : 'rmbg', event.sender)
+  const taskDirectory = join(getAiResultDirectory(), randomUUID())
+  await mkdir(taskDirectory, { recursive: true })
+  let maskPath = ''
+  if (mode === 'inpaint') {
+    const maskData = payload?.mask instanceof Uint8Array ? Buffer.from(payload.mask) : null
+    if (!maskData || maskData.byteLength > 20 * 1024 * 1024) {
+      throw new Error('请先在原图上涂抹需要修补的区域')
+    }
+    const maskImage = nativeImage.createFromBuffer(maskData)
+    if (maskImage.isEmpty()) throw new Error('无法解析修补遮罩')
+    maskPath = join(taskDirectory, 'repair-mask.png')
+    await writeFile(maskPath, maskData)
+  }
+  const results = []
+  const errors = []
+
+  for (const [index, input] of inputs.entries()) {
+    const outputBase = sanitizeFileBaseName(
+      basename(input.name, extname(input.name)),
+      `image-${index + 1}`
+    )
+    const outputPath = join(
+      taskDirectory,
+      `${outputBase}-${mode === 'id-photo' ? 'id-photo' : 'cutout'}.png`
+    )
+    event.sender.send('ai:task-progress', {
+      status: 'running',
+      completed: index,
+      total: inputs.length,
+      name: input.name
+    })
+
+    try {
+      const command = mode === 'id-photo'
+        ? {
+            action: 'id_photo',
+            input: input.path,
+            output: outputPath,
+            model: modelPath,
+            width: Math.min(4000, Math.max(64, Number(payload?.width) || 295)),
+            height: Math.min(4000, Math.max(64, Number(payload?.height) || 413)),
+            background: /^#[0-9a-f]{6}$/i.test(payload?.background)
+              ? payload.background
+              : '#438edb'
+          }
+        : mode === 'inpaint'
+          ? {
+              action: 'inpaint',
+              input: input.path,
+              output: outputPath.replace('-cutout.png', '-repaired.png'),
+              model: modelPath,
+              mask: maskPath
+            }
+        : {
+            action: 'remove_bg',
+            input: input.path,
+            output: outputPath,
+            model: modelPath
+          }
+      const metadata = await callAiSidecar(command)
+      results.push(await registerAiResult(event, command.output, input, metadata))
+    } catch (error) {
+      errors.push({ inputId: input.id, name: input.name, message: error.message })
+      if (mode !== 'batch') throw error
+    }
+
+    event.sender.send('ai:task-progress', {
+      status: 'running',
+      completed: index + 1,
+      total: inputs.length,
+      name: input.name
+    })
+  }
+
+  event.sender.send('ai:task-progress', {
+    status: 'complete',
+    completed: inputs.length,
+    total: inputs.length
+  })
+  return { status: 'complete', results, errors }
+})
+
+ipcMain.handle('ai:save-results', async (event, resultIds) => {
+  assertMainWindowSender(event)
+  const ids = Array.isArray(resultIds) ? resultIds : []
+  if (!ids.length || ids.length > AI_MAX_FILES) throw new Error('没有可保存的 AI 处理结果')
+  const results = ids.map((id) => getAiResult(event, id))
+  const ownerWindow = BrowserWindow.fromWebContents(event.sender)
+
+  if (results.length === 1) {
+    const result = results[0]
+    const selection = await dialog.showSaveDialog(ownerWindow, {
+      title: '保存 AI 图像结果',
+      defaultPath: result.name,
+      filters: [{ name: 'PNG 图片', extensions: ['png'] }]
+    })
+    if (selection.canceled || !selection.filePath) return { status: 'cancelled', saved: 0 }
+    await copyFile(result.path, selection.filePath)
+    return { status: 'saved', saved: 1, path: selection.filePath }
+  }
+
+  const selection = await dialog.showOpenDialog(ownerWindow, {
+    title: '选择 AI 结果保存文件夹',
+    properties: ['openDirectory', 'createDirectory', 'promptToCreate']
+  })
+  if (selection.canceled || !selection.filePaths[0]) return { status: 'cancelled', saved: 0 }
+
+  const directory = selection.filePaths[0]
+  const usedNames = new Map()
+  for (const [index, result] of results.entries()) {
+    const key = result.name.toLocaleLowerCase('en-US')
+    const occurrence = (usedNames.get(key) || 0) + 1
+    usedNames.set(key, occurrence)
+    const extension = extname(result.name)
+    const base = basename(result.name, extension)
+    const uniqueName = occurrence === 1 ? result.name : `${base}-${occurrence}${extension}`
+    await copyFile(result.path, join(directory, uniqueName))
+    event.sender.send('ai:task-progress', {
+      status: 'saving',
+      completed: index + 1,
+      total: results.length,
+      name: uniqueName
+    })
+  }
+  return { status: 'saved', saved: results.length, directory }
+})
+
+ipcMain.handle('ai:export-psd', async (event, resultId) => {
+  assertMainWindowSender(event)
+  const result = getAiResult(event, resultId)
+  const [original, processed] = await Promise.all([
+    psdImageDataFromPath(result.inputPath),
+    psdImageDataFromPath(result.path)
+  ])
+  if (original.width !== processed.width || original.height !== processed.height) {
+    throw new Error('原图与处理结果尺寸不同，无法导出同尺寸分层 PSD')
+  }
+
+  const psd = {
+    width: original.width,
+    height: original.height,
+    children: [
+      {
+        name: '处理结果',
+        left: 0,
+        top: 0,
+        right: processed.width,
+        bottom: processed.height,
+        imageData: processed
+      },
+      {
+        name: '原图（隐藏）',
+        hidden: true,
+        left: 0,
+        top: 0,
+        right: original.width,
+        bottom: original.height,
+        imageData: original
+      }
+    ]
+  }
+  const data = Buffer.from(writePsdBuffer(psd))
+  const ownerWindow = BrowserWindow.fromWebContents(event.sender)
+  const defaultName = `${sanitizeFileBaseName(
+    basename(result.inputName, extname(result.inputName)),
+    'ai-image'
+  )}-layers.psd`
+  const selection = await dialog.showSaveDialog(ownerWindow, {
+    title: '导出分层 PSD',
+    defaultPath: defaultName,
+    filters: [{ name: 'Adobe Photoshop 文档', extensions: ['psd'] }]
+  })
+  if (selection.canceled || !selection.filePath) return { status: 'cancelled' }
+  await writeFile(selection.filePath, data)
+  return { status: 'saved', path: selection.filePath, bytes: data.byteLength }
 })
 
 ipcMain.handle('pdf:save-file', async (event, payload) => {
@@ -770,4 +1466,10 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   ocrWorkerPromise?.then((worker) => worker.terminate()).catch(() => {})
+  if (aiSidecar && !aiSidecar.killed) {
+    aiSidecar.stdin.write(`${JSON.stringify({ id: randomUUID(), action: 'shutdown' })}\n`)
+    setTimeout(() => {
+      if (aiSidecar && !aiSidecar.killed) aiSidecar.kill()
+    }, 1000).unref()
+  }
 })
