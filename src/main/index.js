@@ -1,4 +1,15 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  clipboard,
+  desktopCapturer,
+  dialog,
+  ipcMain,
+  nativeImage,
+  screen,
+  shell
+} from 'electron'
+import { randomUUID } from 'node:crypto'
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
@@ -49,6 +60,9 @@ const PDF_OUTPUT_TYPES = {
   }
 }
 
+const screenshotSessions = new Map()
+let mainWindow = null
+
 function normalizeBarcodeData(type, rawData) {
   const fileType = BARCODE_FILE_TYPES[type]
 
@@ -78,7 +92,7 @@ function sanitizeFileBaseName(name, fallback = 'file') {
 }
 
 function createWindow() {
-  const mainWindow = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 960,
     height: 640,
     minWidth: 720,
@@ -94,6 +108,9 @@ function createWindow() {
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show()
+  })
+  mainWindow.on('closed', () => {
+    mainWindow = null
   })
 
   if (process.env.ELECTRON_RENDERER_URL) {
@@ -328,6 +345,153 @@ ipcMain.handle('pdf:show-item', async (_event, payload) => {
     shell.showItemInFolder(payload.path)
   }
   return { status: 'shown' }
+})
+
+ipcMain.handle('screenshot:start', async (event) => {
+  const cursorPoint = screen.getCursorScreenPoint()
+  const display = screen.getDisplayNearestPoint(cursorPoint)
+  const physicalWidth = Math.max(1, Math.round(display.bounds.width * display.scaleFactor))
+  const physicalHeight = Math.max(1, Math.round(display.bounds.height * display.scaleFactor))
+  const sources = await desktopCapturer.getSources({
+    types: ['screen'],
+    thumbnailSize: {
+      width: physicalWidth,
+      height: physicalHeight
+    },
+    fetchWindowIcons: false
+  })
+  const source =
+    sources.find((candidate) => String(candidate.display_id) === String(display.id)) ||
+    sources[0]
+
+  if (!source || source.thumbnail.isEmpty()) {
+    throw new Error('无法读取屏幕画面，请检查系统录屏权限')
+  }
+
+  const sessionId = randomUUID()
+  const data = source.thumbnail.toPNG()
+  const overlay = new BrowserWindow({
+    ...display.bounds,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    fullscreenable: false,
+    resizable: false,
+    movable: false,
+    show: false,
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
+    }
+  })
+  const session = {
+    data,
+    displayBounds: display.bounds,
+    imageSize: source.thumbnail.getSize(),
+    owner: event.sender,
+    overlay
+  }
+  screenshotSessions.set(sessionId, session)
+  overlay.once('ready-to-show', () => {
+    overlay.show()
+    overlay.focus()
+  })
+  overlay.on('closed', () => {
+    const activeSession = screenshotSessions.get(sessionId)
+    if (activeSession?.overlay === overlay) {
+      screenshotSessions.delete(sessionId)
+      activeSession.owner.send('screenshot:cancelled')
+    }
+  })
+
+  if (process.env.ELECTRON_RENDERER_URL) {
+    const overlayUrl = new URL('screenshot.html', process.env.ELECTRON_RENDERER_URL)
+    overlayUrl.searchParams.set('session', sessionId)
+    await overlay.loadURL(overlayUrl.toString())
+  } else {
+    await overlay.loadFile(join(__dirname, '../renderer/screenshot.html'), {
+      query: { session: sessionId }
+    })
+  }
+
+  return { status: 'started', sessionId }
+})
+
+ipcMain.handle('screenshot:get-session', (_event, sessionId) => {
+  const session = screenshotSessions.get(sessionId)
+  if (!session) throw new Error('截图会话已失效')
+  return {
+    data: new Uint8Array(session.data),
+    imageSize: session.imageSize,
+    displayBounds: session.displayBounds
+  }
+})
+
+ipcMain.handle('screenshot:complete', (_event, payload) => {
+  const session = screenshotSessions.get(payload?.sessionId)
+  if (!session) throw new Error('截图会话已失效')
+  const rect = payload.rect || {}
+  const scaleX = session.imageSize.width / session.displayBounds.width
+  const scaleY = session.imageSize.height / session.displayBounds.height
+  const x = Math.max(0, Math.min(session.imageSize.width - 1, Math.round(Number(rect.x) * scaleX)))
+  const y = Math.max(0, Math.min(session.imageSize.height - 1, Math.round(Number(rect.y) * scaleY)))
+  const width = Math.max(
+    1,
+    Math.min(session.imageSize.width - x, Math.round(Number(rect.width) * scaleX))
+  )
+  const height = Math.max(
+    1,
+    Math.min(session.imageSize.height - y, Math.round(Number(rect.height) * scaleY))
+  )
+  const cropped = nativeImage.createFromBuffer(session.data).crop({ x, y, width, height })
+  const data = cropped.toPNG()
+  screenshotSessions.delete(payload.sessionId)
+  session.overlay.close()
+  session.owner.send('screenshot:captured', {
+    data: new Uint8Array(data),
+    width,
+    height
+  })
+  return { status: 'captured', width, height }
+})
+
+ipcMain.handle('screenshot:cancel', (_event, sessionId) => {
+  const session = screenshotSessions.get(sessionId)
+  if (session) {
+    screenshotSessions.delete(sessionId)
+    session.overlay.close()
+    session.owner.send('screenshot:cancelled')
+  }
+  return { status: 'cancelled' }
+})
+
+ipcMain.handle('screenshot:save', async (event, payload) => {
+  const data = payload?.data instanceof Uint8Array ? Buffer.from(payload.data) : null
+  if (!data || data.byteLength > 100 * 1024 * 1024) {
+    throw new Error('截图数据无效或超过 100 MB')
+  }
+  const ownerWindow = BrowserWindow.fromWebContents(event.sender)
+  const result = await dialog.showSaveDialog(ownerWindow, {
+    title: '保存截图',
+    defaultPath: `${sanitizeFileBaseName(payload.name, 'screenshot')}.png`,
+    filters: [{ name: 'PNG 图片', extensions: ['png'] }]
+  })
+  if (result.canceled || !result.filePath) return { status: 'cancelled' }
+  await writeFile(result.filePath, data)
+  return { status: 'saved', path: result.filePath }
+})
+
+ipcMain.handle('screenshot:copy', (_event, data) => {
+  if (!(data instanceof Uint8Array) || data.byteLength > 100 * 1024 * 1024) {
+    throw new Error('截图数据无效或超过 100 MB')
+  }
+  const image = nativeImage.createFromBuffer(Buffer.from(data))
+  if (image.isEmpty()) throw new Error('无法解析截图数据')
+  clipboard.writeImage(image)
+  return { status: 'copied', size: image.getSize() }
 })
 
 app.whenReady().then(() => {

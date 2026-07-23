@@ -169,6 +169,7 @@ const moduleLabels = {
   ai: 'Illustrator',
   bc: '条码',
   image: '图片',
+  screen: '截图',
   video: '格式工厂',
   more: '设置'
 }
@@ -204,6 +205,8 @@ const searchFeatures = [
   ['文字水印', '图片', 'image', 'watermark', '水印 编辑'],
   ['调色与马赛克', '图片', 'image', 'adjust', '亮度 对比度 饱和度 像素化'],
   ['图片导出', '图片', 'image', 'export', 'PNG JPG WebP TIFF'],
+  ['区域截图', '截图', 'screen', '', '屏幕 截屏 标注'],
+  ['截图复制', '截图', 'screen', '', '剪贴板 PNG'],
   ['格式转换', '格式工厂', 'video', '格式转换', 'FFmpeg 视频 音频'],
   ['主题与强调色', '设置', 'more', '', '外观 深色 浅色 颜色'],
   ['关于摸鱼工具箱', '设置', 'more', '', '版本 作者']
@@ -889,6 +892,297 @@ window.api.onPdfSaveProgress((progress) => {
   if (state.pdfBusy) {
     setPdfResult(`正在保存 ${progress.completed} / ${progress.total}`, 'busy')
   }
+})
+
+const screenshotStage = document.querySelector('#screenshot-stage')
+const screenshotEmpty = document.querySelector('#screenshot-empty')
+const screenshotStatusText = document.querySelector('#screenshot-status-text')
+const screenshotStatusDot = document.querySelector('#screenshot-status-dot')
+const startScreenshotButton = document.querySelector('#start-screenshot')
+const copyScreenshotButton = document.querySelector('#copy-screenshot')
+const saveScreenshotButton = document.querySelector('#save-screenshot')
+const screenshotCanvas = new fabric.Canvas('screenshot-canvas-element', {
+  preserveObjectStacking: true,
+  selection: true
+})
+const screenshotState = {
+  sourceCanvas: null,
+  width: 0,
+  height: 0,
+  baseImage: null,
+  busy: false
+}
+
+screenshotCanvas.setDimensions({ width: 1, height: 1 })
+
+function setScreenshotStatus(message, status = '') {
+  screenshotStatusText.textContent = message
+  screenshotStatusDot.classList.remove('success', 'error', 'busy')
+  if (status) screenshotStatusDot.classList.add(status)
+}
+
+function updateScreenshotControls() {
+  const hasImage = Boolean(screenshotState.sourceCanvas)
+  document.querySelectorAll('.screenshot-annotation').forEach((button) => {
+    button.disabled = !hasImage || screenshotState.busy
+  })
+  copyScreenshotButton.disabled = !hasImage || screenshotState.busy
+  saveScreenshotButton.disabled = !hasImage || screenshotState.busy
+  startScreenshotButton.disabled = screenshotState.busy
+}
+
+function screenshotPreviewSize() {
+  const maxWidth = Math.max(240, screenshotStage.clientWidth - 30)
+  const maxHeight = Math.max(200, screenshotStage.clientHeight - 30)
+  const scale = Math.min(
+    1,
+    maxWidth / screenshotState.width,
+    maxHeight / screenshotState.height
+  )
+  return {
+    width: Math.max(1, Math.round(screenshotState.width * scale)),
+    height: Math.max(1, Math.round(screenshotState.height * scale)),
+    scale
+  }
+}
+
+function rebuildScreenshotCanvas(overlays = []) {
+  if (!screenshotState.sourceCanvas) return
+  const preview = screenshotPreviewSize()
+  screenshotCanvas.clear()
+  screenshotCanvas.setDimensions({ width: preview.width, height: preview.height })
+  screenshotState.baseImage = new fabric.Image(screenshotState.sourceCanvas, {
+    left: 0,
+    top: 0,
+    scaleX: preview.width / screenshotState.width,
+    scaleY: preview.height / screenshotState.height,
+    selectable: false,
+    evented: false,
+    excludeFromExport: true,
+    dataRole: 'base'
+  })
+  screenshotCanvas.add(screenshotState.baseImage)
+  overlays.forEach((object) => screenshotCanvas.add(object))
+  screenshotCanvas.sendToBack(screenshotState.baseImage)
+  screenshotCanvas.requestRenderAll()
+  screenshotEmpty.classList.add('hidden')
+}
+
+async function loadScreenshotResult(result) {
+  const blob = new Blob([result.data], { type: 'image/png' })
+  const bitmap = await createImageBitmap(blob)
+  const sourceCanvas = document.createElement('canvas')
+  sourceCanvas.width = bitmap.width
+  sourceCanvas.height = bitmap.height
+  sourceCanvas.getContext('2d').drawImage(bitmap, 0, 0)
+  bitmap.close()
+  screenshotState.sourceCanvas = sourceCanvas
+  screenshotState.width = sourceCanvas.width
+  screenshotState.height = sourceCanvas.height
+  rebuildScreenshotCanvas()
+  updateScreenshotControls()
+  setScreenshotStatus(`已截取 ${sourceCanvas.width} × ${sourceCanvas.height} px`, 'success')
+}
+
+function addScreenshotObject(type) {
+  if (!screenshotState.sourceCanvas) return
+  screenshotCanvas.isDrawingMode = false
+  const centerX = screenshotCanvas.getWidth() / 2
+  const centerY = screenshotCanvas.getHeight() / 2
+  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#6978e6'
+  let object
+
+  if (type === 'rectangle') {
+    object = new fabric.Rect({
+      left: centerX,
+      top: centerY,
+      originX: 'center',
+      originY: 'center',
+      width: Math.min(180, screenshotCanvas.getWidth() * 0.4),
+      height: Math.min(100, screenshotCanvas.getHeight() * 0.3),
+      fill: 'transparent',
+      stroke: accent,
+      strokeWidth: 4
+    })
+  } else if (type === 'arrow') {
+    const line = new fabric.Line([-70, 0, 55, 0], {
+      stroke: accent,
+      strokeWidth: 5,
+      originX: 'center',
+      originY: 'center'
+    })
+    const head = new fabric.Triangle({
+      left: 62,
+      top: 0,
+      width: 18,
+      height: 22,
+      fill: accent,
+      angle: 90,
+      originX: 'center',
+      originY: 'center'
+    })
+    object = new fabric.Group([line, head], {
+      left: centerX,
+      top: centerY,
+      originX: 'center',
+      originY: 'center'
+    })
+  } else if (type === 'text') {
+    object = new fabric.IText('输入文字', {
+      left: centerX,
+      top: centerY,
+      originX: 'center',
+      originY: 'center',
+      fill: accent,
+      fontFamily: 'Segoe UI, Microsoft YaHei UI, sans-serif',
+      fontSize: 28,
+      fontWeight: 700
+    })
+  }
+
+  if (!object) return
+  object.set({
+    dataRole: 'annotation',
+    cornerColor: '#ffffff',
+    cornerStrokeColor: accent,
+    transparentCorners: false
+  })
+  screenshotCanvas.add(object)
+  screenshotCanvas.setActiveObject(object)
+  screenshotCanvas.requestRenderAll()
+  setScreenshotStatus(`${{ rectangle: '矩形', arrow: '箭头', text: '文字' }[type]}标注已添加`)
+}
+
+function enableScreenshotBrush(button) {
+  if (!screenshotState.sourceCanvas) return
+  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#6978e6'
+  screenshotCanvas.discardActiveObject()
+  screenshotCanvas.isDrawingMode = true
+  const brush = new fabric.PencilBrush(screenshotCanvas)
+  brush.color = accent
+  brush.width = 5
+  screenshotCanvas.freeDrawingBrush = brush
+  document.querySelectorAll('.screenshot-annotation').forEach((option) => {
+    option.classList.toggle('on', option === button)
+  })
+  setScreenshotStatus('画笔已启用，直接在截图上拖动')
+}
+
+async function renderScreenshotPng() {
+  if (!screenshotState.sourceCanvas) throw new Error('请先截图')
+  screenshotCanvas.isDrawingMode = false
+  screenshotCanvas.discardActiveObject()
+  screenshotCanvas.requestRenderAll()
+  const multiplier = screenshotState.width / screenshotCanvas.getWidth()
+  const rendered = screenshotCanvas.toCanvasElement(multiplier)
+  const blob = await canvasToBlob(rendered, 'image/png')
+  return new Uint8Array(await blob.arrayBuffer())
+}
+
+startScreenshotButton.addEventListener('click', async () => {
+  if (screenshotState.busy) return
+  screenshotState.busy = true
+  updateScreenshotControls()
+  setScreenshotStatus('正在读取屏幕…', 'busy')
+
+  try {
+    await window.api.startScreenshot()
+    setScreenshotStatus('请在全屏覆盖层中拖动选择区域', 'busy')
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    screenshotState.busy = false
+    updateScreenshotControls()
+    setScreenshotStatus(`截图失败：${reason}`, 'error')
+  }
+})
+
+document.querySelectorAll('.screenshot-annotation').forEach((button) => {
+  button.addEventListener('click', () => {
+    document.querySelectorAll('.screenshot-annotation').forEach((option) => {
+      option.classList.remove('on')
+    })
+    if (button.dataset.screenTool === 'brush') enableScreenshotBrush(button)
+    else addScreenshotObject(button.dataset.screenTool)
+  })
+})
+
+copyScreenshotButton.addEventListener('click', async () => {
+  try {
+    screenshotState.busy = true
+    updateScreenshotControls()
+    const result = await window.api.copyScreenshot(await renderScreenshotPng())
+    setScreenshotStatus(`已复制 ${result.size.width} × ${result.size.height} px 到剪贴板`, 'success')
+    showToast('截图已复制')
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    setScreenshotStatus(`复制失败：${reason}`, 'error')
+  } finally {
+    screenshotState.busy = false
+    updateScreenshotControls()
+  }
+})
+
+saveScreenshotButton.addEventListener('click', async () => {
+  try {
+    screenshotState.busy = true
+    updateScreenshotControls()
+    const result = await window.api.saveScreenshot({
+      name: `screenshot-${Date.now()}`,
+      data: await renderScreenshotPng()
+    })
+    setScreenshotStatus(
+      result.status === 'saved' ? '截图 PNG 已保存' : '已取消保存',
+      result.status === 'saved' ? 'success' : ''
+    )
+    if (result.status === 'saved') showToast('截图已保存')
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    setScreenshotStatus(`保存失败：${reason}`, 'error')
+  } finally {
+    screenshotState.busy = false
+    updateScreenshotControls()
+  }
+})
+
+window.api.onScreenshotCaptured((result) => {
+  screenshotState.busy = false
+  loadScreenshotResult(result).catch((error) => {
+    const reason = error instanceof Error ? error.message : String(error)
+    setScreenshotStatus(`截图载入失败：${reason}`, 'error')
+  }).finally(updateScreenshotControls)
+})
+window.api.onScreenshotCancelled(() => {
+  screenshotState.busy = false
+  updateScreenshotControls()
+  setScreenshotStatus('已取消截图')
+})
+
+screenshotCanvas.on('path:created', (event) => {
+  if (event.path) event.path.set({ dataRole: 'annotation' })
+})
+
+let screenshotResizeTimer
+window.addEventListener('resize', () => {
+  window.clearTimeout(screenshotResizeTimer)
+  screenshotResizeTimer = window.setTimeout(() => {
+    if (!screenshotState.sourceCanvas) return
+    const oldWidth = screenshotCanvas.getWidth()
+    const oldHeight = screenshotCanvas.getHeight()
+    const overlays = screenshotCanvas.getObjects().filter((object) => object.dataRole === 'annotation')
+    const next = screenshotPreviewSize()
+    const scaleX = next.width / oldWidth
+    const scaleY = next.height / oldHeight
+    overlays.forEach((object) => {
+      object.set({
+        left: object.left * scaleX,
+        top: object.top * scaleY,
+        scaleX: object.scaleX * scaleX,
+        scaleY: object.scaleY * scaleY
+      })
+      object.setCoords()
+    })
+    rebuildScreenshotCanvas(overlays)
+  }, 160)
 })
 
 const barcodeInput = document.querySelector('#barcode-value')

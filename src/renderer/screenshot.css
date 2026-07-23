@@ -1,0 +1,74 @@
+:root {
+  color-scheme: dark;
+  font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  user-select: none;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  cursor: crosshair;
+}
+
+#capture-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.capture-tip,
+.selection-size,
+.capture-actions {
+  position: fixed;
+  z-index: 2;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #fff;
+  background: rgba(24, 27, 36, 0.82);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(14px);
+}
+
+.capture-tip {
+  top: 22px;
+  left: 50%;
+  padding: 8px 13px;
+  border-radius: 9px;
+  font-size: 12px;
+  transform: translateX(-50%);
+}
+
+.selection-size {
+  padding: 4px 7px;
+  border-radius: 6px;
+  font: 11px Consolas, monospace;
+  pointer-events: none;
+}
+
+.capture-actions {
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+  border-radius: 10px;
+}
+
+.capture-actions button {
+  height: 30px;
+  padding: 0 11px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 7px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+}
+
+.capture-actions .primary {
+  border-color: rgba(255, 255, 255, 0.35);
+  background: rgba(105, 120, 230, 0.92);
+}

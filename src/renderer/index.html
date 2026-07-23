@@ -52,6 +52,7 @@
             <button class="nav-ic" type="button" data-module="ai" data-tip="Illustrator" aria-label="Illustrator">Ai</button>
             <button class="nav-ic" type="button" data-module="bc" data-tip="条码" aria-label="条码">▥</button>
             <button class="nav-ic" type="button" data-module="image" data-tip="图片" aria-label="图片">▧</button>
+            <button class="nav-ic" type="button" data-module="screen" data-tip="截图" aria-label="截图">⌗</button>
             <button class="nav-ic" type="button" data-module="video" data-tip="格式工厂" aria-label="格式工厂">▶</button>
             <div class="rail-spacer"></div>
             <button class="nav-ic" type="button" data-module="more" data-tip="设置" aria-label="设置">⚙</button>
@@ -228,6 +229,40 @@
                   </div>
                 </div>
                 <input id="image-file-input" type="file" accept="image/png,image/jpeg,image/webp" hidden />
+              </section>
+
+              <section class="page" id="page-screen">
+                <div class="crumb">截图 › <b>区域截图与标注</b></div>
+                <div class="screenshot-editor">
+                  <div class="screenshot-toolbar">
+                    <button class="primary" id="start-screenshot" type="button">区域截图</button>
+                    <span class="screenshot-divider"></span>
+                    <button class="gbtn screenshot-annotation" type="button" data-screen-tool="rectangle" disabled>矩形</button>
+                    <button class="gbtn screenshot-annotation" type="button" data-screen-tool="arrow" disabled>箭头</button>
+                    <button class="gbtn screenshot-annotation" type="button" data-screen-tool="brush" disabled>画笔</button>
+                    <button class="gbtn screenshot-annotation" type="button" data-screen-tool="text" disabled>文字</button>
+                    <span class="toolbar-space"></span>
+                    <button class="gbtn placeholder-action" type="button" data-milestone="M5b">滚动截图</button>
+                    <button class="gbtn placeholder-action" type="button" data-milestone="M5c">OCR</button>
+                    <button class="gbtn placeholder-action" type="button" data-milestone="M5d">钉住</button>
+                    <button class="gbtn" id="copy-screenshot" type="button" disabled>复制</button>
+                    <button class="primary" id="save-screenshot" type="button" disabled>保存 PNG</button>
+                  </div>
+                  <div class="glass-card screenshot-work">
+                    <div class="screenshot-stage" id="screenshot-stage">
+                      <canvas id="screenshot-canvas-element"></canvas>
+                    </div>
+                    <div class="empty" id="screenshot-empty">
+                      <div class="empty-icon">⌗</div>
+                      <div>截取屏幕区域后在这里标注</div>
+                      <small>矩形 / 箭头 / 画笔 / 文字</small>
+                    </div>
+                  </div>
+                  <div class="glass-card screenshot-status">
+                    <span class="result-dot" id="screenshot-status-dot"></span>
+                    <span id="screenshot-status-text">等待截图</span>
+                  </div>
+                </div>
               </section>
 
               <section class="page" id="page-video">
