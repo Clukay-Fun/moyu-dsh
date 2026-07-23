@@ -119,23 +119,49 @@
                 <div class="crumb">条码 › <b id="bc-crumb">EAN-13</b></div>
                 <div class="barcode-grid">
                   <div class="glass-card barcode-work">
-                    <div class="barcode-input">
-                      <input id="barcode-value" value="036000291458" inputmode="numeric" maxlength="13" aria-label="条码内容" />
-                      <button class="primary" id="generate-barcode" type="button">生成条码</button>
+                    <div class="barcode-mode-switch" role="tablist" aria-label="条码生成模式">
+                      <button class="on" id="barcode-single-tab" type="button" role="tab" aria-selected="true">单个生成</button>
+                      <button id="barcode-batch-tab" type="button" role="tab" aria-selected="false">批量 / CSV</button>
                     </div>
-                    <div class="artboard">
-                      <svg id="barcode-svg" role="img" aria-label="EAN-13 条码预览"></svg>
+
+                    <div class="barcode-pane active" id="barcode-single-pane">
+                      <div class="barcode-input">
+                        <input id="barcode-value" value="036000291458" inputmode="numeric" maxlength="13" aria-label="条码内容" />
+                        <button class="primary" id="generate-barcode" type="button">生成条码</button>
+                      </div>
+                      <div class="artboard">
+                        <svg id="barcode-svg" role="img" aria-label="条码预览"></svg>
+                      </div>
+                      <p class="barcode-message" id="barcode-message" role="status" aria-live="polite"></p>
                     </div>
-                    <p class="barcode-message" id="barcode-message" role="status" aria-live="polite"></p>
+
+                    <div class="barcode-pane" id="barcode-batch-pane">
+                      <div class="batch-input-row">
+                        <textarea id="barcode-batch-value" rows="4" placeholder="每行一个编码；粘贴 CSV 时读取第一列"></textarea>
+                        <div class="batch-actions">
+                          <button class="primary" id="generate-barcode-batch" type="button">批量生成</button>
+                          <button class="gbtn" id="save-barcode-batch-svg" type="button" disabled>保存全部 SVG</button>
+                          <button class="gbtn" id="save-barcode-batch-png" type="button" disabled>保存全部 PNG</button>
+                        </div>
+                      </div>
+                      <div class="batch-summary" id="barcode-batch-summary">等待输入，最多 500 条。</div>
+                      <div class="batch-list" id="barcode-batch-list"></div>
+                    </div>
                   </div>
                   <div class="control-column">
                     <div class="glass-card control-card">
                       <span class="label">DPI 分辨率</span>
-                      <div class="segments">
-                        <button class="on placeholder-action" type="button" data-milestone="M1b">300</button>
-                        <button class="placeholder-action" type="button" data-milestone="M1b">600</button>
-                        <button class="placeholder-action" type="button" data-milestone="M1b">1200</button>
+                      <div class="segments" id="barcode-dpi">
+                        <button class="on" type="button" data-dpi="300">300</button>
+                        <button type="button" data-dpi="600">600</button>
+                        <button type="button" data-dpi="1200">1200</button>
                       </div>
+                      <span class="label">打印尺寸</span>
+                      <div class="print-size">
+                        <label>宽 <input id="barcode-width-mm" type="number" min="10" max="300" step="1" value="50" /> mm</label>
+                        <label>高 <input id="barcode-height-mm" type="number" min="10" max="300" step="1" value="30" /> mm</label>
+                      </div>
+                      <small class="pixel-size" id="barcode-pixel-size">591 × 354 px</small>
                       <span class="label">导出文件</span>
                       <div class="format-grid">
                         <button id="save-barcode-svg" type="button">保存 SVG</button>

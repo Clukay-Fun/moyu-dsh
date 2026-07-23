@@ -802,8 +802,48 @@ input:focus-visible {
   display: flex;
   min-height: 0;
   flex-direction: column;
-  gap: 14px;
   padding: 16px;
+}
+
+.barcode-mode-switch {
+  display: flex;
+  width: fit-content;
+  gap: 3px;
+  margin-bottom: 12px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-small);
+  background: var(--card-thin);
+}
+
+.barcode-mode-switch button {
+  height: 29px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--muted);
+  background: transparent;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.barcode-mode-switch button.on {
+  color: var(--accent);
+  background: rgba(255, 255, 255, 0.25);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.48);
+  font-weight: 650;
+}
+
+.barcode-pane {
+  display: none;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.barcode-pane.active {
+  display: flex;
 }
 
 .barcode-input {
@@ -865,6 +905,103 @@ input:focus-visible {
   color: #4a9a6a;
 }
 
+.batch-input-row {
+  display: grid;
+  flex: none;
+  grid-template-columns: minmax(0, 1fr) 140px;
+  gap: 9px;
+}
+
+.batch-input-row textarea {
+  min-width: 0;
+  padding: 10px 12px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-small);
+  outline: 0;
+  color: var(--foreground);
+  background: var(--card-thin);
+  font: 12px/1.55 Consolas, monospace;
+  user-select: text;
+}
+
+.batch-input-row textarea:focus {
+  border-color: var(--accent-28);
+}
+
+.batch-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.batch-actions button {
+  width: 100%;
+}
+
+.batch-summary {
+  flex: none;
+  min-height: 18px;
+  color: var(--faint);
+  font-size: 11px;
+}
+
+.batch-list {
+  display: grid;
+  min-height: 0;
+  flex: 1;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  align-content: start;
+  gap: 8px;
+  overflow: auto;
+}
+
+.batch-item {
+  display: grid;
+  min-width: 0;
+  min-height: 112px;
+  grid-template-rows: 1fr auto;
+  gap: 7px;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.batch-item svg {
+  width: 100%;
+  max-height: 75px;
+  overflow: visible;
+}
+
+.batch-item footer {
+  display: flex;
+  min-width: 0;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--faint);
+  font-size: 10px;
+}
+
+.batch-item footer span:first-child {
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.batch-item.error {
+  border-color: rgba(224, 85, 78, 0.35);
+}
+
+.batch-item.error .batch-error {
+  display: grid;
+  place-items: center;
+  color: #d54f50;
+  font-size: 11px;
+  text-align: center;
+}
+
 .barcode-mock {
   display: flex;
   flex-direction: column;
@@ -893,6 +1030,46 @@ input:focus-visible {
 
 .control-card {
   padding: 14px;
+}
+
+.print-size {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.print-size label {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  color: var(--faint);
+  font-size: 10px;
+}
+
+.print-size input {
+  min-width: 0;
+  width: 100%;
+  height: 31px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  outline: 0;
+  color: var(--foreground);
+  background: var(--card-thin);
+  font-size: 11px;
+  user-select: text;
+}
+
+.pixel-size {
+  margin-top: -5px;
+  color: var(--faint);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pixel-size.error {
+  color: #d54f50;
 }
 
 .label {
