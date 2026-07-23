@@ -189,7 +189,7 @@ const searchFeatures = [
   ['自动格式条码', '条码', 'bc', 'Auto', 'Auto CODE128 一维码'],
   ['图片裁切', '图片', 'image', 'crop', '裁剪 编辑'],
   ['文字水印', '图片', 'image', 'watermark', '水印 编辑'],
-  ['尺寸与质量', '图片', 'image', 'resize', '调整 大小 质量'],
+  ['调色与马赛克', '图片', 'image', 'adjust', '亮度 对比度 饱和度 像素化'],
   ['图片导出', '图片', 'image', 'export', 'PNG JPG WebP TIFF'],
   ['格式转换', '格式工厂', 'video', '格式转换', 'FFmpeg 视频 音频'],
   ['主题与强调色', '设置', 'more', '', '外观 深色 浅色 颜色'],
@@ -848,6 +848,12 @@ const imageState = {
   restoring: false,
   brushKind: 'pen',
   brushSize: 8,
+  adjustments: {
+    brightness: 0,
+    contrast: 0,
+    saturation: 0,
+    pixelate: 1
+  },
   history: [],
   historyIndex: -1,
   fileName: 'edited-image.png'
@@ -884,6 +890,7 @@ function captureImageSnapshot() {
     sourceWidth: imageState.sourceWidth,
     sourceHeight: imageState.sourceHeight,
     fileName: imageState.fileName,
+    adjustments: { ...imageState.adjustments },
     canvasJson: JSON.parse(JSON.stringify(canvasJson))
   }
 }
@@ -895,6 +902,7 @@ function commitImageHistory() {
   const previous = imageState.history[imageState.historyIndex]
   const unchanged =
     previous?.sourceCanvas === snapshot.sourceCanvas &&
+    JSON.stringify(previous.adjustments) === JSON.stringify(snapshot.adjustments) &&
     JSON.stringify(previous.canvasJson) === JSON.stringify(snapshot.canvasJson)
 
   if (unchanged) return
@@ -937,6 +945,7 @@ async function restoreImageHistory(index) {
     imageState.sourceWidth = snapshot.sourceWidth
     imageState.sourceHeight = snapshot.sourceHeight
     imageState.fileName = snapshot.fileName
+    imageState.adjustments = { ...snapshot.adjustments }
     imageFileName.textContent = snapshot.fileName
     imageState.historyIndex = index
     rebuildImageCanvas(overlays)
@@ -991,6 +1000,7 @@ function rebuildImageCanvas(overlays = []) {
     excludeFromExport: true
   })
   imageCanvas.add(imageState.baseImage)
+  applyImageAdjustments(false)
   overlays.forEach((object) => imageCanvas.add(object))
   imageCanvas.sendToBack(imageState.baseImage)
   imageCanvas.requestRenderAll()
@@ -1176,6 +1186,31 @@ async function configureImageBrush(kind = imageState.brushKind) {
   imageCanvas.requestRenderAll()
 }
 
+function applyImageAdjustments(render = true) {
+  if (!imageState.baseImage) return
+
+  const filters = []
+  const { brightness, contrast, saturation, pixelate } = imageState.adjustments
+
+  if (brightness !== 0) {
+    filters.push(new fabric.Image.filters.Brightness({ brightness: brightness / 100 }))
+  }
+  if (contrast !== 0) {
+    filters.push(new fabric.Image.filters.Contrast({ contrast: contrast / 100 }))
+  }
+  if (saturation !== 0) {
+    filters.push(new fabric.Image.filters.Saturation({ saturation: saturation / 100 }))
+  }
+  if (pixelate > 1) {
+    filters.push(new fabric.Image.filters.Pixelate({ blocksize: pixelate }))
+  }
+
+  imageState.baseImage.filters = filters
+  imageState.baseImage.applyFilters()
+  imageState.baseImage.dirty = true
+  if (render) imageCanvas.requestRenderAll()
+}
+
 function renderImagePanel() {
   imagePanelContent.replaceChildren()
 
@@ -1318,6 +1353,47 @@ function renderImagePanel() {
       imagePanelContent.querySelector('#image-brush-size-value').textContent = brushSize.value
       configureImageBrush()
     })
+  } else if (imageState.mode === 'adjust') {
+    imagePanelTitle.textContent = '调色与马赛克'
+    imagePanelCopy.textContent = '基础调色实时预览；块度大于 1 时启用整图马赛克。'
+    const controls = [
+      ['brightness', '亮度', -100, 100],
+      ['contrast', '对比度', -100, 100],
+      ['saturation', '饱和度', -100, 100],
+      ['pixelate', '马赛克块度', 1, 40]
+    ]
+    imagePanelContent.innerHTML = `
+      <div class="image-panel">
+        ${controls.map(([name, label, min, max]) => `
+          <label class="inline-value"><span>${label}</span><output id="image-${name}-value">${imageState.adjustments[name]}</output></label>
+          <input id="image-${name}" data-adjustment="${name}" type="range" min="${min}" max="${max}" value="${imageState.adjustments[name]}">
+        `).join('')}
+        <button class="gbtn" id="reset-image-adjustments" type="button">重置调整</button>
+      </div>
+    `
+    imagePanelContent.querySelectorAll('[data-adjustment]').forEach((input) => {
+      input.addEventListener('input', () => {
+        imageState.adjustments[input.dataset.adjustment] = Number(input.value)
+        imagePanelContent.querySelector(`#image-${input.dataset.adjustment}-value`).textContent = input.value
+        applyImageAdjustments()
+      })
+      input.addEventListener('change', () => {
+        commitImageHistory()
+        setImageStatus('图片调整已更新')
+      })
+    })
+    imagePanelContent.querySelector('#reset-image-adjustments').addEventListener('click', () => {
+      Object.assign(imageState.adjustments, {
+        brightness: 0,
+        contrast: 0,
+        saturation: 0,
+        pixelate: 1
+      })
+      applyImageAdjustments()
+      renderImagePanel()
+      commitImageHistory()
+      setImageStatus('图片调整已重置')
+    })
   } else {
     imagePanelTitle.textContent = '导出'
     imagePanelCopy.textContent = 'PNG 保留透明；JPG 自动铺白底。'
@@ -1361,6 +1437,7 @@ function setImageMode(mode) {
     transform: '旋转与翻转',
     watermark: '文字水印',
     draw: '涂鸦',
+    adjust: '调色与马赛克',
     export: '导出'
   }[mode] || '图片编辑'
   document.querySelectorAll('.image-tool').forEach((button) => {
@@ -1408,6 +1485,12 @@ async function loadImageFile(file) {
     sourceCanvas.height = bitmap.height
     sourceCanvas.getContext('2d').drawImage(bitmap, 0, 0)
     bitmap.close()
+    Object.assign(imageState.adjustments, {
+      brightness: 0,
+      contrast: 0,
+      saturation: 0,
+      pixelate: 1
+    })
     imageState.sourceCanvas = sourceCanvas
     imageState.sourceWidth = sourceCanvas.width
     imageState.sourceHeight = sourceCanvas.height
@@ -1567,6 +1650,12 @@ function clearImageEditor() {
     fileName: 'edited-image.png'
   })
   imageCanvas.isDrawingMode = false
+  Object.assign(imageState.adjustments, {
+    brightness: 0,
+    contrast: 0,
+    saturation: 0,
+    pixelate: 1
+  })
   resetImageHistory()
   imageStage.classList.remove('ready')
   imageEmpty.classList.remove('hidden')
