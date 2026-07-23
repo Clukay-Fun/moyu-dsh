@@ -1,6 +1,10 @@
 import JsBarcode from 'jsbarcode'
 import { fabric } from 'fabric'
 
+globalThis.fabric = fabric
+const eraserBrushReady = import('fabric/src/mixins/eraser_brush.mixin.js')
+  .then(() => fabric.EraserBrush)
+
 const appLogoUrl = new URL('../../assets/logo_128.png', import.meta.url).href
 
 document.querySelectorAll('[data-app-logo]').forEach((image) => {
@@ -824,6 +828,8 @@ const imagePanelTitle = document.querySelector('#image-panel-title')
 const imagePanelCopy = document.querySelector('#image-panel-copy')
 const imagePanelContent = document.querySelector('#image-panel-content')
 const quickSaveImageButton = document.querySelector('#quick-save-image')
+const undoImageButton = document.querySelector('#undo-image')
+const redoImageButton = document.querySelector('#redo-image')
 const imageCanvas = new fabric.Canvas('image-canvas-element', {
   preserveObjectStacking: true,
   selection: true,
@@ -839,15 +845,110 @@ const imageState = {
   format: 'png',
   quality: 0.9,
   exporting: false,
+  restoring: false,
+  brushKind: 'pen',
+  brushSize: 8,
+  history: [],
+  historyIndex: -1,
   fileName: 'edited-image.png'
 }
 
 imageCanvas.setDimensions({ width: 1, height: 1 })
 quickSaveImageButton.disabled = true
+undoImageButton.disabled = true
+redoImageButton.disabled = true
 
 function setImageStatus(message, isError = false) {
   imageStatus.textContent = message
   imageStatus.classList.toggle('error', isError)
+}
+
+function updateImageHistoryButtons() {
+  undoImageButton.disabled = imageState.historyIndex <= 0 || imageState.restoring
+  redoImageButton.disabled =
+    imageState.historyIndex < 0 ||
+    imageState.historyIndex >= imageState.history.length - 1 ||
+    imageState.restoring
+}
+
+function captureImageSnapshot() {
+  const canvasJson = imageCanvas.toJSON([
+    'dataRole',
+    'overlayType',
+    'erasable',
+    'globalCompositeOperation'
+  ])
+
+  return {
+    sourceCanvas: imageState.sourceCanvas,
+    sourceWidth: imageState.sourceWidth,
+    sourceHeight: imageState.sourceHeight,
+    fileName: imageState.fileName,
+    canvasJson: JSON.parse(JSON.stringify(canvasJson))
+  }
+}
+
+function commitImageHistory() {
+  if (!imageState.sourceCanvas || imageState.restoring) return
+
+  const snapshot = captureImageSnapshot()
+  const previous = imageState.history[imageState.historyIndex]
+  const unchanged =
+    previous?.sourceCanvas === snapshot.sourceCanvas &&
+    JSON.stringify(previous.canvasJson) === JSON.stringify(snapshot.canvasJson)
+
+  if (unchanged) return
+
+  imageState.history.splice(imageState.historyIndex + 1)
+  imageState.history.push(snapshot)
+
+  if (imageState.history.length > 20) {
+    imageState.history.shift()
+  }
+
+  imageState.historyIndex = imageState.history.length - 1
+  updateImageHistoryButtons()
+}
+
+function resetImageHistory() {
+  imageState.history = []
+  imageState.historyIndex = -1
+  updateImageHistoryButtons()
+}
+
+function enlivenImageObjects(objects) {
+  return new Promise((resolve) => {
+    fabric.util.enlivenObjects(objects || [], resolve)
+  })
+}
+
+async function restoreImageHistory(index) {
+  const snapshot = imageState.history[index]
+  if (!snapshot || imageState.restoring) return
+
+  imageState.restoring = true
+  updateImageHistoryButtons()
+  imageCanvas.isDrawingMode = false
+  removeCropSelection()
+
+  try {
+    const overlays = await enlivenImageObjects(snapshot.canvasJson.objects)
+    imageState.sourceCanvas = snapshot.sourceCanvas
+    imageState.sourceWidth = snapshot.sourceWidth
+    imageState.sourceHeight = snapshot.sourceHeight
+    imageState.fileName = snapshot.fileName
+    imageFileName.textContent = snapshot.fileName
+    imageState.historyIndex = index
+    rebuildImageCanvas(overlays)
+    setImageMode(imageState.mode)
+    setImageStatus(`已${index < imageState.history.length - 1 ? '撤销或重做' : '恢复'}编辑状态`)
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    setImageStatus(`历史状态恢复失败：${reason}`, true)
+  } finally {
+    imageState.restoring = false
+    updateImageHistoryButtons()
+  }
 }
 
 function getImagePreviewSize(width = imageState.sourceWidth, height = imageState.sourceHeight) {
@@ -885,7 +986,9 @@ function rebuildImageCanvas(overlays = []) {
     selectable: false,
     evented: false,
     hoverCursor: 'default',
-    dataRole: 'base'
+    dataRole: 'base',
+    erasable: false,
+    excludeFromExport: true
   })
   imageCanvas.add(imageState.baseImage)
   overlays.forEach((object) => imageCanvas.add(object))
@@ -919,7 +1022,9 @@ function createCropSelection() {
     cornerStyle: 'circle',
     lockRotation: true,
     hasRotatingPoint: false,
-    dataRole: 'crop'
+    dataRole: 'crop',
+    erasable: false,
+    excludeFromExport: true
   })
   imageCanvas.add(imageState.cropRect)
   imageCanvas.setActiveObject(imageState.cropRect)
@@ -930,6 +1035,145 @@ function ensureImageLoaded() {
   if (imageState.sourceCanvas) return true
   showToast('请先添加图片')
   return false
+}
+
+function selectedImageOverlay() {
+  const activeObject = imageCanvas.getActiveObject()
+  return activeObject?.dataRole === 'overlay' ? activeObject : null
+}
+
+function transformSelectedImageObject(action) {
+  const object = selectedImageOverlay()
+  if (!object) return false
+
+  if (action === 'rotate') {
+    object.rotate((object.angle + 90) % 360)
+  } else if (action === 'flip-horizontal') {
+    object.set({ flipX: !object.flipX })
+  } else if (action === 'flip-vertical') {
+    object.set({ flipY: !object.flipY })
+  }
+
+  object.setCoords()
+  imageCanvas.requestRenderAll()
+  commitImageHistory()
+  setImageStatus('已变换选中的编辑对象')
+  return true
+}
+
+function transformWholeImage(action) {
+  if (!ensureImageLoaded()) return
+  if (transformSelectedImageObject(action)) return
+
+  imageCanvas.isDrawingMode = false
+  removeCropSelection()
+  const overlays = getOverlayObjects()
+  const oldSourceWidth = imageState.sourceWidth
+  const oldSourceHeight = imageState.sourceHeight
+  const oldPreviewWidth = imageCanvas.getWidth()
+  const oldPreviewHeight = imageCanvas.getHeight()
+  const oldScale = oldPreviewWidth / oldSourceWidth
+  const transformedCanvas = document.createElement('canvas')
+  const context = transformedCanvas.getContext('2d')
+
+  if (action === 'rotate') {
+    transformedCanvas.width = oldSourceHeight
+    transformedCanvas.height = oldSourceWidth
+    context.translate(oldSourceHeight, 0)
+    context.rotate(Math.PI / 2)
+  } else {
+    transformedCanvas.width = oldSourceWidth
+    transformedCanvas.height = oldSourceHeight
+
+    if (action === 'flip-horizontal') {
+      context.translate(oldSourceWidth, 0)
+      context.scale(-1, 1)
+    } else {
+      context.translate(0, oldSourceHeight)
+      context.scale(1, -1)
+    }
+  }
+
+  context.drawImage(imageState.sourceCanvas, 0, 0)
+  imageState.sourceCanvas = transformedCanvas
+  imageState.sourceWidth = transformedCanvas.width
+  imageState.sourceHeight = transformedCanvas.height
+  const nextPreview = getImagePreviewSize()
+  const nextScale = nextPreview.width / imageState.sourceWidth
+  const objectScale = nextScale / oldScale
+
+  overlays.forEach((object) => {
+    const center = object.getCenterPoint()
+    const sourceX = center.x / oldPreviewWidth * oldSourceWidth
+    const sourceY = center.y / oldPreviewHeight * oldSourceHeight
+    let nextSourceX = sourceX
+    let nextSourceY = sourceY
+
+    if (action === 'rotate') {
+      nextSourceX = oldSourceHeight - sourceY
+      nextSourceY = sourceX
+      object.rotate((object.angle + 90) % 360)
+    } else if (action === 'flip-horizontal') {
+      nextSourceX = oldSourceWidth - sourceX
+      object.set({
+        angle: -object.angle,
+        flipX: !object.flipX
+      })
+    } else {
+      nextSourceY = oldSourceHeight - sourceY
+      object.set({
+        angle: -object.angle,
+        flipY: !object.flipY
+      })
+    }
+
+    object.set({
+      scaleX: object.scaleX * objectScale,
+      scaleY: object.scaleY * objectScale
+    })
+    object.setPositionByOrigin(
+      new fabric.Point(nextSourceX * nextScale, nextSourceY * nextScale),
+      'center',
+      'center'
+    )
+    object.setCoords()
+  })
+
+  rebuildImageCanvas(overlays)
+  commitImageHistory()
+  const label = {
+    rotate: '顺时针旋转 90°',
+    'flip-horizontal': '水平翻转',
+    'flip-vertical': '垂直翻转'
+  }[action]
+  setImageStatus(`${label}完成`)
+}
+
+async function configureImageBrush(kind = imageState.brushKind) {
+  imageState.brushKind = kind
+
+  if (!imageState.sourceCanvas || imageState.mode !== 'draw') {
+    imageCanvas.isDrawingMode = false
+    return
+  }
+
+  imageCanvas.discardActiveObject()
+  imageCanvas.isDrawingMode = true
+
+  if (kind === 'eraser') {
+    const EraserBrush = await eraserBrushReady
+    imageCanvas.freeDrawingBrush = new EraserBrush(imageCanvas)
+    imageCanvas.freeDrawingBrush.width = imageState.brushSize
+  } else {
+    const brush = new fabric.PencilBrush(imageCanvas)
+    brush.width = kind === 'highlight' ? imageState.brushSize * 2 : imageState.brushSize
+    brush.color = kind === 'highlight'
+      ? 'rgba(255, 218, 72, 0.38)'
+      : '#20242f'
+    imageCanvas.freeDrawingBrush = brush
+  }
+
+  imageCanvas.requestRenderAll()
 }
 
 function renderImagePanel() {
@@ -950,6 +1194,21 @@ function renderImagePanel() {
       if (ensureImageLoaded()) createCropSelection()
     })
     imagePanelContent.querySelector('#apply-image-crop').addEventListener('click', applyImageCrop)
+  } else if (imageState.mode === 'transform') {
+    imagePanelTitle.textContent = '旋转与翻转'
+    imagePanelCopy.textContent = '选中水印或笔迹时只变换对象；未选中时变换整张图片。'
+    imagePanelContent.innerHTML = `
+      <div class="image-panel">
+        <div class="panel-actions">
+          <button class="gbtn wide" id="rotate-image" type="button">顺时针旋转 90°</button>
+          <button class="gbtn" id="flip-image-horizontal" type="button">水平翻转</button>
+          <button class="gbtn" id="flip-image-vertical" type="button">垂直翻转</button>
+        </div>
+      </div>
+    `
+    imagePanelContent.querySelector('#rotate-image').addEventListener('click', () => transformWholeImage('rotate'))
+    imagePanelContent.querySelector('#flip-image-horizontal').addEventListener('click', () => transformWholeImage('flip-horizontal'))
+    imagePanelContent.querySelector('#flip-image-vertical').addEventListener('click', () => transformWholeImage('flip-vertical'))
   } else if (imageState.mode === 'watermark') {
     imagePanelTitle.textContent = '文字水印'
     imagePanelCopy.textContent = '添加后可在画布中拖动、缩放和旋转。'
@@ -991,7 +1250,11 @@ function renderImagePanel() {
       updateSelectedWatermark()
     })
     textInput.addEventListener('input', updateSelectedWatermark)
+    textInput.addEventListener('change', commitImageHistory)
+    sizeInput.addEventListener('change', commitImageHistory)
     colorInput.addEventListener('input', updateSelectedWatermark)
+    colorInput.addEventListener('change', commitImageHistory)
+    opacityInput.addEventListener('change', commitImageHistory)
     imagePanelContent.querySelector('#add-watermark').addEventListener('click', () => {
       if (!ensureImageLoaded()) return
       const watermark = new fabric.IText(textInput.value || '水印', {
@@ -1008,12 +1271,52 @@ function renderImagePanel() {
         cornerStrokeColor: '#6978e6',
         transparentCorners: false,
         dataRole: 'overlay',
-        overlayType: 'watermark'
+        overlayType: 'watermark',
+        erasable: true
       })
       imageCanvas.add(watermark)
       imageCanvas.setActiveObject(watermark)
       imageCanvas.requestRenderAll()
+      commitImageHistory()
       setImageStatus('文字水印已添加，可直接拖动调整')
+    })
+  } else if (imageState.mode === 'draw') {
+    imagePanelTitle.textContent = '涂鸦'
+    imagePanelCopy.textContent = '黑笔与荧光笔绘制编辑层；橡皮擦只擦编辑对象，不擦底图。'
+    imagePanelContent.innerHTML = `
+      <div class="image-panel">
+        <div class="brush-choice" id="image-brush-choice">
+          <button type="button" data-brush="pen">黑笔</button>
+          <button type="button" data-brush="highlight">荧光笔</button>
+          <button type="button" data-brush="eraser">橡皮擦</button>
+        </div>
+        <label class="inline-value"><span>画笔大小</span><output id="image-brush-size-value">${imageState.brushSize}</output></label>
+        <input id="image-brush-size" type="range" min="2" max="60" value="${imageState.brushSize}">
+      </div>
+    `
+    const brushChoice = imagePanelContent.querySelector('#image-brush-choice')
+    const brushSize = imagePanelContent.querySelector('#image-brush-size')
+    brushChoice.querySelectorAll('[data-brush]').forEach((button) => {
+      button.classList.toggle('on', button.dataset.brush === imageState.brushKind)
+    })
+    brushChoice.addEventListener('click', async (event) => {
+      const button = event.target.closest('[data-brush]')
+      if (!button) return
+      brushChoice.querySelectorAll('[data-brush]').forEach((option) => {
+        option.classList.toggle('on', option === button)
+      })
+
+      try {
+        await configureImageBrush(button.dataset.brush)
+        setImageStatus(`${button.textContent}已启用`)
+      } catch {
+        setImageStatus('橡皮擦组件载入失败', true)
+      }
+    })
+    brushSize.addEventListener('input', () => {
+      imageState.brushSize = Number(brushSize.value)
+      imagePanelContent.querySelector('#image-brush-size-value').textContent = brushSize.value
+      configureImageBrush()
     })
   } else {
     imagePanelTitle.textContent = '导出'
@@ -1051,10 +1354,13 @@ function renderImagePanel() {
 
 function setImageMode(mode) {
   imageState.mode = mode
+  imageCanvas.isDrawingMode = false
   imageEditor.dataset.mode = mode
   document.querySelector('#image-crumb').textContent = {
     crop: '裁切',
+    transform: '旋转与翻转',
     watermark: '文字水印',
+    draw: '涂鸦',
     export: '导出'
   }[mode] || '图片编辑'
   document.querySelectorAll('.image-tool').forEach((button) => {
@@ -1069,6 +1375,11 @@ function setImageMode(mode) {
     imageCanvas.requestRenderAll()
   }
   renderImagePanel()
+  if (mode === 'draw') {
+    configureImageBrush().catch(() => {
+      setImageStatus('涂鸦组件载入失败', true)
+    })
+  }
 }
 
 async function loadImageFile(file) {
@@ -1104,6 +1415,8 @@ async function loadImageFile(file) {
     imageFileName.textContent = imageState.fileName
     rebuildImageCanvas()
     setImageMode('crop')
+    resetImageHistory()
+    commitImageHistory()
     setImageStatus('图片已载入；支持拖拽、缩放选框')
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error)
@@ -1169,6 +1482,7 @@ function applyImageCrop() {
 
   rebuildImageCanvas(overlays)
   createCropSelection()
+  commitImageHistory()
   setImageStatus(`裁切完成：${sourceWidth} × ${sourceHeight} px`)
 }
 
@@ -1249,8 +1563,11 @@ function clearImageEditor() {
     sourceHeight: 0,
     baseImage: null,
     cropRect: null,
+    exporting: false,
     fileName: 'edited-image.png'
   })
+  imageCanvas.isDrawingMode = false
+  resetImageHistory()
   imageStage.classList.remove('ready')
   imageEmpty.classList.remove('hidden')
   imageFileName.textContent = '尚未添加图片'
@@ -1267,6 +1584,14 @@ function openImagePicker() {
 document.querySelector('#open-image').addEventListener('click', openImagePicker)
 document.querySelector('#open-image-empty').addEventListener('click', openImagePicker)
 document.querySelector('#clear-image').addEventListener('click', clearImageEditor)
+undoImageButton.addEventListener('click', () => {
+  if (imageState.historyIndex > 0) restoreImageHistory(imageState.historyIndex - 1)
+})
+redoImageButton.addEventListener('click', () => {
+  if (imageState.historyIndex < imageState.history.length - 1) {
+    restoreImageHistory(imageState.historyIndex + 1)
+  }
+})
 quickSaveImageButton.addEventListener('click', () => exportEditedImage('png', quickSaveImageButton))
 imageFileInput.addEventListener('change', () => loadImageFile(imageFileInput.files[0]))
 imageDropZone.addEventListener('dragover', (event) => {
@@ -1284,6 +1609,23 @@ window.addEventListener('paste', (event) => {
   if (state.module !== 'image') return
   const file = Array.from(event.clipboardData?.files || []).find((item) => item.type.startsWith('image/'))
   if (file) loadImageFile(file)
+})
+
+imageCanvas.on('object:modified', (event) => {
+  if (event.target?.dataRole === 'overlay') commitImageHistory()
+})
+imageCanvas.on('path:created', (event) => {
+  if (!event.path || imageState.brushKind === 'eraser') return
+  event.path.set({
+    dataRole: 'overlay',
+    overlayType: imageState.brushKind,
+    erasable: true
+  })
+  event.path.setCoords()
+  commitImageHistory()
+})
+imageCanvas.on('erasing:end', () => {
+  window.setTimeout(commitImageHistory, 0)
 })
 
 let imageResizeTimer

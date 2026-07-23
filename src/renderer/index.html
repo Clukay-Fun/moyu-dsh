@@ -186,9 +186,15 @@
                     <button class="image-back" id="clear-image" type="button" aria-label="关闭当前图片">‹</button>
                     <span class="image-filename" id="image-filename">尚未添加图片</span>
                     <div class="image-zoom">预览 <span id="image-zoom">100%</span></div>
+                    <div class="image-history" aria-label="图片编辑历史">
+                      <button id="undo-image" type="button" aria-label="撤销" data-name="撤销">↶</button>
+                      <button id="redo-image" type="button" aria-label="重做" data-name="重做">↷</button>
+                    </div>
                     <div class="image-tools">
                       <button class="image-tool on" type="button" data-image-mode="crop" data-name="裁切">⌑</button>
+                      <button class="image-tool" type="button" data-image-mode="transform" data-name="旋转翻转">↻</button>
                       <button class="image-tool" type="button" data-image-mode="watermark" data-name="水印">T</button>
+                      <button class="image-tool" type="button" data-image-mode="draw" data-name="涂鸦">✎</button>
                       <button class="image-tool placeholder-action" type="button" data-milestone="M2c" data-image-mode="resize" data-name="调色">☼</button>
                       <button class="image-tool" type="button" data-image-mode="export" data-name="导出">⇩</button>
                     </div>
