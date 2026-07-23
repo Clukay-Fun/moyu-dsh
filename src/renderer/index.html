@@ -10,21 +10,241 @@
     <title>摸鱼工具箱</title>
     <link rel="stylesheet" href="./style.css" />
   </head>
-  <body>
-    <main class="shell">
-      <p class="eyebrow">Electron v2 · M0a</p>
-      <h1>摸鱼工具箱</h1>
-      <p class="description">最小安全外壳已启动，下一片将迁移正式视觉蓝本。</p>
+  <body data-theme="light">
+    <div class="window-shell">
+      <div class="orbs" aria-hidden="true">
+        <div class="orb orb-1"></div>
+        <div class="orb orb-2"></div>
+        <div class="orb orb-3"></div>
+      </div>
 
-      <section class="smoke-card" aria-labelledby="smoke-title">
-        <div>
-          <h2 id="smoke-title">IPC 冒烟测试</h2>
-          <p id="security-status">正在检查 renderer 隔离状态…</p>
+      <div class="panel">
+        <header class="topbar">
+          <div class="brand">
+            <span class="brand-logo"><img data-app-logo alt="" /></span>
+            <b>摸鱼工具箱</b>
+          </div>
+
+          <div class="search-wrap">
+            <label class="search" for="feature-search">
+              <span aria-hidden="true">⌕</span>
+              <input
+                id="feature-search"
+                type="search"
+                placeholder="搜索功能…"
+                autocomplete="off"
+                aria-label="搜索功能"
+                aria-controls="search-results"
+                aria-expanded="false"
+              />
+              <kbd>⌘K</kbd>
+            </label>
+            <div class="search-results" id="search-results" role="listbox"></div>
+          </div>
+
+          <div class="slogan">干活快一点，摸鱼久一点</div>
+          <div class="mochi"><i></i><span>摸鱼中</span><time id="mochi-time">00:00</time></div>
+        </header>
+
+        <div class="app-body">
+          <nav class="rail" aria-label="工具模块">
+            <button class="nav-ic active" type="button" data-module="pdf" data-tip="PDF" aria-label="PDF">PDF</button>
+            <button class="nav-ic" type="button" data-module="ai" data-tip="Illustrator" aria-label="Illustrator">Ai</button>
+            <button class="nav-ic" type="button" data-module="bc" data-tip="条码" aria-label="条码">▥</button>
+            <button class="nav-ic" type="button" data-module="image" data-tip="图片" aria-label="图片">▧</button>
+            <button class="nav-ic" type="button" data-module="video" data-tip="格式工厂" aria-label="格式工厂">▶</button>
+            <div class="rail-spacer"></div>
+            <button class="nav-ic" type="button" data-module="more" data-tip="设置" aria-label="设置">⚙</button>
+          </nav>
+
+          <aside class="submenu" id="submenu" aria-label="模块功能"></aside>
+
+          <main class="content">
+            <div class="pages">
+              <section class="page active" id="page-pdf">
+                <div class="crumb">PDF › <b id="pdf-crumb">转 PNG</b></div>
+                <div class="toolbar">
+                  <button class="gbtn placeholder-action" type="button" data-milestone="M3">＋ 上传 PDF</button>
+                  <button class="gbtn ghost placeholder-action" type="button" data-milestone="M3">清空</button>
+                  <span class="toolbar-hint" id="pdf-hint">上传 PDF 文件后执行“转 PNG”</span>
+                </div>
+                <div class="glass-card file-list">
+                  <div class="file-head">
+                    <span class="cell-index">#</span><span class="cell-name">文件名</span>
+                    <span class="cell-meta">类型</span><span class="cell-status">大小</span>
+                  </div>
+                  <div class="empty">
+                    <div class="empty-icon">PDF</div>
+                    <div id="pdf-empty-text">上传 PDF 文件</div>
+                    <small>该功能将在 M3 接入</small>
+                  </div>
+                </div>
+                <div class="glass-card result">
+                  <span class="result-dot"></span><span>处理结果会显示在这里</span>
+                  <button class="gbtn open placeholder-action" type="button" data-milestone="M3">打开所在位置</button>
+                </div>
+              </section>
+
+              <section class="page" id="page-ai">
+                <div class="crumb">Illustrator › <b>批量处理</b></div>
+                <div class="toolbar toolbar-wrap">
+                  <button class="gbtn placeholder-action" type="button" data-milestone="M4">＋ 添加文件</button>
+                  <button class="gbtn placeholder-action" type="button" data-milestone="M4">＋ 文件夹</button>
+                  <button class="gbtn ghost placeholder-action" type="button" data-milestone="M4">清空</button>
+                  <label class="toggle-wrap"><input type="checkbox" checked /><span class="toggle"></span>与原文件同目录</label>
+                  <span class="toolbar-space"></span>
+                  <button class="primary placeholder-action" type="button" data-milestone="M4">导出 PDF</button>
+                  <button class="gbtn placeholder-action" type="button" data-milestone="M4">最小化 PDF</button>
+                  <button class="gbtn placeholder-action" type="button" data-milestone="M4">文字转曲</button>
+                </div>
+                <div class="glass-card file-list">
+                  <div class="file-head">
+                    <span class="cell-index">#</span><span class="cell-name">文件名</span>
+                    <span class="cell-meta">大小</span><span class="cell-status">状态</span>
+                  </div>
+                  <div class="empty">
+                    <div class="empty-icon">Ai</div>
+                    <div>添加 Illustrator 文件后开始批量处理</div>
+                    <small>Windows COM 能力将在 M4 接入</small>
+                  </div>
+                </div>
+                <div class="glass-card run-card">
+                  <div class="progress-track"><div class="progress-fill"></div></div>
+                  <span class="progress-text">等待任务</span>
+                </div>
+                <div class="glass-card log-card"><div class="log-inner">Illustrator 日志将在任务开始后显示。</div></div>
+              </section>
+
+              <section class="page" id="page-bc">
+                <div class="crumb">条码 › <b id="bc-crumb">EAN-13</b></div>
+                <div class="barcode-grid">
+                  <div class="glass-card barcode-work">
+                    <div class="barcode-input">
+                      <input value="036000291458" aria-label="条码内容" readonly />
+                      <button class="gbtn placeholder-action" type="button" data-milestone="M1a">生成条码</button>
+                    </div>
+                    <div class="artboard">
+                      <div class="barcode-mock"><div class="bars" id="bars"></div><div class="barcode-digits">0 36000 29145 8</div></div>
+                    </div>
+                  </div>
+                  <div class="control-column">
+                    <div class="glass-card control-card">
+                      <span class="label">DPI 分辨率</span>
+                      <div class="segments">
+                        <button class="on placeholder-action" type="button" data-milestone="M1b">300</button>
+                        <button class="placeholder-action" type="button" data-milestone="M1b">600</button>
+                        <button class="placeholder-action" type="button" data-milestone="M1b">1200</button>
+                      </div>
+                      <span class="label">导出文件</span>
+                      <div class="format-grid">
+                        <button class="placeholder-action" type="button" data-milestone="M1a">SVG</button>
+                        <button class="placeholder-action" type="button" data-milestone="M1a">PNG</button>
+                      </div>
+                    </div>
+                    <div class="glass-card control-card">
+                      <span class="label">一键转入</span>
+                      <div class="app-grid">
+                        <button class="app-button placeholder-action" type="button" data-milestone="M4"><b class="ai-icon">Ai</b><span>Illustrator</span></button>
+                        <button class="app-button placeholder-action" type="button" data-milestone="M4"><b class="ps-icon">Ps</b><span>Photoshop</span></button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section class="page" id="page-image">
+                <div class="crumb">图片 › <b id="image-crumb">裁切</b></div>
+                <div class="image-editor" id="image-editor" data-mode="crop">
+                  <div class="image-topbar">
+                    <span class="image-back">‹</span><span class="image-filename">尚未添加图片</span>
+                    <div class="image-zoom">−　<span>100%</span>　＋　↶　↷</div>
+                    <div class="image-tools">
+                      <button class="image-tool on" type="button" data-image-mode="crop" data-name="裁切">⌑</button>
+                      <button class="image-tool" type="button" data-image-mode="watermark" data-name="水印">T</button>
+                      <button class="image-tool" type="button" data-image-mode="resize" data-name="尺寸质量">↔</button>
+                      <button class="image-tool" type="button" data-image-mode="export" data-name="导出">⇩</button>
+                    </div>
+                    <button class="image-save placeholder-action" type="button" data-milestone="M2c">保存</button>
+                    <button class="image-cancel placeholder-action" type="button" data-milestone="M2a">取消</button>
+                  </div>
+                  <div class="image-body">
+                    <div class="image-canvas">
+                      <div class="image-document">
+                        <div class="image-placeholder">图片编辑器<small>Fabric.js 将在 M2a 接入</small></div>
+                        <div class="crop-boundary"><i></i><i></i><i></i><i></i></div>
+                      </div>
+                    </div>
+                    <aside class="image-side">
+                      <h3 id="image-panel-title">裁切</h3>
+                      <p id="image-panel-copy">裁切原图后再叠加编辑对象。</p>
+                      <button class="gbtn placeholder-action" type="button" data-milestone="M2a">＋ 添加图片</button>
+                    </aside>
+                  </div>
+                  <div class="image-bottom">
+                    <span>当前为界面预览</span><b>功能将在 M2a–M2c 逐片接入</b>
+                  </div>
+                </div>
+              </section>
+
+              <section class="page" id="page-video">
+                <div class="crumb">格式工厂 › <b>格式转换</b></div>
+                <div class="glass-card center-hint">
+                  <div class="hint-mark">▶</div>
+                  <b>音视频格式转换</b>
+                  <div>FFmpeg 转换能力将在 M6 接入</div>
+                  <button class="gbtn placeholder-action" type="button" data-milestone="M6">查看计划状态</button>
+                </div>
+              </section>
+
+              <section class="page" id="page-more">
+                <div class="crumb">设置</div>
+                <div class="settings">
+                  <div class="glass-card setting-card">
+                    <h2>外观</h2><p>调整界面显示方式与强调色。</p>
+                    <div class="theme-options">
+                      <label class="theme-option"><input type="radio" name="theme" value="light" />浅色模式</label>
+                      <label class="theme-option"><input type="radio" name="theme" value="dark" />深色模式</label>
+                      <label class="theme-option"><input type="radio" name="theme" value="system" checked />跟随系统</label>
+                    </div>
+                    <div class="color-picker-section">
+                      <h2>主题颜色</h2><p>自定义按钮、选中状态和进度条的强调色。</p>
+                      <div class="color-picker-row">
+                        <div class="wheel-wrap">
+                          <canvas class="color-wheel" id="color-wheel" width="200" height="200"></canvas>
+                          <div class="wheel-marker" id="wheel-marker"></div>
+                        </div>
+                        <div class="color-controls">
+                          <label class="slider-row"><b class="red">R</b><input type="range" id="color-r" min="0" max="255" value="105" /><span id="color-r-value">105</span></label>
+                          <label class="slider-row"><b class="green">G</b><input type="range" id="color-g" min="0" max="255" value="120" /><span id="color-g-value">120</span></label>
+                          <label class="slider-row"><b class="blue">B</b><input type="range" id="color-b" min="0" max="255" value="230" /><span id="color-b-value">230</span></label>
+                          <div class="color-preview">
+                            <input id="color-hex" value="#6978E6" maxlength="7" aria-label="十六进制主题色" />
+                            <span id="color-swatch"></span>
+                            <button id="reset-accent" type="button">重置默认</button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="glass-card setting-card about">
+                    <img data-app-logo alt="摸鱼工具箱 logo" />
+                    <h2>摸鱼工具箱</h2><p>Electron v2</p><hr />
+                    <dl>
+                      <div><dt>工具能力</dt><dd>条码 / 图片 / PDF / 格式转换</dd></div>
+                      <div><dt>专业联动</dt><dd>Illustrator / Office / Photoshop</dd></div>
+                      <div><dt>开发状态</dt><dd>M0b · 界面迁移</dd></div>
+                    </dl>
+                    <p class="about-credit">Lewis-Weng<br />Leclerc_Weng@gmail.com</p>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </main>
         </div>
-        <button id="ping-button" type="button">发送 ping</button>
-        <output id="ping-result" aria-live="polite">等待测试</output>
-      </section>
-    </main>
+      </div>
+
+      <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    </div>
 
     <script type="module" src="./main.js"></script>
   </body>
