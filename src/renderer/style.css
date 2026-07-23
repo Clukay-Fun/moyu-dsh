@@ -675,6 +675,159 @@ input:focus-visible {
   user-select: text;
 }
 
+.pdf-options .compact {
+  min-height: 34px;
+  padding: 6px 10px;
+}
+
+.pdf-option-status {
+  max-width: 150px;
+  overflow: hidden;
+  color: var(--faint);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modal-layer {
+  position: fixed;
+  inset: 0;
+  display: flex;
+}
+
+.modal-layer[hidden] {
+  display: none;
+}
+
+.pdf-page-organizer {
+  z-index: 45;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(20, 22, 32, 0.3);
+  backdrop-filter: blur(16px);
+}
+
+.pdf-page-dialog {
+  display: flex;
+  width: min(920px, 92vw);
+  height: min(680px, 88vh);
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.pdf-page-dialog > header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 15px 17px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.pdf-page-dialog > header > div:first-child {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.pdf-page-dialog > header span {
+  overflow: hidden;
+  color: var(--faint);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pdf-page-dialog-actions {
+  display: flex;
+  flex: none;
+  gap: 8px;
+}
+
+.pdf-page-grid {
+  display: grid;
+  min-height: 0;
+  flex: 1;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  align-content: start;
+  gap: 12px;
+  padding: 17px;
+  overflow: auto;
+}
+
+.pdf-page-card {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 7px;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card-thin);
+  cursor: grab;
+}
+
+.pdf-page-card.dragging {
+  opacity: 0.36;
+}
+
+.pdf-page-card.drag-target {
+  border-color: var(--accent);
+  background: var(--accent-10);
+}
+
+.pdf-page-card img {
+  width: 100%;
+  aspect-ratio: 0.72;
+  border-radius: 7px;
+  background: #fff;
+  object-fit: contain;
+}
+
+.pdf-page-card footer {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+}
+
+.pdf-page-card footer span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pdf-page-card footer button {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.pdf-page-card footer button:hover {
+  color: var(--accent);
+  background: var(--accent-10);
+}
+
+.pdf-page-card footer .delete:hover {
+  color: #d54f50;
+  background: rgba(213, 79, 80, 0.1);
+}
+
 .toggle-wrap {
   display: flex;
   align-items: center;

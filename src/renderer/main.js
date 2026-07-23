@@ -1,7 +1,7 @@
 import JsBarcode from 'jsbarcode'
 import { fabric } from 'fabric'
-import { PDFDocument, degrees } from 'pdf-lib'
-import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist'
+import { PDFDocument, StandardFonts, degrees, rgb } from 'pdf-lib'
+import { getDocument, GlobalWorkerOptions, ImageKind, OPS } from 'pdfjs-dist'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 
 globalThis.fabric = fabric
@@ -107,9 +107,9 @@ const submenuData = {
         ['转 PNG', 'PNG', '#3c9a5e'],
         ['转 JPEG', 'JPG', '#3c9a5e'],
         ['转 TXT', 'TXT', '#707387'],
-        ['转 DOCX', 'DOC', '#2b6cb0', 'M7'],
-        ['转 XLSX', 'XLS', '#217346', 'M7'],
-        ['转 PPTX', 'PPT', '#d24726', 'M7']
+        ['转 DOCX', 'DOC', '#2b6cb0', 'M7x'],
+        ['转 XLSX', 'XLS', '#217346', 'M7x'],
+        ['转 PPTX', 'PPT', '#d24726', 'M7x']
       ]
     },
     {
@@ -118,7 +118,13 @@ const submenuData = {
         ['合并 PDF', '合', '#e0554e'],
         ['拆分 PDF', '拆', '#e0554e'],
         ['旋转 PDF', '旋', '#e0554e'],
-        ['提取页', '页', '#e0554e']
+        ['提取页', '页', '#e0554e'],
+        ['文字水印', 'WM', '#6978e6'],
+        ['图片水印', 'IMG', '#6978e6'],
+        ['添加页码', '#', '#6978e6'],
+        ['页重排', '⇅', '#6978e6'],
+        ['提取图片', 'PIC', '#3c9a5e'],
+        ['OCR 转 TXT', 'OCR', '#3c9a5e']
       ]
     },
     {
@@ -156,9 +162,9 @@ const defaultSelections = {
 }
 
 const deferredPdfActions = new Map([
-  ['转 DOCX', 'M7'],
-  ['转 XLSX', 'M7'],
-  ['转 PPTX', 'M7'],
+  ['转 DOCX', 'M7x'],
+  ['转 XLSX', 'M7x'],
+  ['转 PPTX', 'M7x'],
   ['Word 转 PDF', 'M4'],
   ['Excel 转 PDF', 'M4'],
   ['PPT 转 PDF', 'M4']
@@ -185,6 +191,12 @@ const searchFeatures = [
   ['拆分 PDF', 'PDF', 'pdf', '拆分 PDF', '拆分 页面'],
   ['旋转 PDF', 'PDF', 'pdf', '旋转 PDF', '旋转 页面'],
   ['提取页', 'PDF', 'pdf', '提取页', 'PDF 页面 提取'],
+  ['文字水印', 'PDF', 'pdf', '文字水印', 'PDF 水印 文字'],
+  ['图片水印', 'PDF', 'pdf', '图片水印', 'PDF 水印 图片'],
+  ['添加页码', 'PDF', 'pdf', '添加页码', 'PDF 页眉 页脚'],
+  ['页重排', 'PDF', 'pdf', '页重排', 'PDF 拖拽 调序 删除 插入'],
+  ['提取图片', 'PDF', 'pdf', '提取图片', 'PDF 内嵌 图片 导出'],
+  ['OCR 转 TXT', 'PDF', 'pdf', 'OCR 转 TXT', 'PDF 扫描件 文字识别'],
   ['图片转 PDF', 'PDF', 'pdf', '图片转 PDF', '图片 PDF'],
   ['Word 转 PDF', 'PDF', 'pdf', 'Word 转 PDF', 'Office DOCX'],
   ['Excel 转 PDF', 'PDF', 'pdf', 'Excel 转 PDF', 'Office XLSX'],
@@ -228,7 +240,10 @@ const state = {
   barcodeBatchItems: [],
   pdfFiles: [],
   pdfBusy: false,
-  pdfLastOutput: null
+  pdfLastOutput: null,
+  pdfWatermarkImage: null,
+  pdfPageItems: [],
+  pdfPageOrganizerSource: null
 }
 
 const submenu = document.querySelector('#submenu')
@@ -326,6 +341,12 @@ const pdfActionConfig = {
   '拆分 PDF': { inputLabel: 'PDF', kind: 'pdf', accept: 'application/pdf,.pdf', multiple: false, minFiles: 1 },
   '旋转 PDF': { inputLabel: 'PDF', kind: 'pdf', accept: 'application/pdf,.pdf', multiple: false, minFiles: 1 },
   提取页: { inputLabel: 'PDF', kind: 'pdf', accept: 'application/pdf,.pdf', multiple: false, minFiles: 1 },
+  文字水印: { inputLabel: 'PDF', kind: 'pdf', accept: 'application/pdf,.pdf', multiple: false, minFiles: 1 },
+  图片水印: { inputLabel: 'PDF', kind: 'pdf', accept: 'application/pdf,.pdf', multiple: false, minFiles: 1 },
+  添加页码: { inputLabel: 'PDF', kind: 'pdf', accept: 'application/pdf,.pdf', multiple: false, minFiles: 1 },
+  页重排: { inputLabel: 'PDF', kind: 'pdf', accept: 'application/pdf,.pdf', multiple: false, minFiles: 1 },
+  提取图片: { inputLabel: 'PDF', kind: 'pdf', accept: 'application/pdf,.pdf', multiple: false, minFiles: 1 },
+  'OCR 转 TXT': { inputLabel: 'PDF', kind: 'pdf', accept: 'application/pdf,.pdf', multiple: false, minFiles: 1 },
   '图片转 PDF': {
     inputLabel: '图片',
     kind: 'image',
@@ -345,6 +366,11 @@ const pdfRunButton = document.querySelector('#run-pdf-action')
 const pdfResultText = document.querySelector('#pdf-result-text')
 const pdfResultDot = document.querySelector('#pdf-result-dot')
 const pdfOpenOutputButton = document.querySelector('#open-pdf-output')
+const pdfPageOrganizer = document.querySelector('#pdf-page-organizer')
+const pdfPageGrid = document.querySelector('#pdf-page-grid')
+const pdfPageSummary = document.querySelector('#pdf-page-summary')
+const pdfInsertPagesInput = document.querySelector('#pdf-insert-pages-input')
+let draggedPdfPageId = ''
 
 function currentPdfConfig() {
   return pdfActionConfig[state.selections.pdf]
@@ -391,6 +417,58 @@ function renderPdfOptions() {
         </select>
       </label>
     `
+  } else if (action === '文字水印') {
+    pdfOptions.innerHTML = `
+      <label>文字
+        <input id="pdf-watermark-text" type="text" value="摸鱼工具箱" maxlength="60">
+      </label>
+      <label>透明度
+        <select id="pdf-watermark-opacity">
+          <option value="0.18">18%</option>
+          <option value="0.28" selected>28%</option>
+          <option value="0.4">40%</option>
+        </select>
+      </label>
+    `
+  } else if (action === '图片水印') {
+    pdfOptions.innerHTML = `
+      <button class="gbtn compact" id="pdf-watermark-image-button" type="button">选择水印图片</button>
+      <span class="pdf-option-status" id="pdf-watermark-image-name">尚未选择</span>
+      <input id="pdf-watermark-image-input" type="file" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" hidden>
+      <label>透明度
+        <select id="pdf-watermark-opacity">
+          <option value="0.18">18%</option>
+          <option value="0.28" selected>28%</option>
+          <option value="0.4">40%</option>
+        </select>
+      </label>
+    `
+    const input = pdfOptions.querySelector('#pdf-watermark-image-input')
+    pdfOptions.querySelector('#pdf-watermark-image-button').addEventListener('click', () => input.click())
+    input.addEventListener('change', () => {
+      state.pdfWatermarkImage = input.files?.[0] || null
+      pdfOptions.querySelector('#pdf-watermark-image-name').textContent =
+        state.pdfWatermarkImage?.name || '尚未选择'
+      updatePdfRunState()
+    })
+  } else if (action === '添加页码') {
+    pdfOptions.innerHTML = `
+      <label>位置
+        <select id="pdf-page-number-position">
+          <option value="footer">页脚</option>
+          <option value="header">页眉</option>
+        </select>
+      </label>
+      <label>起始
+        <input id="pdf-page-number-start" type="number" min="0" max="99999" value="1">
+      </label>
+    `
+  } else if (action === '页重排') {
+    pdfOptions.innerHTML = `
+      <button class="gbtn compact" id="pdf-open-page-organizer" type="button">编辑页面顺序</button>
+      <span class="pdf-option-status" id="pdf-page-option-status">上传 PDF 后载入页面</span>
+    `
+    pdfOptions.querySelector('#pdf-open-page-organizer').addEventListener('click', openPdfPageOrganizer)
   }
 }
 
@@ -431,10 +509,20 @@ function renderPdfFiles() {
 function updatePdfRunState() {
   const config = currentPdfConfig()
   const enoughFiles = state.pdfFiles.length >= config.minFiles
-  pdfRunButton.disabled = state.pdfBusy || !enoughFiles
+  const hasWatermarkImage =
+    state.selections.pdf !== '图片水印' || Boolean(state.pdfWatermarkImage)
+  pdfRunButton.disabled = state.pdfBusy || !enoughFiles || !hasWatermarkImage
   pdfRunButton.textContent = state.pdfBusy ? '处理中…' : `开始${state.selections.pdf}`
   pdfClearFilesButton.disabled = state.pdfBusy || state.pdfFiles.length === 0
   pdfAddFilesButton.disabled = state.pdfBusy
+  const organizerButton = document.querySelector('#pdf-open-page-organizer')
+  if (organizerButton) organizerButton.disabled = state.pdfBusy || !enoughFiles
+  const organizerStatus = document.querySelector('#pdf-page-option-status')
+  if (organizerStatus) {
+    organizerStatus.textContent = state.pdfPageItems.length
+      ? `当前 ${state.pdfPageItems.length} 页`
+      : '上传 PDF 后载入页面'
+  }
 }
 
 function updatePdfState(action) {
@@ -456,6 +544,8 @@ function updatePdfState(action) {
   document.querySelector('#pdf-empty-text').textContent = `上传 ${config.inputLabel} 文件`
   pdfAddFilesButton.textContent = `＋ 上传 ${config.inputLabel}`
   state.pdfLastOutput = null
+  state.pdfWatermarkImage = null
+  resetPdfPageOrganizer()
   pdfOpenOutputButton.disabled = true
   pdfResultText.textContent = '添加文件后即可处理'
   pdfResultDot.classList.remove('success', 'error', 'busy')
@@ -547,6 +637,7 @@ function addPdfToolFiles(fileList) {
 
   state.pdfFiles = nextFiles
   state.pdfLastOutput = null
+  resetPdfPageOrganizer()
   pdfOpenOutputButton.disabled = true
   renderPdfFiles()
   setPdfResult(`已添加 ${state.pdfFiles.length} 个文件`)
@@ -696,6 +787,271 @@ async function imageFileToPng(file) {
   }
 }
 
+async function textWatermarkToPng(text) {
+  const canvas = document.createElement('canvas')
+  const context = canvas.getContext('2d')
+  const fontSize = 64
+  context.font = `700 ${fontSize}px "Microsoft YaHei UI", "PingFang SC", sans-serif`
+  const metrics = context.measureText(text)
+  canvas.width = Math.ceil(metrics.width + 40)
+  canvas.height = 96
+  context.font = `700 ${fontSize}px "Microsoft YaHei UI", "PingFang SC", sans-serif`
+  context.textAlign = 'center'
+  context.textBaseline = 'middle'
+  context.fillStyle = '#5266d7'
+  context.fillText(text, canvas.width / 2, canvas.height / 2)
+  const blob = await canvasToBlob(canvas, 'image/png')
+  return {
+    width: canvas.width,
+    height: canvas.height,
+    data: new Uint8Array(await blob.arrayBuffer())
+  }
+}
+
+async function addPdfWatermark(kind) {
+  const source = await readPdfDocument(state.pdfFiles[0])
+  const opacity = Number(document.querySelector('#pdf-watermark-opacity')?.value || 0.28)
+  let converted
+
+  if (kind === 'text') {
+    const text = document.querySelector('#pdf-watermark-text')?.value.trim()
+    if (!text) throw new Error('请输入水印文字')
+    converted = await textWatermarkToPng(text)
+  } else {
+    if (!state.pdfWatermarkImage) throw new Error('请先选择水印图片')
+    converted = await imageFileToPng(state.pdfWatermarkImage)
+  }
+
+  const watermark = await source.embedPng(converted.data)
+  source.getPages().forEach((page) => {
+    const { width: pageWidth, height: pageHeight } = page.getSize()
+    const maxWidth = pageWidth * 0.45
+    const maxHeight = pageHeight * 0.22
+    const scale = Math.min(maxWidth / converted.width, maxHeight / converted.height, 1)
+    const width = converted.width * scale
+    const height = converted.height * scale
+    page.drawImage(watermark, {
+      x: (pageWidth - width) / 2,
+      y: (pageHeight - height) / 2,
+      width,
+      height,
+      opacity
+    })
+  })
+
+  const result = await saveSinglePdfToolOutput(
+    'pdf',
+    `${pdfOutputBaseName(state.pdfFiles[0])}-watermarked`,
+    await source.save()
+  )
+  return result.status === 'saved'
+    ? `已为 ${source.getPageCount()} 页添加${kind === 'text' ? '文字' : '图片'}水印`
+    : '已取消保存'
+}
+
+async function addPdfPageNumbers() {
+  const source = await readPdfDocument(state.pdfFiles[0])
+  const font = await source.embedFont(StandardFonts.Helvetica)
+  const position = document.querySelector('#pdf-page-number-position')?.value || 'footer'
+  const start = Number(document.querySelector('#pdf-page-number-start')?.value || 1)
+
+  if (!Number.isInteger(start) || start < 0 || start > 99999) {
+    throw new Error('起始页码必须是 0–99999 的整数')
+  }
+
+  source.getPages().forEach((page, index) => {
+    const label = `${start + index} / ${start + source.getPageCount() - 1}`
+    const size = 10
+    const labelWidth = font.widthOfTextAtSize(label, size)
+    const { width, height } = page.getSize()
+    page.drawText(label, {
+      x: Math.max(16, (width - labelWidth) / 2),
+      y: position === 'header' ? height - 20 : 12,
+      size,
+      font,
+      color: rgb(0.32, 0.34, 0.42),
+      opacity: 0.82
+    })
+  })
+
+  const result = await saveSinglePdfToolOutput(
+    'pdf',
+    `${pdfOutputBaseName(state.pdfFiles[0])}-numbered`,
+    await source.save()
+  )
+  return result.status === 'saved'
+    ? `已在${position === 'header' ? '页眉' : '页脚'}添加 ${source.getPageCount()} 个页码`
+    : '已取消保存'
+}
+
+function resetPdfPageOrganizer() {
+  state.pdfPageItems = []
+  state.pdfPageOrganizerSource = null
+  if (pdfPageGrid) pdfPageGrid.replaceChildren()
+  if (pdfPageOrganizer) pdfPageOrganizer.hidden = true
+}
+
+function renderPdfPageOrganizer() {
+  pdfPageGrid.replaceChildren()
+  state.pdfPageItems.forEach((item, index) => {
+    const card = document.createElement('article')
+    const preview = document.createElement('img')
+    const footer = document.createElement('footer')
+    const label = document.createElement('span')
+    const previous = document.createElement('button')
+    const next = document.createElement('button')
+    const remove = document.createElement('button')
+
+    card.className = 'pdf-page-card'
+    card.draggable = true
+    card.dataset.pageId = item.id
+    preview.src = item.thumbnail
+    preview.alt = `${item.file.name} 第 ${item.pageIndex + 1} 页`
+    label.textContent = `${index + 1} · ${item.file.name} / ${item.pageIndex + 1}`
+    label.title = label.textContent
+
+    previous.type = 'button'
+    previous.dataset.pageCommand = 'previous'
+    previous.disabled = index === 0
+    previous.setAttribute('aria-label', '向前移动')
+    previous.textContent = '←'
+    next.type = 'button'
+    next.dataset.pageCommand = 'next'
+    next.disabled = index === state.pdfPageItems.length - 1
+    next.setAttribute('aria-label', '向后移动')
+    next.textContent = '→'
+    remove.type = 'button'
+    remove.className = 'delete'
+    remove.dataset.pageCommand = 'delete'
+    remove.setAttribute('aria-label', '删除页面')
+    remove.textContent = '×'
+    footer.append(label, previous, next, remove)
+    card.append(preview, footer)
+    pdfPageGrid.append(card)
+  })
+
+  pdfPageSummary.textContent = state.pdfPageItems.length
+    ? `共 ${state.pdfPageItems.length} 页 · 拖拽卡片调序，或使用箭头移动`
+    : '页面已全部删除，可插入其他 PDF'
+  updatePdfRunState()
+}
+
+async function createPdfPageItems(file) {
+  const loadingTask = getDocument({
+    data: new Uint8Array(await file.arrayBuffer())
+  })
+  const pdfDocument = await loadingTask.promise
+  const items = []
+
+  try {
+    if (state.pdfPageItems.length + pdfDocument.numPages > 200) {
+      throw new Error('页重排最多支持 200 页')
+    }
+
+    for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber += 1) {
+      pdfPageSummary.textContent = `正在载入 ${file.name} · ${pageNumber} / ${pdfDocument.numPages}`
+      const page = await pdfDocument.getPage(pageNumber)
+      const natural = page.getViewport({ scale: 1 })
+      const viewport = page.getViewport({ scale: Math.min(1, 132 / natural.width) })
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.max(1, Math.ceil(viewport.width))
+      canvas.height = Math.max(1, Math.ceil(viewport.height))
+      await page.render({
+        canvas,
+        canvasContext: canvas.getContext('2d'),
+        viewport
+      }).promise
+      items.push({
+        id: crypto.randomUUID(),
+        file,
+        pageIndex: pageNumber - 1,
+        thumbnail: canvas.toDataURL('image/jpeg', 0.72)
+      })
+      page.cleanup()
+    }
+  } finally {
+    await pdfDocument.destroy()
+  }
+
+  return items
+}
+
+async function ensurePdfPageOrganizerLoaded() {
+  const source = state.pdfFiles[0]
+  if (!source) throw new Error('请先上传 PDF')
+  if (state.pdfPageOrganizerSource === source && state.pdfPageItems.length) return
+
+  state.pdfPageItems = []
+  state.pdfPageOrganizerSource = source
+  pdfPageGrid.replaceChildren()
+  pdfPageSummary.textContent = '正在读取页面…'
+  state.pdfPageItems = await createPdfPageItems(source)
+  renderPdfPageOrganizer()
+}
+
+async function openPdfPageOrganizer() {
+  if (state.pdfBusy || !state.pdfFiles[0]) return
+  pdfPageOrganizer.hidden = false
+  try {
+    await ensurePdfPageOrganizerLoaded()
+  } catch (error) {
+    pdfPageOrganizer.hidden = true
+    setPdfResult(`页面载入失败：${error instanceof Error ? error.message : String(error)}`, 'error')
+  }
+}
+
+async function insertPdfPages(fileList) {
+  const files = Array.from(fileList || []).filter((file) =>
+    file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
+  )
+  if (!files.length) return
+
+  try {
+    for (const file of files) {
+      if (file.size > 150 * 1024 * 1024) throw new Error(`${file.name} 超过 150 MB`)
+      state.pdfPageItems.push(...await createPdfPageItems(file))
+    }
+    renderPdfPageOrganizer()
+  } catch (error) {
+    setPdfResult(`插入页面失败：${error instanceof Error ? error.message : String(error)}`, 'error')
+  }
+}
+
+function movePdfPage(itemIndex, offset) {
+  const targetIndex = itemIndex + offset
+  if (itemIndex < 0 || targetIndex < 0 || targetIndex >= state.pdfPageItems.length) return
+  const [item] = state.pdfPageItems.splice(itemIndex, 1)
+  state.pdfPageItems.splice(targetIndex, 0, item)
+  renderPdfPageOrganizer()
+}
+
+async function saveReorderedPdf() {
+  await ensurePdfPageOrganizerLoaded()
+  if (!state.pdfPageItems.length) throw new Error('至少保留一个页面')
+
+  const sourceDocuments = new Map()
+  const output = await PDFDocument.create()
+  for (const [index, item] of state.pdfPageItems.entries()) {
+    setPdfResult(`正在重排 ${index + 1} / ${state.pdfPageItems.length}`, 'busy')
+    let source = sourceDocuments.get(item.file)
+    if (!source) {
+      source = await readPdfDocument(item.file)
+      sourceDocuments.set(item.file, source)
+    }
+    const [page] = await output.copyPages(source, [item.pageIndex])
+    output.addPage(page)
+  }
+
+  const result = await saveSinglePdfToolOutput(
+    'pdf',
+    `${pdfOutputBaseName(state.pdfFiles[0])}-reordered`,
+    await output.save()
+  )
+  return result.status === 'saved'
+    ? `已按当前顺序保存 ${state.pdfPageItems.length} 页`
+    : '已取消保存'
+}
+
 async function imagesToPdf() {
   const output = await PDFDocument.create()
 
@@ -817,6 +1173,182 @@ async function extractPdfText() {
   return result.status === 'saved' ? `已提取 ${pages.length} 页内嵌文字` : '已取消保存'
 }
 
+function pdfImageDataToCanvas(imageData) {
+  const canvas = document.createElement('canvas')
+  const width = Number(imageData?.width)
+  const height = Number(imageData?.height)
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1) {
+    throw new Error('PDF 图片尺寸无效')
+  }
+  canvas.width = width
+  canvas.height = height
+  const context = canvas.getContext('2d')
+
+  if (imageData instanceof ImageData) {
+    context.putImageData(imageData, 0, 0)
+    return canvas
+  }
+  if (imageData.bitmap) {
+    context.drawImage(imageData.bitmap, 0, 0)
+    return canvas
+  }
+
+  const source = imageData.data
+  if (!(source instanceof Uint8Array || source instanceof Uint8ClampedArray)) {
+    throw new Error('PDF 图片像素格式不受支持')
+  }
+  const output = context.createImageData(width, height)
+
+  if (imageData.kind === ImageKind.RGBA_32BPP) {
+    output.data.set(source.subarray(0, output.data.length))
+  } else if (imageData.kind === ImageKind.RGB_24BPP) {
+    for (let sourceIndex = 0, outputIndex = 0; outputIndex < output.data.length; outputIndex += 4) {
+      output.data[outputIndex] = source[sourceIndex++]
+      output.data[outputIndex + 1] = source[sourceIndex++]
+      output.data[outputIndex + 2] = source[sourceIndex++]
+      output.data[outputIndex + 3] = 255
+    }
+  } else if (imageData.kind === ImageKind.GRAYSCALE_1BPP) {
+    const rowBytes = Math.ceil(width / 8)
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const bit = source[y * rowBytes + Math.floor(x / 8)] & (128 >> (x % 8))
+        const value = bit ? 255 : 0
+        const outputIndex = (y * width + x) * 4
+        output.data[outputIndex] = value
+        output.data[outputIndex + 1] = value
+        output.data[outputIndex + 2] = value
+        output.data[outputIndex + 3] = 255
+      }
+    }
+  } else {
+    throw new Error('PDF 图片颜色格式不受支持')
+  }
+
+  context.putImageData(output, 0, 0)
+  return canvas
+}
+
+function getPdfPageObject(page, objectId) {
+  return new Promise((resolve) => page.objs.get(objectId, resolve))
+}
+
+async function extractEmbeddedPdfImages() {
+  const file = state.pdfFiles[0]
+  const loadingTask = getDocument({
+    data: new Uint8Array(await file.arrayBuffer())
+  })
+  const pdfDocument = await loadingTask.promise
+  const files = []
+  let totalBytes = 0
+
+  try {
+    if (pdfDocument.numPages > 500) throw new Error('提取图片最多支持 500 页')
+
+    for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber += 1) {
+      setPdfResult(`正在分析图片 ${pageNumber} / ${pdfDocument.numPages}`, 'busy')
+      const page = await pdfDocument.getPage(pageNumber)
+      const operatorList = await page.getOperatorList()
+      const seenObjectIds = new Set()
+      let pageImageNumber = 0
+
+      for (let index = 0; index < operatorList.fnArray.length; index += 1) {
+        const operation = operatorList.fnArray[index]
+        const args = operatorList.argsArray[index]
+        let imageData
+
+        if (
+          operation === OPS.paintImageXObject ||
+          operation === OPS.paintImageXObjectRepeat
+        ) {
+          const objectId = args?.[0]
+          if (!objectId || seenObjectIds.has(objectId)) continue
+          seenObjectIds.add(objectId)
+          imageData = await getPdfPageObject(page, objectId)
+        } else if (operation === OPS.paintInlineImageXObject) {
+          imageData = args?.[0]
+        } else {
+          continue
+        }
+
+        if (!imageData || files.length >= 500) continue
+        try {
+          const canvas = pdfImageDataToCanvas(imageData)
+          if (canvas.width < 2 || canvas.height < 2) continue
+          const blob = await canvasToBlob(canvas, 'image/png')
+          const data = new Uint8Array(await blob.arrayBuffer())
+          totalBytes += data.byteLength
+          if (totalBytes > 450 * 1024 * 1024) {
+            throw new Error('提取结果超过 450 MB，请拆分 PDF 后重试')
+          }
+          pageImageNumber += 1
+          files.push({
+            name: `${pdfOutputBaseName(file)}-page-${String(pageNumber).padStart(3, '0')}-image-${String(pageImageNumber).padStart(3, '0')}`,
+            data
+          })
+        } catch (error) {
+          if (error instanceof Error && error.message.includes('450 MB')) throw error
+        }
+      }
+      page.cleanup()
+    }
+  } finally {
+    await pdfDocument.destroy()
+  }
+
+  if (!files.length) throw new Error('未检测到可导出的内嵌位图')
+  const result = await saveBatchPdfToolOutput('png', files)
+  return result.status === 'saved' ? `已提取 ${files.length} 张内嵌图片` : '已取消保存'
+}
+
+async function ocrPdfToText() {
+  const file = state.pdfFiles[0]
+  const loadingTask = getDocument({
+    data: new Uint8Array(await file.arrayBuffer())
+  })
+  const pdfDocument = await loadingTask.promise
+  const pages = []
+
+  try {
+    if (pdfDocument.numPages > 80) throw new Error('OCR 最多支持 80 页，请拆分后重试')
+
+    for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber += 1) {
+      setPdfResult(`正在 OCR 第 ${pageNumber} / ${pdfDocument.numPages} 页`, 'busy')
+      const page = await pdfDocument.getPage(pageNumber)
+      const natural = page.getViewport({ scale: 1 })
+      const scale = Math.min(2.5, 1800 / natural.width)
+      const viewport = page.getViewport({ scale })
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.ceil(viewport.width)
+      canvas.height = Math.ceil(viewport.height)
+      await page.render({
+        canvas,
+        canvasContext: canvas.getContext('2d'),
+        viewport
+      }).promise
+      const blob = await canvasToBlob(canvas, 'image/png')
+      const result = await window.api.recognizeScreenshot(
+        new Uint8Array(await blob.arrayBuffer())
+      )
+      pages.push(`--- 第 ${pageNumber} 页 ---\n${result.text.trim()}`)
+      page.cleanup()
+    }
+  } finally {
+    await pdfDocument.destroy()
+  }
+
+  const text = pages.join('\n\n').trim()
+  if (!text.replace(/--- 第 \d+ 页 ---/g, '').trim()) {
+    throw new Error('未识别到文字，请确认扫描页清晰可见')
+  }
+  const result = await saveSinglePdfToolOutput(
+    'txt',
+    `${pdfOutputBaseName(file)}-ocr`,
+    new TextEncoder().encode(text)
+  )
+  return result.status === 'saved' ? `OCR 已识别并导出 ${pages.length} 页文字` : '已取消保存'
+}
+
 async function runPdfAction() {
   if (state.pdfBusy || pdfRunButton.disabled) return
   state.pdfBusy = true
@@ -836,6 +1368,12 @@ async function runPdfAction() {
     else if (action === '拆分 PDF') message = await splitPdfFile()
     else if (action === '旋转 PDF') message = await rotatePdfFile()
     else if (action === '提取页') message = await extractPdfPages()
+    else if (action === '文字水印') message = await addPdfWatermark('text')
+    else if (action === '图片水印') message = await addPdfWatermark('image')
+    else if (action === '添加页码') message = await addPdfPageNumbers()
+    else if (action === '页重排') message = await saveReorderedPdf()
+    else if (action === '提取图片') message = await extractEmbeddedPdfImages()
+    else if (action === 'OCR 转 TXT') message = await ocrPdfToText()
     else if (action === '图片转 PDF') message = await imagesToPdf()
     else throw new Error('该 PDF 功能尚未接入')
 
@@ -859,6 +1397,8 @@ pdfFileInput.addEventListener('change', () => addPdfToolFiles(pdfFileInput.files
 pdfClearFilesButton.addEventListener('click', () => {
   state.pdfFiles = []
   state.pdfLastOutput = null
+  state.pdfWatermarkImage = null
+  resetPdfPageOrganizer()
   pdfOpenOutputButton.disabled = true
   renderPdfFiles()
   setPdfResult('添加文件后即可处理')
@@ -867,6 +1407,7 @@ pdfFileBody.addEventListener('click', (event) => {
   const button = event.target.closest('.pdf-remove-file')
   if (!button || state.pdfBusy) return
   state.pdfFiles.splice(Number(button.dataset.index), 1)
+  resetPdfPageOrganizer()
   renderPdfFiles()
 })
 pdfDropZone.addEventListener('dragover', (event) => {
@@ -887,6 +1428,66 @@ pdfOpenOutputButton.addEventListener('click', async () => {
   } catch {
     setPdfResult('无法打开输出位置', 'error')
   }
+})
+
+document.querySelector('#pdf-close-page-organizer').addEventListener('click', () => {
+  pdfPageOrganizer.hidden = true
+  document.querySelector('#pdf-open-page-organizer')?.focus()
+})
+document.querySelector('#pdf-insert-pages').addEventListener('click', () => {
+  pdfInsertPagesInput.value = ''
+  pdfInsertPagesInput.click()
+})
+pdfInsertPagesInput.addEventListener('change', () => insertPdfPages(pdfInsertPagesInput.files))
+pdfPageOrganizer.addEventListener('click', (event) => {
+  if (event.target === pdfPageOrganizer) pdfPageOrganizer.hidden = true
+})
+pdfPageGrid.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-page-command]')
+  const card = event.target.closest('.pdf-page-card')
+  if (!button || !card || state.pdfBusy) return
+  const index = state.pdfPageItems.findIndex((item) => item.id === card.dataset.pageId)
+  if (button.dataset.pageCommand === 'previous') movePdfPage(index, -1)
+  else if (button.dataset.pageCommand === 'next') movePdfPage(index, 1)
+  else if (button.dataset.pageCommand === 'delete') {
+    state.pdfPageItems.splice(index, 1)
+    renderPdfPageOrganizer()
+  }
+})
+pdfPageGrid.addEventListener('dragstart', (event) => {
+  const card = event.target.closest('.pdf-page-card')
+  if (!card) return
+  draggedPdfPageId = card.dataset.pageId
+  card.classList.add('dragging')
+  event.dataTransfer.effectAllowed = 'move'
+  event.dataTransfer.setData('text/plain', draggedPdfPageId)
+})
+pdfPageGrid.addEventListener('dragover', (event) => {
+  const card = event.target.closest('.pdf-page-card')
+  if (!card || card.dataset.pageId === draggedPdfPageId) return
+  event.preventDefault()
+  pdfPageGrid.querySelectorAll('.drag-target').forEach((item) => item.classList.remove('drag-target'))
+  card.classList.add('drag-target')
+  event.dataTransfer.dropEffect = 'move'
+})
+pdfPageGrid.addEventListener('drop', (event) => {
+  const targetCard = event.target.closest('.pdf-page-card')
+  event.preventDefault()
+  if (!targetCard || !draggedPdfPageId) return
+  const sourceIndex = state.pdfPageItems.findIndex((item) => item.id === draggedPdfPageId)
+  let targetIndex = state.pdfPageItems.findIndex((item) => item.id === targetCard.dataset.pageId)
+  if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return
+  const [item] = state.pdfPageItems.splice(sourceIndex, 1)
+  if (sourceIndex < targetIndex) targetIndex -= 1
+  const placeAfter = event.clientX > targetCard.getBoundingClientRect().left + targetCard.offsetWidth / 2
+  state.pdfPageItems.splice(targetIndex + (placeAfter ? 1 : 0), 0, item)
+  renderPdfPageOrganizer()
+})
+pdfPageGrid.addEventListener('dragend', () => {
+  draggedPdfPageId = ''
+  pdfPageGrid.querySelectorAll('.dragging, .drag-target').forEach((item) => {
+    item.classList.remove('dragging', 'drag-target')
+  })
 })
 window.api.onPdfSaveProgress((progress) => {
   if (state.pdfBusy) {
@@ -1415,6 +2016,10 @@ copyOcrResultButton.addEventListener('click', async () => {
 })
 
 window.api.onScreenshotOcrProgress((progress) => {
+  if (state.pdfBusy && state.selections.pdf === 'OCR 转 TXT') {
+    const label = ocrProgressLabels[progress.status] || progress.status || '正在识别'
+    setPdfResult(`PDF OCR · ${label} ${Math.round((Number(progress.progress) || 0) * 100)}%`, 'busy')
+  }
   if (!screenshotState.busy || ocrOverlay.hidden) return
   const value = Math.min(0.98, Math.max(0.02, Number(progress.progress) || 0))
   ocrProgressFill.style.width = `${Math.round(value * 100)}%`

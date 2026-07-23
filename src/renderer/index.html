@@ -89,6 +89,7 @@
                   <button class="gbtn open" id="open-pdf-output" type="button" disabled>打开所在位置</button>
                 </div>
                 <input id="pdf-file-input" type="file" accept="application/pdf,.pdf" hidden />
+                <input id="pdf-insert-pages-input" type="file" accept="application/pdf,.pdf" multiple hidden />
               </section>
 
               <section class="page" id="page-ai">
@@ -366,6 +367,22 @@
             </div>
           </main>
         </div>
+      </div>
+
+      <div class="modal-layer pdf-page-organizer" id="pdf-page-organizer" hidden>
+        <section class="glass-card pdf-page-dialog" role="dialog" aria-modal="true" aria-labelledby="pdf-page-title">
+          <header>
+            <div>
+              <b id="pdf-page-title">页面顺序</b>
+              <span id="pdf-page-summary">载入 PDF 后可拖拽调序、删除或插入页面</span>
+            </div>
+            <div class="pdf-page-dialog-actions">
+              <button class="gbtn" id="pdf-insert-pages" type="button">＋ 插入 PDF</button>
+              <button class="gbtn" id="pdf-close-page-organizer" type="button">完成</button>
+            </div>
+          </header>
+          <div class="pdf-page-grid" id="pdf-page-grid"></div>
+        </section>
       </div>
 
       <div class="toast" id="toast" role="status" aria-live="polite"></div>
