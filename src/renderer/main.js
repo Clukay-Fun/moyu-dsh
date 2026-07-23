@@ -902,6 +902,7 @@ const startScreenshotButton = document.querySelector('#start-screenshot')
 const startScrollScreenshotButton = document.querySelector('#start-scroll-screenshot')
 const copyScreenshotButton = document.querySelector('#copy-screenshot')
 const saveScreenshotButton = document.querySelector('#save-screenshot')
+const pinScreenshotButton = document.querySelector('#pin-screenshot')
 const scrollSpikeOverlay = document.querySelector('#scroll-spike-overlay')
 const controlledScrollSource = document.querySelector('#controlled-scroll-source')
 const controlledScrollList = document.querySelector('#controlled-scroll-list')
@@ -934,6 +935,7 @@ function updateScreenshotControls() {
   })
   copyScreenshotButton.disabled = !hasImage || screenshotState.busy
   saveScreenshotButton.disabled = !hasImage || screenshotState.busy
+  pinScreenshotButton.disabled = !hasImage || screenshotState.busy
   startScreenshotButton.disabled = screenshotState.busy
   startScrollScreenshotButton.disabled = screenshotState.busy
 }
@@ -1314,6 +1316,25 @@ saveScreenshotButton.addEventListener('click', async () => {
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error)
     setScreenshotStatus(`保存失败：${reason}`, 'error')
+  } finally {
+    screenshotState.busy = false
+    updateScreenshotControls()
+  }
+})
+
+pinScreenshotButton.addEventListener('click', async () => {
+  try {
+    screenshotState.busy = true
+    updateScreenshotControls()
+    const result = await window.api.pinScreenshot(await renderScreenshotPng())
+    setScreenshotStatus(
+      `截图已钉住 · ${result.width} × ${result.height} px 浮窗`,
+      'success'
+    )
+    showToast('截图已钉住')
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    setScreenshotStatus(`钉住失败：${reason}`, 'error')
   } finally {
     screenshotState.busy = false
     updateScreenshotControls()

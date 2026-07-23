@@ -1,0 +1,124 @@
+:root {
+  color-scheme: dark;
+  font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+.pin-frame {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow: hidden;
+  background: transparent;
+  user-select: none;
+}
+
+.pin-frame {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 10px;
+  background: rgba(26, 28, 36, 0.78);
+  box-shadow: 0 12px 34px rgba(18, 20, 28, 0.28);
+  -webkit-app-region: drag;
+}
+
+.pin-frame img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.pin-frame.ready img {
+  opacity: 1;
+}
+
+.pin-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 12px;
+}
+
+.pin-frame.ready .pin-loading {
+  display: none;
+}
+
+.pin-controls {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  border-radius: 9px;
+  background: rgba(24, 26, 34, 0.78);
+  box-shadow: 0 5px 18px rgba(10, 12, 18, 0.24);
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: 130ms ease;
+  -webkit-app-region: no-drag;
+}
+
+.pin-frame:hover .pin-controls,
+.pin-controls:focus-within {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.pin-controls button {
+  min-width: 28px;
+  height: 27px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 6px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+  font: 11px inherit;
+  cursor: pointer;
+}
+
+.pin-controls button:hover {
+  background: rgba(105, 120, 230, 0.85);
+}
+
+#pin-close:hover {
+  background: #d95759;
+}
+
+#pin-status {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  max-width: calc(100% - 16px);
+  padding: 4px 7px;
+  overflow: hidden;
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.88);
+  background: rgba(24, 26, 34, 0.72);
+  font-size: 10px;
+  opacity: 0;
+  pointer-events: none;
+  text-overflow: ellipsis;
+  transition: opacity 120ms ease;
+  white-space: nowrap;
+}
+
+#pin-status.show {
+  opacity: 1;
+}

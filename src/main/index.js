@@ -61,6 +61,7 @@ const PDF_OUTPUT_TYPES = {
 }
 
 const screenshotSessions = new Map()
+const pinnedScreenshotSessions = new Map()
 let mainWindow = null
 
 function normalizeBarcodeData(type, rawData) {
@@ -111,6 +112,7 @@ function createWindow() {
   })
   mainWindow.on('closed', () => {
     mainWindow = null
+    pinnedScreenshotSessions.forEach((session) => session.window.close())
   })
 
   if (process.env.ELECTRON_RENDERER_URL) {
@@ -525,6 +527,113 @@ ipcMain.handle('screenshot:copy', (_event, data) => {
   if (image.isEmpty()) throw new Error('无法解析截图数据')
   clipboard.writeImage(image)
   return { status: 'copied', size: image.getSize() }
+})
+
+function getPinnedScreenshotSession(event, pinId) {
+  const session = pinnedScreenshotSessions.get(pinId)
+  if (!session || event.sender !== session.window.webContents) {
+    throw new Error('钉图会话不存在或无权访问')
+  }
+  return session
+}
+
+ipcMain.handle('screenshot:pin', async (event, data) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) {
+    throw new Error('只有主窗口可以创建钉图')
+  }
+  if (!(data instanceof Uint8Array) || data.byteLength > 100 * 1024 * 1024) {
+    throw new Error('钉图数据无效或超过 100 MB')
+  }
+
+  const buffer = Buffer.from(data)
+  const image = nativeImage.createFromBuffer(buffer)
+  if (image.isEmpty()) throw new Error('无法解析钉图数据')
+  const originalSize = image.getSize()
+  const scale = Math.min(1, 520 / originalSize.width, 420 / originalSize.height)
+  const width = Math.max(160, Math.round(originalSize.width * scale))
+  const height = Math.max(120, Math.round(originalSize.height * scale))
+  const pinId = randomUUID()
+  const pinWindow = new BrowserWindow({
+    width,
+    height,
+    minWidth: 120,
+    minHeight: 90,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    hasShadow: true,
+    show: false,
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
+    }
+  })
+
+  pinnedScreenshotSessions.set(pinId, {
+    data: buffer,
+    image,
+    originalSize,
+    window: pinWindow
+  })
+  pinWindow.once('ready-to-show', () => pinWindow.show())
+  pinWindow.on('closed', () => pinnedScreenshotSessions.delete(pinId))
+
+  if (process.env.ELECTRON_RENDERER_URL) {
+    const pinUrl = new URL('pin.html', process.env.ELECTRON_RENDERER_URL)
+    pinUrl.searchParams.set('pin', pinId)
+    await pinWindow.loadURL(pinUrl.toString())
+  } else {
+    await pinWindow.loadFile(join(__dirname, '../renderer/pin.html'), {
+      query: { pin: pinId }
+    })
+  }
+
+  return { status: 'pinned', pinId, width, height }
+})
+
+ipcMain.handle('screenshot:pin-get', (event, pinId) => {
+  const session = getPinnedScreenshotSession(event, pinId)
+  return {
+    data: new Uint8Array(session.data),
+    originalSize: session.originalSize,
+    opacity: session.window.getOpacity()
+  }
+})
+
+ipcMain.handle('screenshot:pin-resize', (event, payload) => {
+  const session = getPinnedScreenshotSession(event, payload?.pinId)
+  const scale = Math.min(3, Math.max(0.2, Number(payload?.scale)))
+  if (!Number.isFinite(scale)) throw new Error('钉图缩放比例无效')
+  const width = Math.max(120, Math.round(session.originalSize.width * scale))
+  const height = Math.max(90, Math.round(session.originalSize.height * scale))
+  session.window.setSize(width, height, true)
+  return { status: 'resized', width, height, scale }
+})
+
+ipcMain.handle('screenshot:pin-opacity', (event, payload) => {
+  const session = getPinnedScreenshotSession(event, payload?.pinId)
+  const opacity = Math.min(1, Math.max(0.3, Number(payload?.opacity)))
+  if (!Number.isFinite(opacity)) throw new Error('钉图透明度无效')
+  session.window.setOpacity(opacity)
+  return { status: 'updated', opacity }
+})
+
+ipcMain.handle('screenshot:pin-copy', (event, pinId) => {
+  const session = getPinnedScreenshotSession(event, pinId)
+  clipboard.writeImage(session.image)
+  return { status: 'copied', size: session.originalSize }
+})
+
+ipcMain.handle('screenshot:pin-close', (event, pinId) => {
+  const session = getPinnedScreenshotSession(event, pinId)
+  session.window.close()
+  return { status: 'closed' }
 })
 
 app.whenReady().then(() => {

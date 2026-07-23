@@ -17,6 +17,12 @@ contextBridge.exposeInMainWorld(
     cancelScreenshot: (sessionId) => ipcRenderer.invoke('screenshot:cancel', sessionId),
     saveScreenshot: (payload) => ipcRenderer.invoke('screenshot:save', payload),
     copyScreenshot: (data) => ipcRenderer.invoke('screenshot:copy', data),
+    pinScreenshot: (data) => ipcRenderer.invoke('screenshot:pin', data),
+    getPinnedScreenshot: (pinId) => ipcRenderer.invoke('screenshot:pin-get', pinId),
+    resizePinnedScreenshot: (payload) => ipcRenderer.invoke('screenshot:pin-resize', payload),
+    setPinnedScreenshotOpacity: (payload) => ipcRenderer.invoke('screenshot:pin-opacity', payload),
+    copyPinnedScreenshot: (pinId) => ipcRenderer.invoke('screenshot:pin-copy', pinId),
+    closePinnedScreenshot: (pinId) => ipcRenderer.invoke('screenshot:pin-close', pinId),
     onBarcodeSaveProgress: (callback) => {
       const listener = (_event, progress) => callback(progress)
       ipcRenderer.on('barcode:save-progress', listener)

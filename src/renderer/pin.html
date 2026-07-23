@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>钉住截图</title>
+    <link rel="stylesheet" href="./pin.css" />
+  </head>
+  <body>
+    <main class="pin-frame" id="pin-frame">
+      <img id="pin-image" alt="钉住的截图" />
+      <div class="pin-loading" id="pin-loading">正在载入截图…</div>
+      <div class="pin-controls" aria-label="钉图控制">
+        <button id="pin-opacity-down" type="button" title="降低透明度">◐−</button>
+        <button id="pin-opacity-up" type="button" title="提高透明度">◐＋</button>
+        <button id="pin-zoom-out" type="button" title="缩小">−</button>
+        <button id="pin-zoom-in" type="button" title="放大">＋</button>
+        <button id="pin-copy" type="button" title="复制">复制</button>
+        <button id="pin-close" type="button" title="关闭">×</button>
+      </div>
+      <output id="pin-status" aria-live="polite"></output>
+    </main>
+    <script type="module" src="./pin.js"></script>
+  </body>
+</html>
