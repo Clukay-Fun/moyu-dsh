@@ -1,23 +1,25 @@
-# Python
-__pycache__/
-*.py[cod]
-*.egg-info/
-.venv/
-venv/
-env/
-
-# PyInstaller 打包产物
-build/
-dist/
-*.spec
-
-# 打包/临时输出
-*.log
-/发布包/
-
-# macOS
+# 系统与编辑器
 .DS_Store
-
-# IDE
 .vscode/
 .idea/
+
+# Electron / Node 构建产物
+node_modules/
+dist/
+build/
+out/
+release/
+.electron-vite/
+*.log
+
+# 本地环境与遗留运行产物
+.venv/
+__pycache__/
+发布包/
+.env
+.env.*
+!.env.example
+
+# 本地开发依据与验证代码（不随产品源码提交）
+scope/
+tests/

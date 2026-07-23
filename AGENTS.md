@@ -1,251 +1,35 @@
-# 摸鱼工具箱 — Agent 开发约定
+# 摸鱼工具箱 — Electron v2 开发约定
 
-本文件是给 AI agent 使用的项目执行手册。它不是 README，也不是完整开发百科；它只规定 agent 在本仓库里如何安全理解、修改、验证和交付代码。
+## 项目定位
 
-> 维护约定：只在这里放长期稳定的仓库级规则，不要塞临时计划、一次性调试记录或个人偏好。
->
-> **范围/完成线不在本文件里。** 本文件只管"怎么安全地干活"；"这一版做完=什么"由项目内 `scope/` 下当前版本的 `v*-done.md` 文件管，例如 `scope/v1-done.md`。两者独立、永不合并。
+这是一个 Windows x64 Electron 桌面工具箱。Electron 渲染层是唯一正式 UI；根目录 `index.html` 只是视觉蓝本，后续迁入 Vite renderer，不作为独立网页产品维护。
 
-## 0. TL;DR
+技术与范围以本机 `scope/v2-done.md` 及其 `scope/plans/` 子计划为准。`scope/` 是本地开发依据，不纳入 Git。
 
-1. 先在项目内 `scope/` 下查找当前版本的 `v*-done.md` 文件（例如 `scope/v1-done.md`），读它并确认本版**范围与完成线**；范围外的想法一律进该文件的 icebox，不在本次动手。
-2. 执行 `git status --short --branch`，确认当前分支、上游和已有改动。
-3. 用 `rg` / `rg --files` 找同类实现和真实接口，不凭记忆猜路径、字段、端口。
-4. 只改当前任务需要的文件，不做顺手重构。
-5. 先明确影响范围：按项目实际形态填写，例如 CLI、库、服务、前端、桌面应用、脚本、文档或测试。
-6. 新增能力优先走既有模块边界和统一入口，不绕过安全、权限、审计或持久化约束。
-7. 按验证矩阵跑最小 build/test；不能跑要说明原因。
-8. 交付前再看 `git status --short --branch` 和 `git diff --stat`。
+## 工作规则
 
-## 1. 仲裁规则
+1. 修改前运行 `git status --short --branch`，保留已有改动。
+2. 按里程碑顺序开发；当前第一片为 M0a。每片先完成计划中的 Spike 或验收，再扩展下一片。
+3. 使用 Electron + Vite + Vanilla、electron-vite、electron-builder 和 npm；不引入 React/Vue 或第二套包管理器。
+4. renderer 必须 `contextIsolation: true`、`nodeIntegration: false`、`sandbox: true`；所有桌面能力仅经 preload 白名单 IPC 暴露。
+5. 文件读写、系统能力、COM、原生模块都在主进程或独立任务进程；renderer 不直接访问 Node、文件系统或系统 API。
+6. Windows 专属能力先做 Windows x64 打包 Spike。`winax`、sharp 等原生模块必须验证 Electron ABI rebuild 与 `asarUnpack`。
+7. 不保留未实现的可点击控件；未实现能力须明确禁用或标为预览。
+8. 不使用 CDN 作为核心运行依赖；运行资源经 npm 或 `assets/` 本地交付。
+9. 不提交缓存、构建产物、用户私有素材、凭证、本地计划文档或测试代码。
 
-当规则冲突时，按以下优先级执行：
+## 验证
 
-1. 用户当前明确指令。
-2. 本文件 `AGENTS.md`。
-3. 仓库内更具体的文档：**范围/验收冲突以项目内 `scope/` 下当前版本的 `v*-done.md` 为准**；架构/接口冲突以项目实际文档为准。
-4. 现有代码模式和同类实现。
-5. 通用最佳实践。
+- M0a：`npm run dev` IPC 冒烟；Windows x64 打包后双击启动验证。
+- Renderer 改动：检查控制台、导航、主题、菜单与涉及的点击路径。
+- IPC/主进程：验证成功、取消和失败提示；renderer 不获得额外 Node API。
+- 原生模块/COM：只以 Windows 打包产物实测为准。
 
-如果用户指令会导致数据丢失、泄露密钥、覆盖他人改动、跳过关键安全边界或操作受保护分支，先停下来确认。
+未能执行的验证必须在交付中说明原因与残余风险。
 
-含糊时按这个格式回应：
+## Git
 
-```text
-我的假设：...
-需要确认：...
-若不确认，我将按最小改动方案执行：...
-```
-
-## 2. 项目地图
-
-- 项目定位：面向包装设计师的桌面工具箱 —— Illustrator 批处理（AI→PDF 批量导出、文字转曲）+ 标准条码生成器。
-- 主要交付物：Windows 桌面应用，最终以免安装 EXE 形态交给普通设计师用户（PyInstaller 打包）。
-- 技术栈：Python 3.9+；UI 为 pywebview（HTML/CSS/JS 前端）；AI/PS 联动经 `pywin32` COM 驱动 Illustrator/Photoshop；条码用 `python-barcode` + 自实现 SVG 编码；图像用 Pillow。
-- 默认开发分支：`main`（本地单人仓库，暂无远程；日常直接在 `main` 上小步提交，涉及较大改动再切 `feat/*`）。
-
-关键路径：
-
-| 路径 | 职责 |
-|------|------|
-| `scope/v*-done.md` | **项目内当前里程碑的范围与完成线；例如 `scope/v1-done.md`。范围类冲突以当前版本文件为准。每版重写、冻结。** |
-| `main.py` | 应用入口：创建 pywebview 窗口、加载前端、注入 `Api`；含 PyInstaller 资源路径处理。 |
-| `api.py` | Python ↔ JS 桥接层（`Api` 类），前端所有能力都经此暴露；AI/PS 联动入口。 |
-| `converter.py` | Illustrator 批处理核心：`BatchWorker`（批量 PDF）、`OutlineWorker`（文字转曲），线程 + COM 消息过滤。 |
-| `barcode_engine.py` | 条码编码与 SVG 生成（UPC-A/EAN-13/EAN-8/Code128/Code39）；`barcode_gen.py` 为相关实现。 |
-| `theme.py` | 主题/设置读写（`settings.json`），Windows 下读注册表跟随系统主题。 |
-| `frontend/` | pywebview 前端资源：`index.html` / `app.js` / `style.css`。 |
-| `gui.py` | 早期 tkinter 单窗口界面（遗留实现，非当前主交付；改动前先确认是否仍需维护）。 |
-| `启动.bat` / `run.sh` | Windows / macOS 启动器。 |
-| `tests/` | 自动化测试或验收脚本（待建）。 |
-
-## 3. 不可动摇的约定
-
-这些约定 override 普通实现偏好。修改它们前必须和用户确认。
-
-1. **交付形态优先级：** 普通用户的第一交付物是 **Windows 免安装 EXE**（PyInstaller onefile）。源码运行、macOS 调试仅服务开发；任何改动都不能破坏 EXE 打包路径（见 `main.py` 的 `resource_path` / `sys._MEIPASS` 处理）。
-6. **跨平台优雅降级：** Windows 专用依赖（`pywin32`/`win32com`/`winreg`）必须可选导入；非 Windows 平台缺失时功能优雅降级并返回明确提示，不得让应用无法启动（见 `api.py` 的 `HAS_WIN32`）。
-2. **数据与凭证安全：** 密码、Token、Cookie、密钥、个人信息和其他敏感数据不得写入普通日志、示例配置、测试快照或仓库。
-3. **唯一出口原则：** 涉及外部副作用的动作必须经过统一 Gateway/Service，例如发送消息、写入业务系统、调用第三方接口、执行付款/删除/发布等。
-4. **人工确认边界：** 高风险、不可逆、合规敏感或置信度不足的动作必须进入人工确认或拒绝流程。
-5. **核心层保持通用：** 平台、渠道、供应商或具体领域的专用字段应限制在适配层或业务模块，不能泄漏到核心模型。
-
-## 4. 术语表
-
-| 术语 | 含义 |
-|------|------|
-| Api 桥 | `api.py` 中的 `Api` 类，pywebview 通过 `js_api` 注入前端，是前端调用 Python 的唯一入口。 |
-| Worker | `converter.py` 中的后台线程（`BatchWorker`/`OutlineWorker`），跑 Illustrator 批处理，经消息队列回传进度。 |
-| COM 联动 | 通过 `pywin32` 驱动 Illustrator/Photoshop 的自动化调用，仅 Windows 可用。 |
-| 文字转曲 | outline：把 AI 文件中的文本转为矢量路径，避免缺字体。 |
-| MSG_* | Worker 与前端间的消息类型常量（`MSG_PROGRESS`/`MSG_LOG`/`MSG_COMPLETE` 等），定义在 `converter.py`。 |
-
-保持术语稳定。新增概念时先补术语表，再在代码、文档和回复中一致使用。
-
-## 5. 模块边界（按项目形态裁剪）
-
-以下分层是通用参考，不是每个项目都必须存在。项目没有某一层时，删除对应小节或行，不要保留空占位；CLI、库或脚本项目应按实际模块边界改写。
-
-### 5.1 核心层
-
-核心层只负责通用流程、状态、权限、审计、调度、配置、领域无关的接口契约。
-
-核心层不得：
-
-- 直接依赖具体平台 SDK、浏览器协议、第三方私有接口或业务页面结构。
-- 直接读取 UI 状态、请求体细节或适配器私有字段。
-- 包含只属于单一业务场景的分支逻辑。
-
-### 5.2 适配层
-
-适配层负责连接具体平台、第三方服务、文件格式、数据库驱动或系统 API。
-
-适配层不得：
-
-- 生成业务决策。
-- 绕过统一安全、权限、审计或发送出口。
-- 把平台私有字段泄漏到核心层。
-
-### 5.3 业务层
-
-业务层负责领域规则、流程编排、风险判断、提示词、结构化抽取、工单或任务流。
-
-业务层不得：
-
-- 接管底层连接生命周期。
-- 直接操作其他模块的内部状态文件。
-- 绕过统一持久化、配置、权限和审计机制。
-
-### 5.4 UI 层
-
-UI 只能调用公开 API 或前端 service。UI 不直接访问数据库、适配器、密钥、平台发送实现或核心内部对象。
-
-## 6. 常用命令
-
-安装依赖：
-
-```bash
-pip install -r requirements.txt   # Windows
-./run.sh                          # macOS：自动建 .venv 并装可用依赖
-```
-
-开发启动：
-
-```bash
-python main.py     # 或 Windows 双击 启动.bat / macOS 执行 ./run.sh
-```
-
-构建（Windows 免安装 EXE）：
-
-```bash
-pyinstaller --onefile --noconsole --icon icon.ico ^
-  --add-data "frontend;frontend" --add-data "icon.ico;." main.py
-```
-
-测试：
-
-```bash
-【待补：当前无自动化测试，见 scope/v1-done.md 的 harness 计划】
-```
-
-默认端口：无（pywebview 桌面应用，本地加载 `frontend/index.html`，不起 HTTP 服务）。
-
-## 7. 开发闭环
-
-### 7.1 理解任务
-
-1. 读用户需求，明确影响范围。
-2. 查找同类实现、真实接口、真实数据模型和现有测试。
-3. 列出关键假设和风险；不确定且会影响方向时先问。
-4. 优先选择最小可验证改动。
-
-### 7.2 修改原则
-
-- 只改完成当前任务所需文件。
-- 不做顺手重构。
-- 不新增未请求功能、配置或抽象。
-- 不保留调试残留。
-- 不引入第二套包管理器锁文件。
-- 代码风格跟随现有文件；不要因为个人偏好重排无关代码。
-
-### 7.3 安全与审计
-
-涉及以下行为必须额外谨慎：
-
-- 删除、覆盖、批量迁移数据。
-- 写入外部系统。
-- 发送通知、消息、邮件、工单或平台动作。
-- 处理密钥、凭证、个人信息、隐私数据或其他受保护数据。
-- 调用非公开接口、模拟用户操作、自动化登录、人机验证相关流程。
-
-默认策略：
-
-- 能只读就先只读。
-- 能预览就先预览。
-- 能人工确认就先人工确认。
-- 必须执行副作用时，记录请求、操作者、时间、输入摘要、结果和错误。
-
-## 8. 验证矩阵（按项目形态裁剪）
-
-| 改动类型 | 必跑命令 | 手工检查 | 可跳过项 |
-|----------|----------|----------|----------|
-| 只改文档 | 无 | Markdown 内容、链接、命令是否准确 | build/test |
-| 前端页面/逻辑 | `python main.py` 手动打开对应页面 | Tab 切换、进度/日志、表单校验、错误提示、空状态 | EXE 打包，除非改资源路径 |
-| 前端样式 | `python main.py` 启动 | 浅色/深色主题下检查布局、溢出、空状态 | COM 联动测试 |
-| Api 桥 / 业务逻辑 | `python -c "import api"` 确保可导入 | 从前端触发对应能力，验证成功与失败返回；COM 路径在 Windows 实测 | 纯样式检查 |
-| 条码引擎 | `python -c "import barcode_engine as b; print(b.generate_svg('...', '...'))"` | 生成的 SVG 能在 AI/浏览器打开，校验位正确 | UI 检查 |
-| COM 联动（AI/PS） | 无法在 macOS 跑，须 Windows 实测 | 批量 PDF/转曲/打开：起停、进度、连接丢失恢复、产物路径 | macOS 侧仅确认优雅降级提示 |
-| 桌面打包 | `pyinstaller ...`（见 §6） | EXE 启动、`frontend`/`icon` 资源路径、窗口关闭、无控制台 | 与打包无关的功能测试 |
-
-如果无法运行某项验证，最终回复必须说明原因和残余风险。
-
-## 9. Git 工作流 / 提交 / Issue / 发布
-
-默认分支策略（当前为本地单人仓库，无远程）：
-
-- `main`：主干，日常小步提交直接落在这里。
-- `feat/*` / `fix/*`：较大或有风险的改动从 `main` 切出，完成、验证后合回 `main`。
-- 本地版本控制，**不推送任何远程 / GitHub**；如需备份走本地/移动硬盘裸仓库。
-
-提交规范：
-
-- 使用约定式提交：`type(scope): 描述`。
-- 常用 type：`feat`、`fix`、`docs`、`test`、`refactor`、`chore`。
-- 提交前必须检查 `git status --short --branch` 和 `git diff --stat`，确认没有夹带未预期改动。
-- 不把密钥、受保护数据、构建缓存、临时导出物提交进仓库。
-
-Issue 规范：
-
-- 一个 issue 只描述一个可交付问题或任务。
-- issue 必须写清背景、范围、验收标准和不做什么。
-- 创建 issue 时优先使用仓库中的 `.github/ISSUE_TEMPLATE/`；模板是填写入口，本节是内容要求。
-- PR 必须说明改动范围、验证结果、未验证项和残余风险；优先使用 `.github/PULL_REQUEST_TEMPLATE.md`。
-- 实现完成后，在最终回复或 PR 描述里关联对应 issue。
-
-### 9.4 发布规范
-
-- 发布前先确认当前版本的 `scope/v*-done.md` 验收项全部通过，并运行与本次改动相关的回归测试。
-- 使用语义化版本：破坏性变更递增 `MAJOR`，向下兼容的新功能递增 `MINOR`，向下兼容的修复递增 `PATCH`。
-- 发布前更新 `CHANGELOG.md`，按 `Added`、`Changed`、`Fixed`、`Removed` 分类，用用户能理解的结果描述，不复制 commit log。
-- 新项目从 `template/CHANGELOG.template.md` 复制 `CHANGELOG.md`；每个发布 PR 必须说明版本类型是 `MAJOR`、`MINOR` 还是 `PATCH`，若不发布填写“不涉及版本发布”。
-- 发布前检查配置、数据库迁移、数据备份和回滚路径；涉及受保护数据或不可逆操作时必须人工确认。
-- 发布完成后记录版本号、验证结果和已知限制；发现严重问题时优先按已验证的回滚路径处理。
-
-## 10. 交付格式
-
-最终回复至少包含：
-
-- 改了什么。
-- 验证了什么。
-- 没验证什么以及原因。
-- 是否存在已有未处理改动。
-- 后续风险或需要人工确认的事项。
-
-## 11. 项目专属补充
-
-把业务专属规则放这里，避免污染通用章节。
-
-- **COM 联动约束**：所有 Illustrator/Photoshop 调用必须先 `pythoncom.CoInitialize()`、结束 `CoUninitialize()`，并在异常路径也确保反初始化（参考 `api.py`/`converter.py` 现有写法）。批处理长任务须走 `converter.py` 的 COM 消息过滤器，避免界面卡死。
-- **产物落盘规则**：条码默认导出到桌面（`~/Desktop`），同名文件自动追加 `(1)`、`(2)`；批量 PDF 默认写源文件同目录。改动落盘位置前先确认，别静默改变用户预期路径。
-- **平台守卫**：新增任何依赖 `win32com`/`winreg`/`pythoncom` 的代码，必须置于可选导入或 `HAS_WIN32` 守卫之后，并为非 Windows 返回明确提示（不是抛栈）。
-- **遗留 `gui.py`**：当前主交付是 webview 版；`gui.py`（tkinter）为早期实现。除非用户明确要求，不在它上面加新功能；两套 UI 的能力应以 `api.py`/`converter.py`/`barcode_engine.py` 为共享核心，避免逻辑分叉。
+- 开发主线：`dev`；`main` 保留为稳定基线。
+- 提交前运行 `git diff --check`、`git diff --stat` 与 `git status --short --branch`。
+- 使用约定式提交，例如 `feat(shell): ...`、`feat(barcode): ...`。
+- 不推送远程，除非用户明确要求。

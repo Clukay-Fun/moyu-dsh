@@ -1,5 +1,0 @@
-# QR 验收样本集（v1.1）
-# 每行一个输入；前端预览与导出 SVG 均须来自 barcode_engine，手机扫码结果须与原文完全相同。
-https://example.com/product/123
-包装条码 QR 测试
-纯文本 QR 验收样本
