@@ -903,6 +903,13 @@ const startScrollScreenshotButton = document.querySelector('#start-scroll-screen
 const copyScreenshotButton = document.querySelector('#copy-screenshot')
 const saveScreenshotButton = document.querySelector('#save-screenshot')
 const pinScreenshotButton = document.querySelector('#pin-screenshot')
+const ocrScreenshotButton = document.querySelector('#ocr-screenshot')
+const ocrOverlay = document.querySelector('#ocr-overlay')
+const ocrResult = document.querySelector('#ocr-result')
+const ocrProgressFill = document.querySelector('#ocr-progress-fill')
+const ocrProgressText = document.querySelector('#ocr-progress-text')
+const ocrSummary = document.querySelector('#ocr-summary')
+const copyOcrResultButton = document.querySelector('#copy-ocr-result')
 const scrollSpikeOverlay = document.querySelector('#scroll-spike-overlay')
 const controlledScrollSource = document.querySelector('#controlled-scroll-source')
 const controlledScrollList = document.querySelector('#controlled-scroll-list')
@@ -936,6 +943,7 @@ function updateScreenshotControls() {
   copyScreenshotButton.disabled = !hasImage || screenshotState.busy
   saveScreenshotButton.disabled = !hasImage || screenshotState.busy
   pinScreenshotButton.disabled = !hasImage || screenshotState.busy
+  ocrScreenshotButton.disabled = !hasImage || screenshotState.busy
   startScreenshotButton.disabled = screenshotState.busy
   startScrollScreenshotButton.disabled = screenshotState.busy
 }
@@ -1339,6 +1347,79 @@ pinScreenshotButton.addEventListener('click', async () => {
     screenshotState.busy = false
     updateScreenshotControls()
   }
+})
+
+const ocrProgressLabels = {
+  'loading tesseract core': '载入 OCR 核心',
+  'initializing tesseract': '初始化 OCR 核心',
+  'loading language traineddata': '载入中英文模型',
+  'initializing api': '初始化识别引擎',
+  'recognizing text': '正在识别文字'
+}
+
+ocrScreenshotButton.addEventListener('click', async () => {
+  if (screenshotState.busy) return
+  screenshotState.busy = true
+  updateScreenshotControls()
+  ocrOverlay.hidden = false
+  ocrResult.value = ''
+  ocrResult.disabled = true
+  copyOcrResultButton.disabled = true
+  ocrProgressFill.style.width = '2%'
+  ocrProgressText.textContent = '准备本地识别模型…'
+  ocrSummary.textContent = '首次识别需要初始化本地模型。'
+  setScreenshotStatus('正在执行本地 OCR…', 'busy')
+
+  try {
+    const result = await window.api.recognizeScreenshot(await renderScreenshotPng())
+    ocrResult.value = result.text
+    ocrResult.disabled = false
+    copyOcrResultButton.disabled = !result.text
+    ocrProgressFill.style.width = '100%'
+    ocrProgressText.textContent = '识别完成'
+    ocrSummary.textContent = result.text
+      ? `识别完成 · 置信度 ${Math.round(result.confidence)}% · 可编辑后复制`
+      : '未识别到文字，请尝试更清晰或更大的截图。'
+    setScreenshotStatus(
+      result.text ? 'OCR 识别完成' : 'OCR 未识别到文字',
+      result.text ? 'success' : ''
+    )
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    ocrResult.disabled = false
+    ocrResult.value = ''
+    ocrProgressText.textContent = '识别失败'
+    ocrSummary.textContent = reason
+    setScreenshotStatus(`OCR 失败：${reason}`, 'error')
+  } finally {
+    screenshotState.busy = false
+    updateScreenshotControls()
+  }
+})
+
+document.querySelector('#close-ocr').addEventListener('click', () => {
+  ocrOverlay.hidden = true
+  ocrScreenshotButton.focus()
+})
+
+copyOcrResultButton.addEventListener('click', async () => {
+  const text = ocrResult.value.trim()
+  if (!text) return
+  try {
+    await window.api.copyScreenshotText(text)
+    ocrSummary.textContent = `已复制 ${text.length} 个字符`
+    showToast('OCR 文字已复制')
+  } catch (error) {
+    ocrSummary.textContent = `复制失败：${error instanceof Error ? error.message : String(error)}`
+  }
+})
+
+window.api.onScreenshotOcrProgress((progress) => {
+  if (!screenshotState.busy || ocrOverlay.hidden) return
+  const value = Math.min(0.98, Math.max(0.02, Number(progress.progress) || 0))
+  ocrProgressFill.style.width = `${Math.round(value * 100)}%`
+  ocrProgressText.textContent =
+    ocrProgressLabels[progress.status] || progress.status || '正在识别…'
 })
 
 window.api.onScreenshotCaptured((result) => {

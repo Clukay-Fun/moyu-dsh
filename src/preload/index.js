@@ -17,6 +17,8 @@ contextBridge.exposeInMainWorld(
     cancelScreenshot: (sessionId) => ipcRenderer.invoke('screenshot:cancel', sessionId),
     saveScreenshot: (payload) => ipcRenderer.invoke('screenshot:save', payload),
     copyScreenshot: (data) => ipcRenderer.invoke('screenshot:copy', data),
+    recognizeScreenshot: (data) => ipcRenderer.invoke('screenshot:ocr', data),
+    copyScreenshotText: (text) => ipcRenderer.invoke('screenshot:copy-text', text),
     pinScreenshot: (data) => ipcRenderer.invoke('screenshot:pin', data),
     getPinnedScreenshot: (pinId) => ipcRenderer.invoke('screenshot:pin-get', pinId),
     resizePinnedScreenshot: (payload) => ipcRenderer.invoke('screenshot:pin-resize', payload),
@@ -42,6 +44,11 @@ contextBridge.exposeInMainWorld(
       const listener = () => callback()
       ipcRenderer.on('screenshot:cancelled', listener)
       return () => ipcRenderer.removeListener('screenshot:cancelled', listener)
+    },
+    onScreenshotOcrProgress: (callback) => {
+      const listener = (_event, progress) => callback(progress)
+      ipcRenderer.on('screenshot:ocr-progress', listener)
+      return () => ipcRenderer.removeListener('screenshot:ocr-progress', listener)
     }
   })
 )

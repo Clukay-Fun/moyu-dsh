@@ -1913,6 +1913,107 @@ input:focus-visible {
   min-height: 38px;
 }
 
+.ocr-overlay {
+  position: fixed;
+  inset: 58px 0 0 58px;
+  z-index: 65;
+  display: grid;
+  padding: 18px;
+  place-items: center;
+  background: rgba(235, 237, 244, 0.76);
+  backdrop-filter: blur(24px) saturate(130%);
+}
+
+.ocr-overlay[hidden] {
+  display: none;
+}
+
+[data-theme="dark"] .ocr-overlay {
+  background: rgba(18, 20, 27, 0.8);
+}
+
+.ocr-dialog {
+  display: grid;
+  width: min(680px, 92vw);
+  min-height: 430px;
+  max-height: calc(100vh - 110px);
+  padding: 16px;
+  grid-template-rows: auto auto minmax(220px, 1fr) auto;
+  gap: 12px;
+}
+
+.ocr-dialog > header,
+.ocr-dialog > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ocr-dialog > header div {
+  display: grid;
+  gap: 4px;
+}
+
+.ocr-dialog > header span,
+.ocr-dialog > footer span {
+  color: var(--faint);
+  font-size: 11px;
+}
+
+.ocr-progress {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.ocr-progress > div {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--hairline);
+}
+
+.ocr-progress > div span {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 160ms ease;
+}
+
+.ocr-progress > span {
+  min-width: 116px;
+  color: var(--faint);
+  font-size: 10px;
+  text-align: right;
+}
+
+#ocr-result {
+  width: 100%;
+  min-height: 220px;
+  padding: 14px;
+  resize: none;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  outline: 0;
+  color: var(--foreground);
+  background: rgba(255, 255, 255, 0.34);
+  font: 13px/1.7 var(--font);
+  user-select: text;
+}
+
+[data-theme="dark"] #ocr-result {
+  background: rgba(16, 18, 25, 0.42);
+}
+
+#ocr-result:focus {
+  border-color: var(--accent-28);
+  box-shadow: 0 0 0 3px var(--accent-10);
+}
+
 @media (max-width: 820px) {
   .image-topbar {
     gap: 6px;
@@ -1948,6 +2049,14 @@ input:focus-visible {
   .scroll-spike-actions {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .ocr-overlay {
+    padding: 10px;
+  }
+
+  .ocr-dialog {
+    width: 100%;
   }
 }
 

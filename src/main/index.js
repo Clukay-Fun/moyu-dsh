@@ -9,9 +9,13 @@ import {
   screen,
   shell
 } from 'electron'
+import { createWorker, OEM } from 'tesseract.js'
 import { randomUUID } from 'node:crypto'
-import { writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { copyFile, mkdir, stat, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
+import { dirname, join } from 'node:path'
+
+const require = createRequire(import.meta.url)
 
 const BARCODE_FILE_TYPES = {
   svg: {
@@ -62,7 +66,29 @@ const PDF_OUTPUT_TYPES = {
 
 const screenshotSessions = new Map()
 const pinnedScreenshotSessions = new Map()
+let ocrWorkerPromise = null
+let ocrProgressTarget = null
+let ocrBusy = false
 let mainWindow = null
+
+const OCR_MODELS = [
+  {
+    code: 'eng',
+    source: join(
+      dirname(require.resolve('@tesseract.js-data/eng/package.json')),
+      '4.0.0',
+      'eng.traineddata.gz'
+    )
+  },
+  {
+    code: 'chi_sim',
+    source: join(
+      dirname(require.resolve('@tesseract.js-data/chi_sim/package.json')),
+      '4.0.0',
+      'chi_sim.traineddata.gz'
+    )
+  }
+]
 
 function normalizeBarcodeData(type, rawData) {
   const fileType = BARCODE_FILE_TYPES[type]
@@ -90,6 +116,57 @@ function sanitizeFileBaseName(name, fallback = 'file') {
     .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-')
     .replace(/[. ]+$/g, '')
     .slice(0, 80) || fallback
+}
+
+function normalizeOcrText(text) {
+  return String(text || '')
+    .replace(/([\p{Script=Han}])\s+(?=[\p{Script=Han}])/gu, '$1')
+    .trim()
+}
+
+async function copyFileIfChanged(source, destination) {
+  const [sourceInfo, destinationInfo] = await Promise.all([
+    stat(source),
+    stat(destination).catch(() => null)
+  ])
+  if (!destinationInfo || destinationInfo.size !== sourceInfo.size) {
+    await copyFile(source, destination)
+  }
+}
+
+async function ensureOcrWorker() {
+  if (!ocrWorkerPromise) {
+    ocrWorkerPromise = (async () => {
+      const languageDirectory = join(app.getPath('userData'), 'ocr-data')
+      await mkdir(languageDirectory, { recursive: true })
+      await Promise.all(
+        OCR_MODELS.map((model) =>
+          copyFileIfChanged(model.source, join(languageDirectory, `${model.code}.traineddata.gz`))
+        )
+      )
+      return createWorker(
+        OCR_MODELS.map((model) => model.code),
+        OEM.LSTM_ONLY,
+        {
+          langPath: languageDirectory,
+          gzip: true,
+          cacheMethod: 'none',
+          logger: (message) => {
+            if (ocrProgressTarget && !ocrProgressTarget.isDestroyed()) {
+              ocrProgressTarget.send('screenshot:ocr-progress', {
+                status: message.status,
+                progress: Number.isFinite(message.progress) ? message.progress : 0
+              })
+            }
+          }
+        }
+      )
+    })().catch((error) => {
+      ocrWorkerPromise = null
+      throw error
+    })
+  }
+  return ocrWorkerPromise
 }
 
 function createWindow() {
@@ -529,6 +606,45 @@ ipcMain.handle('screenshot:copy', (_event, data) => {
   return { status: 'copied', size: image.getSize() }
 })
 
+ipcMain.handle('screenshot:ocr', async (event, data) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) {
+    throw new Error('只有主窗口可以执行截图 OCR')
+  }
+  if (ocrBusy) throw new Error('已有 OCR 任务正在执行')
+  if (!(data instanceof Uint8Array) || data.byteLength > 100 * 1024 * 1024) {
+    throw new Error('OCR 图片数据无效或超过 100 MB')
+  }
+
+  const image = nativeImage.createFromBuffer(Buffer.from(data))
+  if (image.isEmpty()) throw new Error('无法解析 OCR 图片')
+  ocrBusy = true
+  ocrProgressTarget = event.sender
+
+  try {
+    const worker = await ensureOcrWorker()
+    const result = await worker.recognize(Buffer.from(data))
+    return {
+      status: 'recognized',
+      text: normalizeOcrText(result.data.text),
+      confidence: Number.isFinite(result.data.confidence) ? result.data.confidence : 0
+    }
+  } finally {
+    ocrBusy = false
+    ocrProgressTarget = null
+  }
+})
+
+ipcMain.handle('screenshot:copy-text', (event, text) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) {
+    throw new Error('只有主窗口可以复制 OCR 文字')
+  }
+  if (typeof text !== 'string' || Buffer.byteLength(text, 'utf8') > 2 * 1024 * 1024) {
+    throw new Error('OCR 文本无效或超过 2 MB')
+  }
+  clipboard.writeText(text)
+  return { status: 'copied', length: text.length }
+})
+
 function getPinnedScreenshotSession(event, pinId) {
   const session = pinnedScreenshotSessions.get(pinId)
   if (!session || event.sender !== session.window.webContents) {
@@ -650,4 +766,8 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
   }
+})
+
+app.on('before-quit', () => {
+  ocrWorkerPromise?.then((worker) => worker.terminate()).catch(() => {})
 })

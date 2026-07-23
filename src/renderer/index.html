@@ -243,7 +243,7 @@
                     <button class="gbtn screenshot-annotation" type="button" data-screen-tool="text" disabled>文字</button>
                     <span class="toolbar-space"></span>
                     <button class="gbtn" id="start-scroll-screenshot" type="button">滚动截图</button>
-                    <button class="gbtn placeholder-action" type="button" data-milestone="M5c">OCR</button>
+                    <button class="gbtn" id="ocr-screenshot" type="button" disabled>OCR</button>
                     <button class="gbtn" id="pin-screenshot" type="button" disabled>钉住</button>
                     <button class="gbtn" id="copy-screenshot" type="button" disabled>复制</button>
                     <button class="primary" id="save-screenshot" type="button" disabled>保存 PNG</button>
@@ -286,6 +286,26 @@
                     <footer class="scroll-spike-actions">
                       <span>输出会载入截图编辑器，可继续标注、复制或保存。</span>
                       <button class="primary" id="confirm-scroll-screenshot" type="button">生成应用内长图</button>
+                    </footer>
+                  </section>
+                </div>
+                <div class="ocr-overlay" id="ocr-overlay" hidden>
+                  <section class="glass-card ocr-dialog" role="dialog" aria-modal="true" aria-labelledby="ocr-title">
+                    <header>
+                      <div>
+                        <b id="ocr-title">截图文字识别</b>
+                        <span>本地 Tesseract.js · 简体中文 + English</span>
+                      </div>
+                      <button class="gbtn" id="close-ocr" type="button">关闭</button>
+                    </header>
+                    <div class="ocr-progress" id="ocr-progress">
+                      <div><span id="ocr-progress-fill"></span></div>
+                      <span id="ocr-progress-text">准备本地识别模型…</span>
+                    </div>
+                    <textarea id="ocr-result" aria-label="OCR 识别结果" placeholder="识别文字会显示在这里"></textarea>
+                    <footer>
+                      <span id="ocr-summary">识别结果可编辑后复制。</span>
+                      <button class="primary" id="copy-ocr-result" type="button" disabled>复制文字</button>
                     </footer>
                   </section>
                 </div>
