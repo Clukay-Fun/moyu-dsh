@@ -1,0 +1,47 @@
+{
+  "name": "moyu-tools",
+  "version": "2.0.0",
+  "description": "面向设计工作流的 Windows Electron 工具箱",
+  "author": "Clukay",
+  "private": true,
+  "type": "module",
+  "main": "./out/main/index.js",
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "build:win": "npm run build && electron-builder --win portable --x64",
+    "preview": "electron-vite preview"
+  },
+  "build": {
+    "appId": "com.clukay.moyutools",
+    "productName": "摸鱼工具箱",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-v${version}-${arch}.${ext}"
+    }
+  },
+  "devDependencies": {
+    "electron": "^43.2.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "vite": "^7.3.6"
+  }
+}

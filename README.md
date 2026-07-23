@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-v2 正在从旧版 Python/pywebview 桌面应用重构为 Electron。唯一正式 UI 是 Electron 渲染层；根目录 [index.html](index.html) 仅保留为视觉蓝本，后续迁入 Vite renderer，不作为独立网页产品交付。
+v2 正在从旧版 Python/pywebview 桌面应用重构为 Electron。M0a 最小安全外壳已经建立；唯一正式 UI 是 Electron 渲染层。根目录 [index.html](index.html) 仅保留为视觉蓝本，后续迁入 Vite renderer，不作为独立网页产品交付。
 
 首发路线：
 
@@ -23,17 +23,14 @@ v2 正在从旧版 Python/pywebview 桌面应用重构为 Electron。唯一正�
 
 ## 开发
 
-M0a 将建立 `package.json` 与 npm 脚本。在此之前，仓库尚无可运行的 Electron 开发命令。
-
-预期命令：
-
 ```bash
 npm install
 npm run dev
 npm run build
+npm run build:win
 ```
 
-Windows x64 打包与 COM/原生模块能力必须在 Windows 上验证。
+`npm run build` 生成 Electron bundle；`npm run build:win` 生成 Windows x64 portable EXE。Windows 启动与 COM/原生模块能力必须在 Windows 上验证。
 
 ## 目录
 

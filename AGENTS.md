@@ -9,7 +9,7 @@
 ## 工作规则
 
 1. 修改前运行 `git status --short --branch`，保留已有改动。
-2. 按里程碑顺序开发；当前第一片为 M0a。每片先完成计划中的 Spike 或验收，再扩展下一片。
+2. 按 `scope/plans/README.md` 的里程碑顺序开发。每片先完成计划中的 Spike 或验收，再扩展下一片。
 3. 使用 Electron + Vite + Vanilla、electron-vite、electron-builder 和 npm；不引入 React/Vue 或第二套包管理器。
 4. renderer 必须 `contextIsolation: true`、`nodeIntegration: false`、`sandbox: true`；所有桌面能力仅经 preload 白名单 IPC 暴露。
 5. 文件读写、系统能力、COM、原生模块都在主进程或独立任务进程；renderer 不直接访问 Node、文件系统或系统 API。

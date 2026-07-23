@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' ws:; img-src 'self' data:"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>摸鱼工具箱</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <p class="eyebrow">Electron v2 · M0a</p>
+      <h1>摸鱼工具箱</h1>
+      <p class="description">最小安全外壳已启动，下一片将迁移正式视觉蓝本。</p>
+
+      <section class="smoke-card" aria-labelledby="smoke-title">
+        <div>
+          <h2 id="smoke-title">IPC 冒烟测试</h2>
+          <p id="security-status">正在检查 renderer 隔离状态…</p>
+        </div>
+        <button id="ping-button" type="button">发送 ping</button>
+        <output id="ping-result" aria-live="polite">等待测试</output>
+      </section>
+    </main>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

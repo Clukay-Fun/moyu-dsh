@@ -1,0 +1,107 @@
+:root {
+  color: #252936;
+  background:
+    radial-gradient(circle at 15% 20%, rgba(188, 167, 255, 0.38), transparent 34%),
+    radial-gradient(circle at 85% 80%, rgba(146, 222, 207, 0.28), transparent 32%),
+    #e7e9ee;
+  font-family:
+    Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+}
+
+button {
+  font: inherit;
+}
+
+.shell {
+  display: grid;
+  place-content: center;
+  min-height: 100vh;
+  padding: 40px;
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  color: #6978e6;
+  font-weight: 700;
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(36px, 6vw, 64px);
+}
+
+.description {
+  margin: 12px 0 28px;
+  color: #707789;
+}
+
+.smoke-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 18px 24px;
+  align-items: center;
+  width: min(680px, calc(100vw - 80px));
+  padding: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.62);
+  box-shadow: 0 22px 50px rgba(67, 72, 91, 0.14);
+  backdrop-filter: blur(28px);
+}
+
+.smoke-card h2,
+.smoke-card p {
+  margin: 0;
+}
+
+.smoke-card p {
+  margin-top: 8px;
+  color: #73798a;
+}
+
+#ping-button {
+  padding: 12px 22px;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 12px;
+  color: #fff;
+  background: #6978e6;
+  cursor: pointer;
+  box-shadow: 0 10px 24px rgba(105, 120, 230, 0.24);
+}
+
+#ping-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+#ping-result {
+  grid-column: 1 / -1;
+  min-height: 24px;
+  color: #6978e6;
+  font-weight: 700;
+}
+
+@media (max-width: 640px) {
+  .shell {
+    padding: 24px;
+  }
+
+  .smoke-card {
+    grid-template-columns: 1fr;
+    width: calc(100vw - 48px);
+  }
+
+  #ping-button {
+    width: 100%;
+  }
+}
