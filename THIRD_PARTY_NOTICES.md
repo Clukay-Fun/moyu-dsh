@@ -35,3 +35,11 @@
 - 运行库许可证登记：`licenses/AI-SIDECAR-NOTICE.md`
 - 模型版本、哈希和使用边界：`licenses/AI-MODEL-NOTICE.md`
 - 模型不会提交到仓库或打入安装包，由用户首次使用时下载并进行 SHA-256 校验。
+
+## FFmpeg / ffprobe 6.1.1
+
+- 用途：格式工厂通过独立、隐藏窗口的子进程执行音频与视频探测、转换和压缩。
+- 来源：`eugeneware/ffmpeg-static` release `b6.1.1`，实际 Windows 构建来自 gyan.dev essentials。
+- 实际许可证：GPL-3.0-or-later；构建启用了 `--enable-gpl --enable-version3 --enable-static`。
+- 版本、二进制哈希、源码获取与发布义务：`licenses/FFMPEG-NOTICE.md`
+- 上游许可证与完整构建配置随二进制放在发布包 `resources/tools/ffmpeg/`。

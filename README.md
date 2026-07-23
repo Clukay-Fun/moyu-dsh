@@ -34,7 +34,7 @@ npm run build
 npm run build:win
 ```
 
-`npm run build` 生成 Electron bundle；`npm run build:win` 会先构建 Windows AI sidecar，再生成 Windows x64 portable EXE。构建 sidecar 需要 Windows Python 3.11；可用 `MOYU_PYTHON` 指定解释器。
+`npm run build` 生成 Electron bundle；`npm run build:win` 会先下载并校验固定版本的 FFmpeg/ffprobe、构建 Windows AI sidecar，再生成 Windows x64 portable EXE。构建 sidecar 需要 Windows Python 3.11；可用 `MOYU_PYTHON` 指定解释器。
 
 AI 模型不会随源码或 EXE 分发。模型版本、哈希与使用边界见 [AI-MODEL-NOTICE.md](licenses/AI-MODEL-NOTICE.md)。当前模型只按自用、学习场景启用。
 
