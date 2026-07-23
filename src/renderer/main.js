@@ -2,7 +2,11 @@ import JsBarcode from 'jsbarcode'
 import { fabric } from 'fabric'
 import { PDFDocument, StandardFonts, degrees, rgb } from 'pdf-lib'
 import { getDocument, GlobalWorkerOptions, ImageKind, OPS } from 'pdfjs-dist'
+import { createQpdfRunner } from 'qpdf-run'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
+import qpdfWorkerUrl from 'qpdf-run/worker?url'
+import qpdfJsUrl from 'qpdf-run/qpdf.js?url'
+import qpdfWasmUrl from 'qpdf-run/qpdf.wasm?url'
 
 globalThis.fabric = fabric
 const eraserBrushReady = import('fabric/src/mixins/eraser_brush.mixin.js')
@@ -135,6 +139,13 @@ const submenuData = {
         ['Excel 转 PDF', 'X', '#217346', 'M4'],
         ['PPT 转 PDF', 'P', '#d24726', 'M4']
       ]
+    },
+    {
+      heading: '安全',
+      items: [
+        ['加密 PDF', '锁', '#6978e6'],
+        ['解密 PDF', '开', '#6978e6']
+      ]
     }
   ],
   bc: [
@@ -197,6 +208,8 @@ const searchFeatures = [
   ['页重排', 'PDF', 'pdf', '页重排', 'PDF 拖拽 调序 删除 插入'],
   ['提取图片', 'PDF', 'pdf', '提取图片', 'PDF 内嵌 图片 导出'],
   ['OCR 转 TXT', 'PDF', 'pdf', 'OCR 转 TXT', 'PDF 扫描件 文字识别'],
+  ['加密 PDF', 'PDF', 'pdf', '加密 PDF', 'PDF AES 口令 密码'],
+  ['解密 PDF', 'PDF', 'pdf', '解密 PDF', 'PDF 移除 口令 密码'],
   ['图片转 PDF', 'PDF', 'pdf', '图片转 PDF', '图片 PDF'],
   ['Word 转 PDF', 'PDF', 'pdf', 'Word 转 PDF', 'Office DOCX'],
   ['Excel 转 PDF', 'PDF', 'pdf', 'Excel 转 PDF', 'Office XLSX'],
@@ -253,6 +266,7 @@ const toast = document.querySelector('#toast')
 let toastTimer
 let barcodeRenderedValue = ''
 let barcodeRenderedType = ''
+let qpdfRunnerPromise = null
 
 function renderSubmenu(module) {
   const groups = submenuData[module]
@@ -347,6 +361,8 @@ const pdfActionConfig = {
   页重排: { inputLabel: 'PDF', kind: 'pdf', accept: 'application/pdf,.pdf', multiple: false, minFiles: 1 },
   提取图片: { inputLabel: 'PDF', kind: 'pdf', accept: 'application/pdf,.pdf', multiple: false, minFiles: 1 },
   'OCR 转 TXT': { inputLabel: 'PDF', kind: 'pdf', accept: 'application/pdf,.pdf', multiple: false, minFiles: 1 },
+  '加密 PDF': { inputLabel: 'PDF', kind: 'pdf', accept: 'application/pdf,.pdf', multiple: false, minFiles: 1 },
+  '解密 PDF': { inputLabel: 'PDF', kind: 'pdf', accept: 'application/pdf,.pdf', multiple: false, minFiles: 1 },
   '图片转 PDF': {
     inputLabel: '图片',
     kind: 'image',
@@ -469,6 +485,23 @@ function renderPdfOptions() {
       <span class="pdf-option-status" id="pdf-page-option-status">上传 PDF 后载入页面</span>
     `
     pdfOptions.querySelector('#pdf-open-page-organizer').addEventListener('click', openPdfPageOrganizer)
+  } else if (action === '加密 PDF') {
+    pdfOptions.innerHTML = `
+      <label>打开口令
+        <input id="pdf-encrypt-password" type="password" maxlength="127" autocomplete="new-password">
+      </label>
+      <label>确认口令
+        <input id="pdf-encrypt-password-confirm" type="password" maxlength="127" autocomplete="new-password">
+      </label>
+      <span class="pdf-option-status">AES-256 · R6</span>
+    `
+  } else if (action === '解密 PDF') {
+    pdfOptions.innerHTML = `
+      <label>PDF 口令
+        <input id="pdf-decrypt-password" type="password" maxlength="127" autocomplete="current-password">
+      </label>
+      <span class="pdf-option-status">支持 user / owner password</span>
+    `
   }
 }
 
@@ -648,6 +681,91 @@ async function readPdfDocument(file) {
     return await PDFDocument.load(new Uint8Array(await file.arrayBuffer()))
   } catch {
     throw new Error(`${file.name} 无法读取；加密或损坏的 PDF 暂不支持`)
+  }
+}
+
+async function getQpdfRunner() {
+  if (!qpdfRunnerPromise) {
+    qpdfRunnerPromise = createQpdfRunner({
+      workerUrl: qpdfWorkerUrl,
+      qpdfJsUrl,
+      wasmUrl: qpdfWasmUrl,
+      timeoutMs: 90000
+    }).catch((error) => {
+      qpdfRunnerPromise = null
+      throw error
+    })
+  }
+  return qpdfRunnerPromise
+}
+
+function validatePdfPassword(password, label) {
+  const byteLength = new TextEncoder().encode(password).byteLength
+  if (byteLength < 4) throw new Error(`${label}至少需要 4 个 UTF-8 字节`)
+  if (byteLength > 127) throw new Error(`${label}不能超过 127 个 UTF-8 字节`)
+}
+
+async function encryptPdfFile() {
+  const password = document.querySelector('#pdf-encrypt-password')?.value || ''
+  const confirmation = document.querySelector('#pdf-encrypt-password-confirm')?.value || ''
+  validatePdfPassword(password, '打开口令')
+  if (password !== confirmation) throw new Error('两次输入的打开口令不一致')
+
+  const runner = await getQpdfRunner()
+  const ownerPassword = `${crypto.randomUUID()}-${crypto.randomUUID()}`
+  const data = await runner.runOne({
+    input: new Uint8Array(await state.pdfFiles[0].arrayBuffer()),
+    inputName: 'input.pdf',
+    outputName: 'encrypted.pdf',
+    args: [
+      '--encrypt',
+      password,
+      ownerPassword,
+      '256',
+      '--',
+      'input.pdf',
+      'encrypted.pdf'
+    ]
+  })
+  const result = await saveSinglePdfToolOutput(
+    'pdf',
+    `${pdfOutputBaseName(state.pdfFiles[0])}-encrypted`,
+    data
+  )
+  return result.status === 'saved' ? '已使用 AES-256 加密 PDF' : '已取消保存'
+}
+
+async function decryptPdfFile() {
+  const password = document.querySelector('#pdf-decrypt-password')?.value || ''
+  if (!password) throw new Error('请输入 PDF 口令')
+  if (new TextEncoder().encode(password).byteLength > 127) {
+    throw new Error('PDF 口令不能超过 127 个 UTF-8 字节')
+  }
+
+  try {
+    const runner = await getQpdfRunner()
+    const data = await runner.runOne({
+      input: new Uint8Array(await state.pdfFiles[0].arrayBuffer()),
+      inputName: 'input.pdf',
+      outputName: 'decrypted.pdf',
+      args: [
+        `--password=${password}`,
+        '--decrypt',
+        'input.pdf',
+        'decrypted.pdf'
+      ]
+    })
+    const result = await saveSinglePdfToolOutput(
+      'pdf',
+      `${pdfOutputBaseName(state.pdfFiles[0])}-decrypted`,
+      data
+    )
+    return result.status === 'saved' ? 'PDF 口令已移除' : '已取消保存'
+  } catch (error) {
+    if (error?.code === 'QPDF_EXEC_FAILED') {
+      throw new Error('口令错误，或该 PDF 的加密方式不受支持')
+    }
+    throw error
   }
 }
 
@@ -1374,6 +1492,8 @@ async function runPdfAction() {
     else if (action === '页重排') message = await saveReorderedPdf()
     else if (action === '提取图片') message = await extractEmbeddedPdfImages()
     else if (action === 'OCR 转 TXT') message = await ocrPdfToText()
+    else if (action === '加密 PDF') message = await encryptPdfFile()
+    else if (action === '解密 PDF') message = await decryptPdfFile()
     else if (action === '图片转 PDF') message = await imagesToPdf()
     else throw new Error('该 PDF 功能尚未接入')
 
@@ -2066,6 +2186,10 @@ window.addEventListener('resize', () => {
     })
     rebuildScreenshotCanvas(overlays)
   }, 160)
+})
+
+window.addEventListener('beforeunload', () => {
+  qpdfRunnerPromise?.then((runner) => runner.destroy()).catch(() => {})
 })
 
 const barcodeInput = document.querySelector('#barcode-value')

@@ -24,6 +24,8 @@
     },
     "files": [
       "out/**/*",
+      "licenses/**/*",
+      "THIRD_PARTY_NOTICES.md",
       "package.json"
     ],
     "win": {
@@ -51,6 +53,7 @@
     "jsbarcode": "3.12.3",
     "pdf-lib": "1.17.1",
     "pdfjs-dist": "5.4.624",
+    "qpdf-run": "0.2.1",
     "tesseract.js": "7.0.0"
   }
 }
