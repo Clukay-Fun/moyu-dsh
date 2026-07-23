@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
@@ -27,6 +27,25 @@ const IMAGE_FILE_TYPES = {
   webp: {
     extension: 'webp',
     filterName: 'WebP 图片'
+  }
+}
+
+const PDF_OUTPUT_TYPES = {
+  pdf: {
+    extension: 'pdf',
+    filterName: 'PDF 文档'
+  },
+  png: {
+    extension: 'png',
+    filterName: 'PNG 图片'
+  },
+  jpeg: {
+    extension: 'jpg',
+    filterName: 'JPEG 图片'
+  },
+  txt: {
+    extension: 'txt',
+    filterName: '文本文件'
   }
 }
 
@@ -200,6 +219,115 @@ ipcMain.handle('image:save-file', async (event, payload) => {
 
   await writeFile(result.filePath, data)
   return { status: 'saved', path: result.filePath }
+})
+
+ipcMain.handle('pdf:save-file', async (event, payload) => {
+  const fileType = PDF_OUTPUT_TYPES[payload?.type]
+  const data = payload?.data instanceof Uint8Array
+    ? Buffer.from(payload.data)
+    : null
+
+  if (!fileType || !data) {
+    throw new Error('不支持的 PDF 工具输出数据')
+  }
+
+  if (data.byteLength > 500 * 1024 * 1024) {
+    throw new Error('输出文件超过 500 MB，已拒绝保存')
+  }
+
+  const safeBaseName = sanitizeFileBaseName(payload.name, 'pdf-output')
+  const ownerWindow = BrowserWindow.fromWebContents(event.sender)
+  const result = await dialog.showSaveDialog(ownerWindow, {
+    title: `保存 ${fileType.filterName}`,
+    defaultPath: `${safeBaseName}.${fileType.extension}`,
+    filters: [
+      {
+        name: fileType.filterName,
+        extensions: [fileType.extension]
+      }
+    ]
+  })
+
+  if (result.canceled || !result.filePath) {
+    return { status: 'cancelled' }
+  }
+
+  await writeFile(result.filePath, data)
+  return { status: 'saved', path: result.filePath }
+})
+
+ipcMain.handle('pdf:save-files', async (event, payload) => {
+  const fileType = PDF_OUTPUT_TYPES[payload?.type]
+
+  if (
+    !fileType ||
+    !Array.isArray(payload?.files) ||
+    payload.files.length === 0 ||
+    payload.files.length > 500
+  ) {
+    throw new Error('PDF 批量输出数量必须在 1–500 之间')
+  }
+
+  const normalizedFiles = payload.files.map((file) => {
+    if (!(file?.data instanceof Uint8Array)) {
+      throw new Error('PDF 批量输出包含无效文件数据')
+    }
+
+    return {
+      name: sanitizeFileBaseName(file.name, 'pdf-output'),
+      data: Buffer.from(file.data)
+    }
+  })
+  const totalBytes = normalizedFiles.reduce((total, file) => total + file.data.byteLength, 0)
+
+  if (totalBytes > 500 * 1024 * 1024) {
+    throw new Error('PDF 批量输出总大小超过 500 MB，已拒绝保存')
+  }
+
+  const ownerWindow = BrowserWindow.fromWebContents(event.sender)
+  const result = await dialog.showOpenDialog(ownerWindow, {
+    title: '选择 PDF 工具输出文件夹',
+    properties: ['openDirectory', 'createDirectory', 'promptToCreate']
+  })
+
+  if (result.canceled || !result.filePaths[0]) {
+    return { status: 'cancelled', saved: 0 }
+  }
+
+  const directory = result.filePaths[0]
+  const usedNames = new Map()
+
+  for (const [index, file] of normalizedFiles.entries()) {
+    const nameKey = file.name.toLocaleLowerCase('en-US')
+    const occurrence = (usedNames.get(nameKey) || 0) + 1
+    usedNames.set(nameKey, occurrence)
+    const uniqueName = occurrence === 1 ? file.name : `${file.name}-${occurrence}`
+    await writeFile(join(directory, `${uniqueName}.${fileType.extension}`), file.data)
+    event.sender.send('pdf:save-progress', {
+      completed: index + 1,
+      total: normalizedFiles.length,
+      name: uniqueName
+    })
+  }
+
+  return {
+    status: 'saved',
+    saved: normalizedFiles.length,
+    directory
+  }
+})
+
+ipcMain.handle('pdf:show-item', async (_event, payload) => {
+  if (typeof payload?.path !== 'string' || !payload.path.trim()) {
+    throw new Error('没有可打开的输出位置')
+  }
+  if (payload.directory) {
+    const error = await shell.openPath(payload.path)
+    if (error) throw new Error(error)
+  } else {
+    shell.showItemInFolder(payload.path)
+  }
+  return { status: 'shown' }
 })
 
 app.whenReady().then(() => {

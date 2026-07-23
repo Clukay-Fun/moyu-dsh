@@ -1,9 +1,13 @@
 import JsBarcode from 'jsbarcode'
 import { fabric } from 'fabric'
+import { PDFDocument, degrees } from 'pdf-lib'
+import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist'
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 
 globalThis.fabric = fabric
 const eraserBrushReady = import('fabric/src/mixins/eraser_brush.mixin.js')
   .then(() => fabric.EraserBrush)
+GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
 const appLogoUrl = new URL('../../assets/logo_128.png', import.meta.url).href
 
@@ -103,9 +107,9 @@ const submenuData = {
         ['转 PNG', 'PNG', '#3c9a5e'],
         ['转 JPEG', 'JPG', '#3c9a5e'],
         ['转 TXT', 'TXT', '#707387'],
-        ['转 DOCX', 'DOC', '#2b6cb0'],
-        ['转 XLSX', 'XLS', '#217346'],
-        ['转 PPTX', 'PPT', '#d24726']
+        ['转 DOCX', 'DOC', '#2b6cb0', 'M7'],
+        ['转 XLSX', 'XLS', '#217346', 'M7'],
+        ['转 PPTX', 'PPT', '#d24726', 'M7']
       ]
     },
     {
@@ -121,9 +125,9 @@ const submenuData = {
       heading: '转成 PDF',
       items: [
         ['图片转 PDF', 'IMG', '#3c9a5e'],
-        ['Word 转 PDF', 'W', '#2b6cb0'],
-        ['Excel 转 PDF', 'X', '#217346'],
-        ['PPT 转 PDF', 'P', '#d24726']
+        ['Word 转 PDF', 'W', '#2b6cb0', 'M4'],
+        ['Excel 转 PDF', 'X', '#217346', 'M4'],
+        ['PPT 转 PDF', 'P', '#d24726', 'M4']
       ]
     }
   ],
@@ -150,6 +154,15 @@ const defaultSelections = {
   bc: 'EAN-13',
   video: '格式转换'
 }
+
+const deferredPdfActions = new Map([
+  ['转 DOCX', 'M7'],
+  ['转 XLSX', 'M7'],
+  ['转 PPTX', 'M7'],
+  ['Word 转 PDF', 'M4'],
+  ['Excel 转 PDF', 'M4'],
+  ['PPT 转 PDF', 'M4']
+])
 
 const moduleLabels = {
   pdf: 'PDF',
@@ -209,7 +222,10 @@ const state = {
   searchMatches: [],
   barcodeMode: 'single',
   barcodeDpi: 300,
-  barcodeBatchItems: []
+  barcodeBatchItems: [],
+  pdfFiles: [],
+  pdfBusy: false,
+  pdfLastOutput: null
 }
 
 const submenu = document.querySelector('#submenu')
@@ -237,14 +253,18 @@ function renderSubmenu(module) {
     heading.textContent = group.heading
     fragment.append(heading)
 
-    group.items.forEach(([name, icon, color]) => {
+    group.items.forEach(([name, icon, color, milestone]) => {
       const button = document.createElement('button')
       const iconNode = document.createElement('i')
 
       button.type = 'button'
-      button.className = `submenu-item${state.selections[module] === name ? ' on' : ''}`
+      button.className = `submenu-item${state.selections[module] === name ? ' on' : ''}${milestone ? ' placeholder-action' : ''}`
       button.dataset.module = module
       button.dataset.action = name
+      if (milestone) {
+        button.dataset.milestone = milestone
+        button.setAttribute('aria-disabled', 'true')
+      }
       iconNode.textContent = icon
       iconNode.style.background = color
       button.append(iconNode, document.createTextNode(name))
@@ -276,7 +296,9 @@ function activateModule(module, action = '') {
     page.classList.toggle('active', page.id === `page-${module}`)
   })
 
-  if (action && submenuData[module]) {
+  const deferredMilestone = module === 'pdf' ? deferredPdfActions.get(action) : null
+
+  if (action && submenuData[module] && !deferredMilestone) {
     state.selections[module] = action
   }
 
@@ -284,6 +306,7 @@ function activateModule(module, action = '') {
 
   if (module === 'pdf') {
     updatePdfState(state.selections.pdf)
+    if (deferredMilestone) showToast(`“${action}”将在 ${deferredMilestone} 接入`)
   } else if (module === 'bc') {
     document.querySelector('#bc-crumb').textContent = state.selections.bc
     if (action) selectBarcodeType(action, true)
@@ -292,20 +315,149 @@ function activateModule(module, action = '') {
   }
 }
 
-function getPdfInputType(action) {
-  if (action.startsWith('图片')) return '图片'
-  if (action.startsWith('Word')) return 'Word'
-  if (action.startsWith('Excel')) return 'Excel'
-  if (action.startsWith('PPT')) return 'PPT'
-  return 'PDF'
+const pdfActionConfig = {
+  '转 PNG': { inputLabel: 'PDF', kind: 'pdf', accept: 'application/pdf,.pdf', multiple: false, minFiles: 1 },
+  '转 JPEG': { inputLabel: 'PDF', kind: 'pdf', accept: 'application/pdf,.pdf', multiple: false, minFiles: 1 },
+  '转 TXT': { inputLabel: 'PDF', kind: 'pdf', accept: 'application/pdf,.pdf', multiple: false, minFiles: 1 },
+  '合并 PDF': { inputLabel: 'PDF', kind: 'pdf', accept: 'application/pdf,.pdf', multiple: true, minFiles: 2 },
+  '拆分 PDF': { inputLabel: 'PDF', kind: 'pdf', accept: 'application/pdf,.pdf', multiple: false, minFiles: 1 },
+  '旋转 PDF': { inputLabel: 'PDF', kind: 'pdf', accept: 'application/pdf,.pdf', multiple: false, minFiles: 1 },
+  提取页: { inputLabel: 'PDF', kind: 'pdf', accept: 'application/pdf,.pdf', multiple: false, minFiles: 1 },
+  '图片转 PDF': {
+    inputLabel: '图片',
+    kind: 'image',
+    accept: 'image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp',
+    multiple: true,
+    minFiles: 1
+  }
+}
+const pdfFileInput = document.querySelector('#pdf-file-input')
+const pdfAddFilesButton = document.querySelector('#pdf-add-files')
+const pdfClearFilesButton = document.querySelector('#pdf-clear-files')
+const pdfDropZone = document.querySelector('#pdf-drop-zone')
+const pdfFileBody = document.querySelector('#pdf-file-body')
+const pdfEmpty = document.querySelector('#pdf-empty')
+const pdfOptions = document.querySelector('#pdf-options')
+const pdfRunButton = document.querySelector('#run-pdf-action')
+const pdfResultText = document.querySelector('#pdf-result-text')
+const pdfResultDot = document.querySelector('#pdf-result-dot')
+const pdfOpenOutputButton = document.querySelector('#open-pdf-output')
+
+function currentPdfConfig() {
+  return pdfActionConfig[state.selections.pdf]
+}
+
+function isAcceptedPdfToolFile(file, config = currentPdfConfig()) {
+  const name = file.name.toLowerCase()
+  if (config.kind === 'pdf') {
+    return file.type === 'application/pdf' || name.endsWith('.pdf')
+  }
+  return (
+    ['image/png', 'image/jpeg', 'image/webp'].includes(file.type) ||
+    /\.(png|jpe?g|webp)$/i.test(name)
+  )
+}
+
+function renderPdfOptions() {
+  const action = state.selections.pdf
+  pdfOptions.replaceChildren()
+
+  if (action === '旋转 PDF') {
+    pdfOptions.innerHTML = `
+      <label>旋转
+        <select id="pdf-rotation">
+          <option value="90">90°</option>
+          <option value="180">180°</option>
+          <option value="270">270°</option>
+        </select>
+      </label>
+    `
+  } else if (action === '提取页') {
+    pdfOptions.innerHTML = `
+      <label>页码
+        <input id="pdf-page-range" type="text" value="1" placeholder="如 1-3,5">
+      </label>
+    `
+  } else if (action === '转 JPEG') {
+    pdfOptions.innerHTML = `
+      <label>质量
+        <select id="pdf-jpeg-quality">
+          <option value="0.85">85%</option>
+          <option value="0.7">70%</option>
+          <option value="0.95">95%</option>
+        </select>
+      </label>
+    `
+  }
+}
+
+function renderPdfFiles() {
+  pdfFileBody.replaceChildren()
+  pdfEmpty.classList.toggle('hidden', state.pdfFiles.length > 0)
+
+  state.pdfFiles.forEach((file, index) => {
+    const row = document.createElement('div')
+    const order = document.createElement('span')
+    const name = document.createElement('span')
+    const type = document.createElement('span')
+    const size = document.createElement('span')
+    const remove = document.createElement('button')
+
+    row.className = 'pdf-file-row'
+    order.className = 'cell-index'
+    name.className = 'cell-name'
+    type.className = 'cell-meta'
+    size.className = 'cell-status'
+    order.textContent = String(index + 1)
+    name.textContent = file.name
+    name.title = file.name
+    type.textContent = currentPdfConfig().kind === 'pdf' ? 'PDF' : (file.type.split('/')[1] || '图片').toUpperCase()
+    size.textContent = `${(file.size / 1024 / 1024).toFixed(2)} MB`
+    remove.type = 'button'
+    remove.className = 'pdf-remove-file'
+    remove.dataset.index = String(index)
+    remove.setAttribute('aria-label', `移除 ${file.name}`)
+    remove.textContent = '×'
+    row.append(order, name, type, size, remove)
+    pdfFileBody.append(row)
+  })
+
+  updatePdfRunState()
+}
+
+function updatePdfRunState() {
+  const config = currentPdfConfig()
+  const enoughFiles = state.pdfFiles.length >= config.minFiles
+  pdfRunButton.disabled = state.pdfBusy || !enoughFiles
+  pdfRunButton.textContent = state.pdfBusy ? '处理中…' : `开始${state.selections.pdf}`
+  pdfClearFilesButton.disabled = state.pdfBusy || state.pdfFiles.length === 0
+  pdfAddFilesButton.disabled = state.pdfBusy
 }
 
 function updatePdfState(action) {
-  const inputType = getPdfInputType(action)
+  const config = pdfActionConfig[action]
+  if (!config) return
+
+  state.pdfFiles = state.pdfFiles.filter((file) => isAcceptedPdfToolFile(file, config))
+  if (!config.multiple && state.pdfFiles.length > 1) {
+    state.pdfFiles = state.pdfFiles.slice(0, 1)
+  }
+
+  pdfFileInput.accept = config.accept
+  pdfFileInput.multiple = config.multiple
   document.querySelector('#pdf-crumb').textContent = action
-  document.querySelector('#pdf-hint').textContent = `上传 ${inputType} 文件后执行“${action}”`
-  document.querySelector('#pdf-empty-text').textContent = `上传 ${inputType} 文件`
-  document.querySelector('#page-pdf .toolbar .gbtn').textContent = `＋ 上传 ${inputType}`
+  document.querySelector('#pdf-hint').textContent =
+    config.minFiles > 1
+      ? `至少上传 ${config.minFiles} 个 ${config.inputLabel} 文件`
+      : `上传 ${config.inputLabel} 文件后执行“${action}”`
+  document.querySelector('#pdf-empty-text').textContent = `上传 ${config.inputLabel} 文件`
+  pdfAddFilesButton.textContent = `＋ 上传 ${config.inputLabel}`
+  state.pdfLastOutput = null
+  pdfOpenOutputButton.disabled = true
+  pdfResultText.textContent = '添加文件后即可处理'
+  pdfResultDot.classList.remove('success', 'error', 'busy')
+  renderPdfOptions()
+  renderPdfFiles()
 }
 
 function chooseSubmenu(module, action) {
@@ -328,7 +480,9 @@ document.querySelector('.rail').addEventListener('click', (event) => {
 
 submenu.addEventListener('click', (event) => {
   const button = event.target.closest('.submenu-item')
-  if (button) chooseSubmenu(button.dataset.module, button.dataset.action)
+  if (button && !button.dataset.milestone) {
+    chooseSubmenu(button.dataset.module, button.dataset.action)
+  }
 })
 
 document.querySelector('.image-tools').addEventListener('click', (event) => {
@@ -351,6 +505,390 @@ document.addEventListener('click', (event) => {
 
   const name = button.textContent.trim()
   showToast(`“${name}”将在 ${button.dataset.milestone} 接入`)
+})
+
+function setPdfResult(message, status = '') {
+  pdfResultText.textContent = message
+  pdfResultDot.classList.remove('success', 'error', 'busy')
+  if (status) pdfResultDot.classList.add(status)
+}
+
+function pdfOutputBaseName(file) {
+  return file.name.replace(/\.[^.]+$/, '').replace(/[^\p{L}\p{N}_.-]+/gu, '-') || 'pdf-output'
+}
+
+function addPdfToolFiles(fileList) {
+  const config = currentPdfConfig()
+  const accepted = Array.from(fileList || []).filter((file) => isAcceptedPdfToolFile(file, config))
+
+  if (!accepted.length) {
+    setPdfResult(`请选择有效的 ${config.inputLabel} 文件`, 'error')
+    return
+  }
+
+  const oversized = accepted.find((file) => file.size > 150 * 1024 * 1024)
+  if (oversized) {
+    setPdfResult(`${oversized.name} 超过 150 MB 单文件上限`, 'error')
+    return
+  }
+
+  const nextFiles = config.multiple
+    ? [...state.pdfFiles, ...accepted].slice(0, 100)
+    : [accepted[0]]
+  const totalBytes = nextFiles.reduce((total, file) => total + file.size, 0)
+
+  if (totalBytes > 300 * 1024 * 1024) {
+    setPdfResult('所选文件总大小超过 300 MB', 'error')
+    return
+  }
+
+  state.pdfFiles = nextFiles
+  state.pdfLastOutput = null
+  pdfOpenOutputButton.disabled = true
+  renderPdfFiles()
+  setPdfResult(`已添加 ${state.pdfFiles.length} 个文件`)
+}
+
+async function readPdfDocument(file) {
+  try {
+    return await PDFDocument.load(new Uint8Array(await file.arrayBuffer()))
+  } catch {
+    throw new Error(`${file.name} 无法读取；加密或损坏的 PDF 暂不支持`)
+  }
+}
+
+async function saveSinglePdfToolOutput(type, name, data) {
+  const result = await window.api.savePdfFile({ type, name, data })
+  if (result.status === 'saved') {
+    state.pdfLastOutput = { path: result.path, directory: false }
+    pdfOpenOutputButton.disabled = false
+  }
+  return result
+}
+
+async function saveBatchPdfToolOutput(type, files) {
+  const result = await window.api.savePdfFiles({ type, files })
+  if (result.status === 'saved') {
+    state.pdfLastOutput = { path: result.directory, directory: true }
+    pdfOpenOutputButton.disabled = false
+  }
+  return result
+}
+
+async function mergePdfFiles() {
+  const output = await PDFDocument.create()
+
+  for (const [index, file] of state.pdfFiles.entries()) {
+    setPdfResult(`正在合并 ${index + 1} / ${state.pdfFiles.length}`, 'busy')
+    const source = await readPdfDocument(file)
+    const pages = await output.copyPages(source, source.getPageIndices())
+    pages.forEach((page) => output.addPage(page))
+  }
+
+  const data = await output.save()
+  const result = await saveSinglePdfToolOutput('pdf', 'merged', data)
+  return result.status === 'saved' ? `已合并 ${output.getPageCount()} 页 PDF` : '已取消保存'
+}
+
+async function splitPdfFile() {
+  const source = await readPdfDocument(state.pdfFiles[0])
+  const baseName = pdfOutputBaseName(state.pdfFiles[0])
+  const files = []
+
+  if (source.getPageCount() > 500) {
+    throw new Error('拆分页数超过 500 页上限')
+  }
+
+  for (let index = 0; index < source.getPageCount(); index += 1) {
+    setPdfResult(`正在拆分 ${index + 1} / ${source.getPageCount()}`, 'busy')
+    const output = await PDFDocument.create()
+    const [page] = await output.copyPages(source, [index])
+    output.addPage(page)
+    files.push({
+      name: `${baseName}-page-${String(index + 1).padStart(3, '0')}`,
+      data: await output.save()
+    })
+  }
+
+  const result = await saveBatchPdfToolOutput('pdf', files)
+  return result.status === 'saved' ? `已拆分并保存 ${files.length} 个 PDF` : '已取消保存'
+}
+
+async function rotatePdfFile() {
+  const source = await readPdfDocument(state.pdfFiles[0])
+  const rotation = Number(document.querySelector('#pdf-rotation')?.value || 90)
+  source.getPages().forEach((page) => {
+    page.setRotation(degrees((page.getRotation().angle + rotation) % 360))
+  })
+  const result = await saveSinglePdfToolOutput(
+    'pdf',
+    `${pdfOutputBaseName(state.pdfFiles[0])}-rotated`,
+    await source.save()
+  )
+  return result.status === 'saved'
+    ? `已将 ${source.getPageCount()} 页旋转 ${rotation}°`
+    : '已取消保存'
+}
+
+function parsePdfPageRange(value, pageCount) {
+  const pages = []
+
+  value.split(',').map((part) => part.trim()).filter(Boolean).forEach((part) => {
+    const range = part.match(/^(\d+)\s*-\s*(\d+)$/)
+
+    if (range) {
+      const start = Number(range[1])
+      const end = Number(range[2])
+      const step = start <= end ? 1 : -1
+      for (let page = start; page !== end + step; page += step) pages.push(page)
+    } else if (/^\d+$/.test(part)) {
+      pages.push(Number(part))
+    } else {
+      throw new Error('页码格式无效，请使用如 1-3,5')
+    }
+  })
+
+  const unique = [...new Set(pages)]
+  if (!unique.length || unique.some((page) => page < 1 || page > pageCount)) {
+    throw new Error(`页码必须在 1–${pageCount} 之间`)
+  }
+  return unique.map((page) => page - 1)
+}
+
+async function extractPdfPages() {
+  const source = await readPdfDocument(state.pdfFiles[0])
+  const pageIndices = parsePdfPageRange(
+    document.querySelector('#pdf-page-range')?.value || '',
+    source.getPageCount()
+  )
+  const output = await PDFDocument.create()
+  const pages = await output.copyPages(source, pageIndices)
+  pages.forEach((page) => output.addPage(page))
+  const result = await saveSinglePdfToolOutput(
+    'pdf',
+    `${pdfOutputBaseName(state.pdfFiles[0])}-pages`,
+    await output.save()
+  )
+  return result.status === 'saved' ? `已提取 ${pages.length} 页` : '已取消保存'
+}
+
+async function imageFileToPng(file) {
+  const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' })
+
+  if (bitmap.width * bitmap.height > 80_000_000) {
+    bitmap.close()
+    throw new Error(`${file.name} 超过 8000 万像素`)
+  }
+
+  const canvas = document.createElement('canvas')
+  canvas.width = bitmap.width
+  canvas.height = bitmap.height
+  canvas.getContext('2d').drawImage(bitmap, 0, 0)
+  bitmap.close()
+  const blob = await canvasToBlob(canvas, 'image/png')
+  return {
+    width: canvas.width,
+    height: canvas.height,
+    data: new Uint8Array(await blob.arrayBuffer())
+  }
+}
+
+async function imagesToPdf() {
+  const output = await PDFDocument.create()
+
+  for (const [index, file] of state.pdfFiles.entries()) {
+    setPdfResult(`正在处理图片 ${index + 1} / ${state.pdfFiles.length}`, 'busy')
+    const converted = await imageFileToPng(file)
+    const image = await output.embedPng(converted.data)
+    const pageScale = Math.min(1, 14400 / converted.width, 14400 / converted.height)
+    const width = converted.width * pageScale
+    const height = converted.height * pageScale
+    const page = output.addPage([width, height])
+    page.drawImage(image, { x: 0, y: 0, width, height })
+  }
+
+  const result = await saveSinglePdfToolOutput('pdf', 'images', await output.save())
+  return result.status === 'saved'
+    ? `已将 ${state.pdfFiles.length} 张图片合成为 PDF`
+    : '已取消保存'
+}
+
+async function renderPdfPages(type) {
+  const file = state.pdfFiles[0]
+  const loadingTask = getDocument({
+    data: new Uint8Array(await file.arrayBuffer())
+  })
+  const pdfDocument = await loadingTask.promise
+  const files = []
+  let totalBytes = 0
+
+  try {
+    if (pdfDocument.numPages > 200) {
+      throw new Error('逐页导出最多支持 200 页')
+    }
+
+    for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber += 1) {
+      setPdfResult(`正在渲染 ${pageNumber} / ${pdfDocument.numPages}`, 'busy')
+      const page = await pdfDocument.getPage(pageNumber)
+      const viewport = page.getViewport({ scale: 2 })
+      const outputCanvas = window.document.createElement('canvas')
+      outputCanvas.width = Math.ceil(viewport.width)
+      outputCanvas.height = Math.ceil(viewport.height)
+      const context = outputCanvas.getContext('2d')
+
+      if (type === 'jpeg') {
+        context.fillStyle = '#ffffff'
+        context.fillRect(0, 0, outputCanvas.width, outputCanvas.height)
+      }
+
+      await page.render({
+        canvas: outputCanvas,
+        canvasContext: context,
+        viewport
+      }).promise
+      const blob = await canvasToBlob(
+        outputCanvas,
+        type === 'jpeg' ? 'image/jpeg' : 'image/png',
+        type === 'jpeg'
+          ? Number(window.document.querySelector('#pdf-jpeg-quality')?.value || 0.85)
+          : undefined
+      )
+      const data = new Uint8Array(await blob.arrayBuffer())
+      totalBytes += data.byteLength
+
+      if (totalBytes > 450 * 1024 * 1024) {
+        throw new Error('生成结果超过 450 MB，请拆分 PDF 后重试')
+      }
+
+      files.push({
+        name: `${pdfOutputBaseName(file)}-page-${String(pageNumber).padStart(3, '0')}`,
+        data
+      })
+      page.cleanup()
+    }
+  } finally {
+    await pdfDocument.destroy()
+  }
+
+  const result = await saveBatchPdfToolOutput(type, files)
+  const label = type === 'jpeg' ? 'JPEG' : 'PNG'
+  return result.status === 'saved' ? `已导出 ${files.length} 张 ${label} 图片` : '已取消保存'
+}
+
+async function extractPdfText() {
+  const file = state.pdfFiles[0]
+  const loadingTask = getDocument({
+    data: new Uint8Array(await file.arrayBuffer())
+  })
+  const pdfDocument = await loadingTask.promise
+  const pages = []
+
+  try {
+    if (pdfDocument.numPages > 500) throw new Error('文字提取最多支持 500 页')
+
+    for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber += 1) {
+      setPdfResult(`正在提取文字 ${pageNumber} / ${pdfDocument.numPages}`, 'busy')
+      const page = await pdfDocument.getPage(pageNumber)
+      const content = await page.getTextContent()
+      const text = content.items
+        .map((item) => `${item.str}${item.hasEOL ? '\n' : ' '}`)
+        .join('')
+        .trim()
+      pages.push(`--- 第 ${pageNumber} 页 ---\n${text}`)
+      page.cleanup()
+    }
+  } finally {
+    await pdfDocument.destroy()
+  }
+
+  const text = pages.join('\n\n').trim()
+  if (!text.replace(/--- 第 \d+ 页 ---/g, '').trim()) {
+    throw new Error('未检测到内嵌文字；扫描件不含文本，本功能不做 OCR')
+  }
+
+  const result = await saveSinglePdfToolOutput(
+    'txt',
+    `${pdfOutputBaseName(file)}-text`,
+    new TextEncoder().encode(text)
+  )
+  return result.status === 'saved' ? `已提取 ${pages.length} 页内嵌文字` : '已取消保存'
+}
+
+async function runPdfAction() {
+  if (state.pdfBusy || pdfRunButton.disabled) return
+  state.pdfBusy = true
+  state.pdfLastOutput = null
+  pdfOpenOutputButton.disabled = true
+  updatePdfRunState()
+  setPdfResult('正在准备文件…', 'busy')
+
+  try {
+    const action = state.selections.pdf
+    let message
+
+    if (action === '转 PNG') message = await renderPdfPages('png')
+    else if (action === '转 JPEG') message = await renderPdfPages('jpeg')
+    else if (action === '转 TXT') message = await extractPdfText()
+    else if (action === '合并 PDF') message = await mergePdfFiles()
+    else if (action === '拆分 PDF') message = await splitPdfFile()
+    else if (action === '旋转 PDF') message = await rotatePdfFile()
+    else if (action === '提取页') message = await extractPdfPages()
+    else if (action === '图片转 PDF') message = await imagesToPdf()
+    else throw new Error('该 PDF 功能尚未接入')
+
+    setPdfResult(message, state.pdfLastOutput ? 'success' : '')
+    if (state.pdfLastOutput) showToast(message)
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    setPdfResult(`处理失败：${reason}`, 'error')
+    showToast('PDF 处理失败')
+  } finally {
+    state.pdfBusy = false
+    updatePdfRunState()
+  }
+}
+
+pdfAddFilesButton.addEventListener('click', () => {
+  pdfFileInput.value = ''
+  pdfFileInput.click()
+})
+pdfFileInput.addEventListener('change', () => addPdfToolFiles(pdfFileInput.files))
+pdfClearFilesButton.addEventListener('click', () => {
+  state.pdfFiles = []
+  state.pdfLastOutput = null
+  pdfOpenOutputButton.disabled = true
+  renderPdfFiles()
+  setPdfResult('添加文件后即可处理')
+})
+pdfFileBody.addEventListener('click', (event) => {
+  const button = event.target.closest('.pdf-remove-file')
+  if (!button || state.pdfBusy) return
+  state.pdfFiles.splice(Number(button.dataset.index), 1)
+  renderPdfFiles()
+})
+pdfDropZone.addEventListener('dragover', (event) => {
+  event.preventDefault()
+  pdfDropZone.classList.add('drag-over')
+})
+pdfDropZone.addEventListener('dragleave', () => pdfDropZone.classList.remove('drag-over'))
+pdfDropZone.addEventListener('drop', (event) => {
+  event.preventDefault()
+  pdfDropZone.classList.remove('drag-over')
+  addPdfToolFiles(event.dataTransfer.files)
+})
+pdfRunButton.addEventListener('click', runPdfAction)
+pdfOpenOutputButton.addEventListener('click', async () => {
+  if (!state.pdfLastOutput) return
+  try {
+    await window.api.showPdfOutput(state.pdfLastOutput)
+  } catch {
+    setPdfResult('无法打开输出位置', 'error')
+  }
+})
+window.api.onPdfSaveProgress((progress) => {
+  if (state.pdfBusy) {
+    setPdfResult(`正在保存 ${progress.completed} / ${progress.total}`, 'busy')
+  }
 })
 
 const barcodeInput = document.querySelector('#barcode-value')

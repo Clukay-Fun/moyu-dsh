@@ -46,6 +46,8 @@
   },
   "dependencies": {
     "fabric": "5.5.2-browser",
-    "jsbarcode": "3.12.3"
+    "jsbarcode": "3.12.3",
+    "pdf-lib": "1.17.1",
+    "pdfjs-dist": "5.4.624"
   }
 }
