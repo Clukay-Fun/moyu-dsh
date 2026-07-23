@@ -29,6 +29,19 @@
       "THIRD_PARTY_NOTICES.md",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "licenses",
+        "to": "licenses",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "THIRD_PARTY_NOTICES.md",
+        "to": "THIRD_PARTY_NOTICES.md"
+      }
+    ],
     "win": {
       "extraResources": [
         {
