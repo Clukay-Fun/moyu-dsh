@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld(
     ping: () => ipcRenderer.invoke('ping'),
     saveBarcodeFile: (payload) => ipcRenderer.invoke('barcode:save-file', payload),
     saveBarcodeFiles: (payload) => ipcRenderer.invoke('barcode:save-files', payload),
+    saveImageFile: (payload) => ipcRenderer.invoke('image:save-file', payload),
     onBarcodeSaveProgress: (callback) => {
       const listener = (_event, progress) => callback(progress)
       ipcRenderer.on('barcode:save-progress', listener)

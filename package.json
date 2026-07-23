@@ -45,6 +45,7 @@
     "vite": "^7.3.6"
   },
   "dependencies": {
+    "fabric": "5.5.2-browser",
     "jsbarcode": "3.12.3"
   }
 }

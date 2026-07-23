@@ -1,4 +1,5 @@
 import JsBarcode from 'jsbarcode'
+import { fabric } from 'fabric'
 
 const appLogoUrl = new URL('../../assets/logo_128.png', import.meta.url).href
 
@@ -316,27 +317,6 @@ function chooseSubmenu(module, action) {
   }
 }
 
-function setImageMode(mode) {
-  const copy = {
-    crop: ['裁切', '裁切原图后再叠加编辑对象。', 'M2a'],
-    watermark: ['文字水印', '在画布中添加和调整文字水印。', 'M2a'],
-    resize: ['尺寸与质量', '调整输出尺寸和图像质量。', 'M2c'],
-    export: ['导出', '导出 PNG、JPG、WebP 或 TIFF。', 'M2c']
-  }
-  const selected = copy[mode] || copy.crop
-
-  document.querySelector('#image-editor').dataset.mode = mode
-  document.querySelector('#image-crumb').textContent = selected[0]
-  document.querySelector('#image-panel-title').textContent = selected[0]
-  document.querySelector('#image-panel-copy').textContent = selected[1]
-  document.querySelector('#image-side-button')?.remove()
-  document.querySelectorAll('.image-tool').forEach((button) => {
-    button.classList.toggle('on', button.dataset.imageMode === mode)
-  })
-
-  showToast(`“${selected[0]}”界面已切换，真实能力将在 ${selected[2]} 接入`)
-}
-
 document.querySelector('.rail').addEventListener('click', (event) => {
   const button = event.target.closest('.nav-ic')
   if (button) activateModule(button.dataset.module)
@@ -349,7 +329,9 @@ submenu.addEventListener('click', (event) => {
 
 document.querySelector('.image-tools').addEventListener('click', (event) => {
   const button = event.target.closest('.image-tool')
-  if (button) setImageMode(button.dataset.imageMode)
+  if (button && !button.classList.contains('placeholder-action')) {
+    setImageMode(button.dataset.imageMode)
+  }
 })
 
 function showToast(message) {
@@ -829,6 +811,507 @@ document.querySelector('#barcode-dpi').addEventListener('click', (event) => {
   })
 })
 
+const imageEditor = document.querySelector('#image-editor')
+const imageDropZone = document.querySelector('#image-drop-zone')
+const imageStage = document.querySelector('#image-stage')
+const imageEmpty = document.querySelector('#image-empty')
+const imageFileInput = document.querySelector('#image-file-input')
+const imageFileName = document.querySelector('#image-filename')
+const imageDimensions = document.querySelector('#image-dimensions')
+const imageStatus = document.querySelector('#image-status')
+const imageZoom = document.querySelector('#image-zoom')
+const imagePanelTitle = document.querySelector('#image-panel-title')
+const imagePanelCopy = document.querySelector('#image-panel-copy')
+const imagePanelContent = document.querySelector('#image-panel-content')
+const quickSaveImageButton = document.querySelector('#quick-save-image')
+const imageCanvas = new fabric.Canvas('image-canvas-element', {
+  preserveObjectStacking: true,
+  selection: true,
+  backgroundColor: 'transparent'
+})
+const imageState = {
+  sourceCanvas: null,
+  sourceWidth: 0,
+  sourceHeight: 0,
+  baseImage: null,
+  cropRect: null,
+  mode: 'crop',
+  format: 'png',
+  quality: 0.9,
+  exporting: false,
+  fileName: 'edited-image.png'
+}
+
+imageCanvas.setDimensions({ width: 1, height: 1 })
+quickSaveImageButton.disabled = true
+
+function setImageStatus(message, isError = false) {
+  imageStatus.textContent = message
+  imageStatus.classList.toggle('error', isError)
+}
+
+function getImagePreviewSize(width = imageState.sourceWidth, height = imageState.sourceHeight) {
+  const maxWidth = Math.max(220, imageDropZone.clientWidth - 48)
+  const maxHeight = Math.max(180, imageDropZone.clientHeight - 48)
+  const scale = Math.min(1, maxWidth / width, maxHeight / height)
+  return {
+    width: Math.max(1, Math.round(width * scale)),
+    height: Math.max(1, Math.round(height * scale)),
+    scale
+  }
+}
+
+function removeCropSelection() {
+  if (!imageState.cropRect) return
+  imageCanvas.remove(imageState.cropRect)
+  imageState.cropRect = null
+}
+
+function getOverlayObjects() {
+  return imageCanvas.getObjects().filter((object) => object.dataRole === 'overlay')
+}
+
+function rebuildImageCanvas(overlays = []) {
+  if (!imageState.sourceCanvas) return
+
+  const preview = getImagePreviewSize()
+  imageCanvas.clear()
+  imageCanvas.setDimensions({ width: preview.width, height: preview.height })
+  imageState.baseImage = new fabric.Image(imageState.sourceCanvas, {
+    left: 0,
+    top: 0,
+    scaleX: preview.width / imageState.sourceWidth,
+    scaleY: preview.height / imageState.sourceHeight,
+    selectable: false,
+    evented: false,
+    hoverCursor: 'default',
+    dataRole: 'base'
+  })
+  imageCanvas.add(imageState.baseImage)
+  overlays.forEach((object) => imageCanvas.add(object))
+  imageCanvas.sendToBack(imageState.baseImage)
+  imageCanvas.requestRenderAll()
+  imageStage.classList.add('ready')
+  imageEmpty.classList.add('hidden')
+  imageZoom.textContent = `${Math.round(preview.scale * 100)}%`
+  imageDimensions.textContent = `${imageState.sourceWidth} × ${imageState.sourceHeight} px`
+  quickSaveImageButton.disabled = false
+}
+
+function createCropSelection() {
+  if (!imageState.sourceCanvas) return
+  removeCropSelection()
+  const width = imageCanvas.getWidth()
+  const height = imageCanvas.getHeight()
+  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#6978e6'
+  imageState.cropRect = new fabric.Rect({
+    left: width * 0.1,
+    top: height * 0.1,
+    width: width * 0.8,
+    height: height * 0.8,
+    fill: 'rgba(105, 120, 230, 0.08)',
+    stroke: accent,
+    strokeWidth: 1.5,
+    strokeDashArray: [7, 5],
+    cornerColor: '#ffffff',
+    cornerStrokeColor: accent,
+    transparentCorners: false,
+    cornerStyle: 'circle',
+    lockRotation: true,
+    hasRotatingPoint: false,
+    dataRole: 'crop'
+  })
+  imageCanvas.add(imageState.cropRect)
+  imageCanvas.setActiveObject(imageState.cropRect)
+  imageCanvas.requestRenderAll()
+}
+
+function ensureImageLoaded() {
+  if (imageState.sourceCanvas) return true
+  showToast('请先添加图片')
+  return false
+}
+
+function renderImagePanel() {
+  imagePanelContent.replaceChildren()
+
+  if (imageState.mode === 'crop') {
+    imagePanelTitle.textContent = '裁切'
+    imagePanelCopy.textContent = '拖动并缩放选框，再裁切原图。'
+    imagePanelContent.innerHTML = `
+      <div class="image-panel">
+        <div class="panel-actions">
+          <button class="gbtn" id="reset-image-crop" type="button">重置选框</button>
+          <button class="primary" id="apply-image-crop" type="button">应用裁切</button>
+        </div>
+      </div>
+    `
+    imagePanelContent.querySelector('#reset-image-crop').addEventListener('click', () => {
+      if (ensureImageLoaded()) createCropSelection()
+    })
+    imagePanelContent.querySelector('#apply-image-crop').addEventListener('click', applyImageCrop)
+  } else if (imageState.mode === 'watermark') {
+    imagePanelTitle.textContent = '文字水印'
+    imagePanelCopy.textContent = '添加后可在画布中拖动、缩放和旋转。'
+    imagePanelContent.innerHTML = `
+      <div class="image-panel">
+        <label>文字<input id="watermark-text" type="text" value="摸鱼工具箱" maxlength="80"></label>
+        <label class="inline-value"><span>字号</span><output id="watermark-size-value">36</output></label>
+        <input id="watermark-size" type="range" min="12" max="120" value="36">
+        <label>颜色<input id="watermark-color" type="color" value="#ffffff"></label>
+        <label class="inline-value"><span>透明度</span><output id="watermark-opacity-value">70%</output></label>
+        <input id="watermark-opacity" type="range" min="10" max="100" value="70">
+        <button class="primary" id="add-watermark" type="button">添加文字水印</button>
+      </div>
+    `
+    const textInput = imagePanelContent.querySelector('#watermark-text')
+    const sizeInput = imagePanelContent.querySelector('#watermark-size')
+    const colorInput = imagePanelContent.querySelector('#watermark-color')
+    const opacityInput = imagePanelContent.querySelector('#watermark-opacity')
+
+    function updateSelectedWatermark() {
+      const activeObject = imageCanvas.getActiveObject()
+      if (activeObject?.dataRole !== 'overlay' || activeObject?.overlayType !== 'watermark') return
+      activeObject.set({
+        text: textInput.value || '水印',
+        fontSize: Number(sizeInput.value),
+        fill: colorInput.value,
+        opacity: Number(opacityInput.value) / 100
+      })
+      activeObject.setCoords()
+      imageCanvas.requestRenderAll()
+    }
+
+    sizeInput.addEventListener('input', () => {
+      imagePanelContent.querySelector('#watermark-size-value').textContent = sizeInput.value
+      updateSelectedWatermark()
+    })
+    opacityInput.addEventListener('input', () => {
+      imagePanelContent.querySelector('#watermark-opacity-value').textContent = `${opacityInput.value}%`
+      updateSelectedWatermark()
+    })
+    textInput.addEventListener('input', updateSelectedWatermark)
+    colorInput.addEventListener('input', updateSelectedWatermark)
+    imagePanelContent.querySelector('#add-watermark').addEventListener('click', () => {
+      if (!ensureImageLoaded()) return
+      const watermark = new fabric.IText(textInput.value || '水印', {
+        left: imageCanvas.getWidth() / 2,
+        top: imageCanvas.getHeight() / 2,
+        originX: 'center',
+        originY: 'center',
+        fontFamily: 'Segoe UI, Microsoft YaHei UI, sans-serif',
+        fontSize: Number(sizeInput.value),
+        fill: colorInput.value,
+        opacity: Number(opacityInput.value) / 100,
+        padding: 5,
+        cornerColor: '#ffffff',
+        cornerStrokeColor: '#6978e6',
+        transparentCorners: false,
+        dataRole: 'overlay',
+        overlayType: 'watermark'
+      })
+      imageCanvas.add(watermark)
+      imageCanvas.setActiveObject(watermark)
+      imageCanvas.requestRenderAll()
+      setImageStatus('文字水印已添加，可直接拖动调整')
+    })
+  } else {
+    imagePanelTitle.textContent = '导出'
+    imagePanelCopy.textContent = 'PNG 保留透明；JPG 自动铺白底。'
+    imagePanelContent.innerHTML = `
+      <div class="image-panel">
+        <div class="format-choice" id="image-format-choice">
+          <button class="on" type="button" data-format="png">PNG</button>
+          <button type="button" data-format="jpeg">JPG</button>
+          <button type="button" data-format="webp">WebP</button>
+        </div>
+        <label class="inline-value"><span>质量</span><output id="image-quality-value">90%</output></label>
+        <input id="image-quality" type="range" min="30" max="100" value="90">
+        <button class="primary" id="export-image" type="button">导出 PNG</button>
+      </div>
+    `
+    const qualityInput = imagePanelContent.querySelector('#image-quality')
+    const exportButton = imagePanelContent.querySelector('#export-image')
+    imagePanelContent.querySelector('#image-format-choice').addEventListener('click', (event) => {
+      const button = event.target.closest('[data-format]')
+      if (!button) return
+      imageState.format = button.dataset.format
+      imagePanelContent.querySelectorAll('[data-format]').forEach((option) => {
+        option.classList.toggle('on', option === button)
+      })
+      exportButton.textContent = `导出 ${imageState.format === 'jpeg' ? 'JPG' : imageState.format.toUpperCase()}`
+    })
+    qualityInput.addEventListener('input', () => {
+      imageState.quality = Number(qualityInput.value) / 100
+      imagePanelContent.querySelector('#image-quality-value').textContent = `${qualityInput.value}%`
+    })
+    exportButton.addEventListener('click', () => exportEditedImage(imageState.format, exportButton))
+  }
+}
+
+function setImageMode(mode) {
+  imageState.mode = mode
+  imageEditor.dataset.mode = mode
+  document.querySelector('#image-crumb').textContent = {
+    crop: '裁切',
+    watermark: '文字水印',
+    export: '导出'
+  }[mode] || '图片编辑'
+  document.querySelectorAll('.image-tool').forEach((button) => {
+    button.classList.toggle('on', button.dataset.imageMode === mode)
+  })
+
+  if (mode === 'crop') {
+    if (imageState.sourceCanvas) createCropSelection()
+  } else {
+    removeCropSelection()
+    imageCanvas.discardActiveObject()
+    imageCanvas.requestRenderAll()
+  }
+  renderImagePanel()
+}
+
+async function loadImageFile(file) {
+  if (!file || !['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+    setImageStatus('仅支持 PNG、JPG 与 WebP 图片', true)
+    showToast('图片格式不受支持')
+    return
+  }
+
+  if (file.size > 50 * 1024 * 1024) {
+    setImageStatus('图片超过 50 MB，已拒绝载入', true)
+    return
+  }
+
+  setImageStatus('正在载入图片…')
+
+  try {
+    const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' })
+    if (bitmap.width * bitmap.height > 80_000_000) {
+      bitmap.close()
+      throw new Error('图片超过 8000 万像素')
+    }
+
+    const sourceCanvas = document.createElement('canvas')
+    sourceCanvas.width = bitmap.width
+    sourceCanvas.height = bitmap.height
+    sourceCanvas.getContext('2d').drawImage(bitmap, 0, 0)
+    bitmap.close()
+    imageState.sourceCanvas = sourceCanvas
+    imageState.sourceWidth = sourceCanvas.width
+    imageState.sourceHeight = sourceCanvas.height
+    imageState.fileName = file.name || 'pasted-image.png'
+    imageFileName.textContent = imageState.fileName
+    rebuildImageCanvas()
+    setImageMode('crop')
+    setImageStatus('图片已载入；支持拖拽、缩放选框')
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    setImageStatus(`图片载入失败：${reason}`, true)
+    showToast('图片载入失败')
+  }
+}
+
+function applyImageCrop() {
+  if (!ensureImageLoaded() || !imageState.cropRect) return
+  const canvasWidth = imageCanvas.getWidth()
+  const canvasHeight = imageCanvas.getHeight()
+  const left = Math.max(0, Math.min(canvasWidth - 1, imageState.cropRect.left))
+  const top = Math.max(0, Math.min(canvasHeight - 1, imageState.cropRect.top))
+  const selectionWidth = imageState.cropRect.width * Math.abs(imageState.cropRect.scaleX)
+  const selectionHeight = imageState.cropRect.height * Math.abs(imageState.cropRect.scaleY)
+  const width = Math.max(1, Math.min(canvasWidth - left, selectionWidth))
+  const height = Math.max(1, Math.min(canvasHeight - top, selectionHeight))
+
+  if (width < 12 || height < 12) {
+    setImageStatus('裁切选区太小', true)
+    return
+  }
+
+  const sourceX = Math.round(left / canvasWidth * imageState.sourceWidth)
+  const sourceY = Math.round(top / canvasHeight * imageState.sourceHeight)
+  const sourceWidth = Math.max(1, Math.round(width / canvasWidth * imageState.sourceWidth))
+  const sourceHeight = Math.max(1, Math.round(height / canvasHeight * imageState.sourceHeight))
+  const croppedCanvas = document.createElement('canvas')
+  croppedCanvas.width = sourceWidth
+  croppedCanvas.height = sourceHeight
+  croppedCanvas.getContext('2d').drawImage(
+    imageState.sourceCanvas,
+    sourceX,
+    sourceY,
+    sourceWidth,
+    sourceHeight,
+    0,
+    0,
+    sourceWidth,
+    sourceHeight
+  )
+
+  const overlays = getOverlayObjects()
+  imageCanvas.remove(imageState.cropRect)
+  imageState.cropRect = null
+  imageState.sourceCanvas = croppedCanvas
+  imageState.sourceWidth = sourceWidth
+  imageState.sourceHeight = sourceHeight
+  const nextPreview = getImagePreviewSize()
+  const scaleX = nextPreview.width / width
+  const scaleY = nextPreview.height / height
+
+  overlays.forEach((object) => {
+    object.set({
+      left: (object.left - left) * scaleX,
+      top: (object.top - top) * scaleY,
+      scaleX: object.scaleX * scaleX,
+      scaleY: object.scaleY * scaleY
+    })
+    object.setCoords()
+  })
+
+  rebuildImageCanvas(overlays)
+  createCropSelection()
+  setImageStatus(`裁切完成：${sourceWidth} × ${sourceHeight} px`)
+}
+
+function canvasToBlob(canvas, type, quality) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob)
+      else reject(new Error('图片编码失败'))
+    }, type, quality)
+  })
+}
+
+async function exportEditedImage(format = 'png', triggerButton = null) {
+  if (!ensureImageLoaded() || imageState.exporting) return
+  imageState.exporting = true
+  const cropVisible = imageState.cropRect?.visible
+  if (imageState.cropRect) imageState.cropRect.visible = false
+  imageCanvas.discardActiveObject()
+  imageCanvas.requestRenderAll()
+  quickSaveImageButton.disabled = true
+  if (triggerButton) triggerButton.disabled = true
+  setImageStatus('正在生成导出图片…')
+
+  try {
+    const multiplier = imageState.sourceWidth / imageCanvas.getWidth()
+    const rendered = imageCanvas.toCanvasElement(multiplier)
+    const output = document.createElement('canvas')
+    output.width = imageState.sourceWidth
+    output.height = imageState.sourceHeight
+    const context = output.getContext('2d')
+
+    if (format === 'jpeg') {
+      context.fillStyle = '#ffffff'
+      context.fillRect(0, 0, output.width, output.height)
+    }
+    context.drawImage(rendered, 0, 0, output.width, output.height)
+
+    const mimeType = {
+      png: 'image/png',
+      jpeg: 'image/jpeg',
+      webp: 'image/webp'
+    }[format]
+    const blob = await canvasToBlob(output, mimeType, imageState.quality)
+    const data = new Uint8Array(await blob.arrayBuffer())
+    const baseName = imageState.fileName.replace(/\.[^.]+$/, '') || 'edited-image'
+    const result = await window.api.saveImageFile({
+      type: format,
+      name: `${baseName}-edited`,
+      data
+    })
+
+    if (result.status === 'saved') {
+      const label = format === 'jpeg' ? 'JPG' : format.toUpperCase()
+      setImageStatus(`${label} 已保存 · ${(data.byteLength / 1024).toFixed(1)} KB`)
+      showToast(`${label} 图片已保存`)
+    } else {
+      setImageStatus('已取消导出')
+    }
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    setImageStatus(`导出失败：${reason}`, true)
+    showToast('图片导出失败')
+  } finally {
+    if (imageState.cropRect) imageState.cropRect.visible = cropVisible
+    imageCanvas.requestRenderAll()
+    quickSaveImageButton.disabled = false
+    if (triggerButton) triggerButton.disabled = false
+    imageState.exporting = false
+  }
+}
+
+function clearImageEditor() {
+  imageCanvas.clear()
+  imageCanvas.setDimensions({ width: 1, height: 1 })
+  Object.assign(imageState, {
+    sourceCanvas: null,
+    sourceWidth: 0,
+    sourceHeight: 0,
+    baseImage: null,
+    cropRect: null,
+    fileName: 'edited-image.png'
+  })
+  imageStage.classList.remove('ready')
+  imageEmpty.classList.remove('hidden')
+  imageFileName.textContent = '尚未添加图片'
+  imageDimensions.textContent = '尚未载入图片'
+  setImageStatus('支持拖拽与剪贴板粘贴')
+  quickSaveImageButton.disabled = true
+}
+
+function openImagePicker() {
+  imageFileInput.value = ''
+  imageFileInput.click()
+}
+
+document.querySelector('#open-image').addEventListener('click', openImagePicker)
+document.querySelector('#open-image-empty').addEventListener('click', openImagePicker)
+document.querySelector('#clear-image').addEventListener('click', clearImageEditor)
+quickSaveImageButton.addEventListener('click', () => exportEditedImage('png', quickSaveImageButton))
+imageFileInput.addEventListener('change', () => loadImageFile(imageFileInput.files[0]))
+imageDropZone.addEventListener('dragover', (event) => {
+  event.preventDefault()
+  imageDropZone.classList.add('drag-over')
+})
+imageDropZone.addEventListener('dragleave', () => imageDropZone.classList.remove('drag-over'))
+imageDropZone.addEventListener('drop', (event) => {
+  event.preventDefault()
+  imageDropZone.classList.remove('drag-over')
+  const file = Array.from(event.dataTransfer.files).find((item) => item.type.startsWith('image/'))
+  loadImageFile(file)
+})
+window.addEventListener('paste', (event) => {
+  if (state.module !== 'image') return
+  const file = Array.from(event.clipboardData?.files || []).find((item) => item.type.startsWith('image/'))
+  if (file) loadImageFile(file)
+})
+
+let imageResizeTimer
+window.addEventListener('resize', () => {
+  window.clearTimeout(imageResizeTimer)
+  imageResizeTimer = window.setTimeout(() => {
+    if (!imageState.sourceCanvas) return
+    const oldWidth = imageCanvas.getWidth()
+    const oldHeight = imageCanvas.getHeight()
+    const overlays = getOverlayObjects()
+    const nextPreview = getImagePreviewSize()
+    const scaleX = nextPreview.width / oldWidth
+    const scaleY = nextPreview.height / oldHeight
+
+    overlays.forEach((object) => {
+      object.set({
+        left: object.left * scaleX,
+        top: object.top * scaleY,
+        scaleX: object.scaleX * scaleX,
+        scaleY: object.scaleY * scaleY
+      })
+      object.setCoords()
+    })
+    rebuildImageCanvas(overlays)
+    if (imageState.mode === 'crop') createCropSelection()
+  }, 160)
+})
+
 function renderSearchResults(query) {
   const normalized = query.trim().toLowerCase()
   state.searchMatches = normalized
@@ -1153,5 +1636,6 @@ applyAccent()
 updateBarcodePixelSize()
 setBarcodeMode('single')
 generateBarcode()
+setImageMode('crop')
 activateModule('pdf', defaultSelections.pdf)
 verifyPreloadBridge()

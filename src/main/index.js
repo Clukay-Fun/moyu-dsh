@@ -15,6 +15,21 @@ const BARCODE_FILE_TYPES = {
   }
 }
 
+const IMAGE_FILE_TYPES = {
+  png: {
+    extension: 'png',
+    filterName: 'PNG 图片'
+  },
+  jpeg: {
+    extension: 'jpg',
+    filterName: 'JPEG 图片'
+  },
+  webp: {
+    extension: 'webp',
+    filterName: 'WebP 图片'
+  }
+}
+
 function normalizeBarcodeData(type, rawData) {
   const fileType = BARCODE_FILE_TYPES[type]
 
@@ -36,11 +51,11 @@ function normalizeBarcodeData(type, rawData) {
   return { data, fileType }
 }
 
-function sanitizeBarcodeBaseName(name) {
-  return String(name || 'barcode')
+function sanitizeFileBaseName(name, fallback = 'file') {
+  return String(name || fallback)
     .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-')
     .replace(/[. ]+$/g, '')
-    .slice(0, 80) || 'barcode'
+    .slice(0, 80) || fallback
 }
 
 function createWindow() {
@@ -78,7 +93,7 @@ ipcMain.handle('barcode:save-file', async (event, payload) => {
     throw new Error('条码文件超过 20 MB，已拒绝保存')
   }
 
-  const safeBaseName = sanitizeBarcodeBaseName(payload.name)
+  const safeBaseName = sanitizeFileBaseName(payload.name, 'barcode')
   const defaultPath = `${safeBaseName}.${fileType.extension}`
   const ownerWindow = BrowserWindow.fromWebContents(event.sender)
   const result = await dialog.showSaveDialog(ownerWindow, {
@@ -109,7 +124,7 @@ ipcMain.handle('barcode:save-files', async (event, payload) => {
     const normalized = normalizeBarcodeData(payload.type, file?.data)
     return {
       ...normalized,
-      name: sanitizeBarcodeBaseName(file?.name)
+      name: sanitizeFileBaseName(file?.name, 'barcode')
     }
   })
   const totalBytes = normalizedFiles.reduce((total, file) => total + Buffer.byteLength(file.data), 0)
@@ -150,6 +165,41 @@ ipcMain.handle('barcode:save-files', async (event, payload) => {
     saved: normalizedFiles.length,
     directory
   }
+})
+
+ipcMain.handle('image:save-file', async (event, payload) => {
+  const fileType = IMAGE_FILE_TYPES[payload?.type]
+  const data = payload?.data instanceof Uint8Array
+    ? Buffer.from(payload.data)
+    : null
+
+  if (!fileType || !data) {
+    throw new Error('不支持的图片文件数据')
+  }
+
+  if (data.byteLength > 100 * 1024 * 1024) {
+    throw new Error('图片文件超过 100 MB，已拒绝保存')
+  }
+
+  const safeBaseName = sanitizeFileBaseName(payload.name, 'edited-image')
+  const ownerWindow = BrowserWindow.fromWebContents(event.sender)
+  const result = await dialog.showSaveDialog(ownerWindow, {
+    title: `保存 ${fileType.filterName}`,
+    defaultPath: `${safeBaseName}.${fileType.extension}`,
+    filters: [
+      {
+        name: fileType.filterName,
+        extensions: [fileType.extension]
+      }
+    ]
+  })
+
+  if (result.canceled || !result.filePath) {
+    return { status: 'cancelled' }
+  }
+
+  await writeFile(result.filePath, data)
+  return { status: 'saved', path: result.filePath }
 })
 
 app.whenReady().then(() => {

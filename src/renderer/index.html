@@ -183,34 +183,40 @@
                 <div class="crumb">图片 › <b id="image-crumb">裁切</b></div>
                 <div class="image-editor" id="image-editor" data-mode="crop">
                   <div class="image-topbar">
-                    <span class="image-back">‹</span><span class="image-filename">尚未添加图片</span>
-                    <div class="image-zoom">−　<span>100%</span>　＋　↶　↷</div>
+                    <button class="image-back" id="clear-image" type="button" aria-label="关闭当前图片">‹</button>
+                    <span class="image-filename" id="image-filename">尚未添加图片</span>
+                    <div class="image-zoom">预览 <span id="image-zoom">100%</span></div>
                     <div class="image-tools">
                       <button class="image-tool on" type="button" data-image-mode="crop" data-name="裁切">⌑</button>
                       <button class="image-tool" type="button" data-image-mode="watermark" data-name="水印">T</button>
-                      <button class="image-tool" type="button" data-image-mode="resize" data-name="尺寸质量">↔</button>
+                      <button class="image-tool placeholder-action" type="button" data-milestone="M2c" data-image-mode="resize" data-name="调色">☼</button>
                       <button class="image-tool" type="button" data-image-mode="export" data-name="导出">⇩</button>
                     </div>
-                    <button class="image-save placeholder-action" type="button" data-milestone="M2c">保存</button>
-                    <button class="image-cancel placeholder-action" type="button" data-milestone="M2a">取消</button>
+                    <button class="image-save" id="quick-save-image" type="button">保存 PNG</button>
+                    <button class="image-cancel" id="open-image" type="button">打开图片</button>
                   </div>
                   <div class="image-body">
-                    <div class="image-canvas">
-                      <div class="image-document">
-                        <div class="image-placeholder">图片编辑器<small>Fabric.js 将在 M2a 接入</small></div>
-                        <div class="crop-boundary"><i></i><i></i><i></i><i></i></div>
+                    <div class="image-canvas" id="image-drop-zone">
+                      <div class="image-stage" id="image-stage">
+                        <canvas id="image-canvas-element"></canvas>
+                      </div>
+                      <div class="image-empty" id="image-empty">
+                        <b>添加图片开始编辑</b>
+                        <span>点击打开，或拖入 / 粘贴 PNG、JPG、WebP</span>
+                        <button class="gbtn" id="open-image-empty" type="button">＋ 添加图片</button>
                       </div>
                     </div>
                     <aside class="image-side">
                       <h3 id="image-panel-title">裁切</h3>
-                      <p id="image-panel-copy">裁切原图后再叠加编辑对象。</p>
-                      <button class="gbtn placeholder-action" type="button" data-milestone="M2a">＋ 添加图片</button>
+                      <p id="image-panel-copy">拖动并缩放选框，再裁切原图。</p>
+                      <div id="image-panel-content"></div>
                     </aside>
                   </div>
                   <div class="image-bottom">
-                    <span>当前为界面预览</span><b>功能将在 M2a–M2c 逐片接入</b>
+                    <span id="image-dimensions">尚未载入图片</span><b id="image-status">支持拖拽与剪贴板粘贴</b>
                   </div>
                 </div>
+                <input id="image-file-input" type="file" accept="image/png,image/jpeg,image/webp" hidden />
               </section>
 
               <section class="page" id="page-video">
