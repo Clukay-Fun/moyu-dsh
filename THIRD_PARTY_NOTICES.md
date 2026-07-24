@@ -51,3 +51,11 @@
 - Windows 原生包与 libvips 许可证：Apache-2.0 AND LGPL-3.0-or-later。
 - 固定版本、npm integrity、动态链接边界和源码获取方式：`licenses/SHARP-NOTICE.md`
 - Apache License 2.0 全文：`licenses/QPDF-Apache-2.0.txt`
+
+## winax 3.6.9
+
+- 用途：在独立 Electron utility process 中调用 Windows COM，联动 Microsoft Office、Adobe Illustrator 与 Adobe Photoshop。
+- 许可证：MIT
+- Copyright (c) 2023 Yuri Dursin
+- npm integrity：`sha512-R+6yTIk8pnIf50P4z8unG3yfRP0DCYzq7v8J04tool1OR4UkoXKEGfAj+cq6IPPhnVQHz7+m7isg+yU38T727w==`
+- 许可证文件：`licenses/winax-MIT.txt`
