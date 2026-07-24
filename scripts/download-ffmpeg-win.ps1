@@ -5,6 +5,19 @@ $CachePath = Join-Path $ProjectRoot "build/ffmpeg-cache/b6.1.1"
 $OutputPath = Join-Path $ProjectRoot "build/ffmpeg"
 $ReleaseUrl = "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1"
 
+function Get-Sha256([string]$Path) {
+  $InputStream = [System.IO.File]::OpenRead($Path)
+  $Hasher = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    return (
+      [System.BitConverter]::ToString($Hasher.ComputeHash($InputStream))
+    ).Replace("-", "").ToLowerInvariant()
+  } finally {
+    $Hasher.Dispose()
+    $InputStream.Dispose()
+  }
+}
+
 $Assets = @(
   @{
     Name = "ffmpeg-win32-x64.gz"
@@ -42,13 +55,13 @@ foreach ($Asset in $Assets) {
   $ArchivePath = Join-Path $CachePath $Asset.Name
   if (
     -not (Test-Path $ArchivePath) -or
-    (Get-FileHash $ArchivePath -Algorithm SHA256).Hash.ToLower() -ne $Asset.Sha256
+    (Get-Sha256 $ArchivePath) -ne $Asset.Sha256
   ) {
     if (Test-Path $ArchivePath) { Remove-Item $ArchivePath -Force }
     & curl.exe -L --fail --retry 3 "$ReleaseUrl/$($Asset.Name)" -o $ArchivePath
   }
 
-  $ActualHash = (Get-FileHash $ArchivePath -Algorithm SHA256).Hash.ToLower()
+  $ActualHash = Get-Sha256 $ArchivePath
   if ($ActualHash -ne $Asset.Sha256) {
     throw "FFmpeg asset hash mismatch: $($Asset.Name)"
   }
@@ -72,7 +85,7 @@ foreach ($Asset in $Assets) {
     Copy-Item $ArchivePath $DestinationPath -Force
   }
 
-  $OutputHash = (Get-FileHash $DestinationPath -Algorithm SHA256).Hash.ToLower()
+  $OutputHash = Get-Sha256 $DestinationPath
   if ($OutputHash -ne $Asset.OutputSha256) {
     throw "FFmpeg output hash mismatch: $($Asset.Output)"
   }
