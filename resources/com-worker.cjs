@@ -97,8 +97,7 @@ function illustratorSvgScript(inputPath, outputPath) {
     var document = app.open(new File(${input}));
     try {
       var options = new EPSSaveOptions();
-      options.compatibility = Compatibility.ILLUSTRATOR17;
-      options.embedAllFonts = true;
+      options.includeDocumentThumbnails = false;
       document.saveAs(new File(${output}), options);
     } finally {
       document.close(SaveOptions.DONOTSAVECHANGES);
