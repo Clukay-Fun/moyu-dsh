@@ -3,6 +3,7 @@ import { fabric } from 'fabric'
 import { PDFDocument, StandardFonts, degrees, rgb } from 'pdf-lib'
 import { getDocument, GlobalWorkerOptions, ImageKind, OPS } from 'pdfjs-dist'
 import { createQpdfRunner } from 'qpdf-run'
+import ocrbFontData from '../../assets/fonts/OCR-B.ttf?inline'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import qpdfWorkerUrl from 'qpdf-run/worker?url'
 import qpdfJsUrl from 'qpdf-run/qpdf.js?url'
@@ -2572,7 +2573,7 @@ function renderBarcodeSvg(svgElement, value, typeName = state.selections.bc) {
     height: 110,
     margin: 18,
     textMargin: 8,
-    font: 'Consolas, monospace',
+    font: 'Moyu OCR-B, OCRB, "OCR-B", "OCR B Std", Consolas, monospace',
     fontSize: 20,
     lineColor: '#171820',
     background: '#ffffff',
@@ -2661,6 +2662,9 @@ function serializeBarcodeSvg(svgElement = barcodeSvg) {
   clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
   clone.setAttribute('width', `${settings.widthMm}mm`)
   clone.setAttribute('height', `${settings.heightMm}mm`)
+  const fontStyle = document.createElementNS('http://www.w3.org/2000/svg', 'style')
+  fontStyle.textContent = `@font-face{font-family:"Moyu OCR-B";src:url(${ocrbFontData}) format("truetype");}`
+  clone.prepend(fontStyle)
   return `<?xml version="1.0" encoding="UTF-8"?>\n${new XMLSerializer().serializeToString(clone)}`
 }
 
@@ -3518,6 +3522,9 @@ window.api.onAiModelProgress((progress) => {
   if (progress.status === 'downloading') {
     aiModelStatus.textContent = `${progress.name} · ${Math.round(progress.progress * 100)}%`
     aiProgressFill.style.width = `${Math.max(2, progress.progress * 100)}%`
+  } else if (progress.status === 'retrying') {
+    aiModelStatus.textContent = progress.message || `${progress.name} 正在重试下载`
+    aiProgressFill.style.width = '2%'
   } else if (progress.status === 'ready') {
     aiModelStatus.textContent = `${progress.name} 已下载并校验`
     aiProgressFill.style.width = '100%'

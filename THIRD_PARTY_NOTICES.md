@@ -2,6 +2,14 @@
 
 摸鱼工具箱包含以下第三方组件。对应许可证全文随应用一起发布在 `licenses/` 目录。
 
+## OCR-B Regular
+
+- 用途：条码人眼可读数字的默认字体；随渲染层一起交付，不依赖用户系统安装字体。
+- 来源：`jaycee723/ocr-b` commit `fedeba81519770109925b5bec70e940be5948d8f`，`dist/OCR-B.ttf`。
+- 许可证：SIL Open Font License 1.1。
+- 文件 SHA-256：`367d876cca948ecd4900851f6e85687cbb6e71de9d0d2f36348edec5655526af`。
+- 许可证文件：`licenses/OCR-B-OFL-1.1.txt`。
+
 ## qpdf-run 0.2.1
 
 - 用途：在 Electron 渲染进程的 Web Worker 中运行 QPDF WebAssembly，为 PDF 提供加密与解密能力。

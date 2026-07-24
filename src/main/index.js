@@ -5,6 +5,7 @@ import {
   desktopCapturer,
   dialog,
   ipcMain,
+  net,
   nativeImage,
   screen,
   shell,
@@ -125,6 +126,8 @@ const AI_IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp'])
 const AI_MAX_FILE_BYTES = 50 * 1024 * 1024
 const AI_MAX_FILES = 100
 const AI_COMMAND_TIMEOUT_MS = 10 * 60 * 1000
+const AI_MODEL_DOWNLOAD_ATTEMPTS = 3
+const AI_MODEL_DOWNLOAD_TIMEOUT_MS = 90 * 1000
 let aiSidecar = null
 let aiSidecarBuffer = ''
 let aiSidecarStarting = null
@@ -766,39 +769,73 @@ async function downloadAiModel(key, sender) {
       progress: 0
     })
 
-    const response = await fetch(model.url, { redirect: 'follow' })
-    if (!response.ok || !response.body) {
-      throw new Error(`${model.name} 下载失败（HTTP ${response.status}）`)
-    }
-
-    const handle = await open(temporaryPath, 'w')
-    const reader = response.body.getReader()
-    const digest = createHash('sha256')
-    let received = 0
-    try {
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        const chunk = Buffer.from(value)
-        await handle.write(chunk)
-        digest.update(chunk)
-        received += chunk.length
-        sendAiModelProgress(sender, {
-          key,
-          name: model.name,
-          status: 'downloading',
-          received,
-          total: model.size,
-          progress: Math.min(1, received / model.size)
+    let lastError = null
+    for (let attempt = 1; attempt <= AI_MODEL_DOWNLOAD_ATTEMPTS; attempt += 1) {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), AI_MODEL_DOWNLOAD_TIMEOUT_MS)
+      try {
+        // Chromium's network stack follows Windows proxy settings. Node's built-in fetch does not.
+        const response = await net.fetch(model.url, {
+          redirect: 'follow',
+          signal: controller.signal,
+          headers: { 'User-Agent': 'MoyuTools/2.0 model-downloader' }
         })
+        if (!response.ok || !response.body) {
+          throw new Error(`HTTP ${response.status}`)
+        }
+
+        const handle = await open(temporaryPath, 'w')
+        const reader = response.body.getReader()
+        const digest = createHash('sha256')
+        let received = 0
+        try {
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            const chunk = Buffer.from(value)
+            await handle.write(chunk)
+            digest.update(chunk)
+            received += chunk.length
+            sendAiModelProgress(sender, {
+              key,
+              name: model.name,
+              status: 'downloading',
+              received,
+              total: model.size,
+              progress: Math.min(1, received / model.size)
+            })
+          }
+        } finally {
+          await handle.close()
+        }
+
+        if (received !== model.size || digest.digest('hex') !== model.sha256) {
+          throw new Error(`文件校验失败（${received} / ${model.size} 字节）`)
+        }
+        lastError = null
+        break
+      } catch (error) {
+        lastError = error
+        await unlink(temporaryPath).catch(() => {})
+        if (attempt < AI_MODEL_DOWNLOAD_ATTEMPTS) {
+          sendAiModelProgress(sender, {
+            key,
+            name: model.name,
+            status: 'retrying',
+            message: `下载失败，正在重试（${attempt} / ${AI_MODEL_DOWNLOAD_ATTEMPTS}）`
+          })
+          await new Promise((resolve) => setTimeout(resolve, attempt * 1000))
+        }
+      } finally {
+        clearTimeout(timeout)
       }
-    } finally {
-      await handle.close()
     }
 
-    if (received !== model.size || digest.digest('hex') !== model.sha256) {
-      await unlink(temporaryPath).catch(() => {})
-      throw new Error(`${model.name} 文件校验失败，已删除不完整下载`)
+    if (lastError) {
+      const detail = lastError.name === 'AbortError'
+        ? `连接在 ${AI_MODEL_DOWNLOAD_TIMEOUT_MS / 1000} 秒内未完成`
+        : String(lastError.message || lastError)
+      throw new Error(`${model.name} 下载失败，已重试 ${AI_MODEL_DOWNLOAD_ATTEMPTS} 次：${detail}。请检查网络或 Windows 系统代理后重试`)
     }
     await rename(temporaryPath, filePath)
     sendAiModelProgress(sender, {

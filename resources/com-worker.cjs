@@ -118,7 +118,6 @@ function illustratorSvgScript(inputPath, outputPath) {
       app.userInteractionLevel = UserInteractionLevel.DONTDISPLAYALERTS;
       document = app.open(new File(${input}));
       var options = new EPSSaveOptions();
-      options.includeDocumentThumbnails = false;
       document.saveAs(new File(${output}), options);
     } finally {
       if (document) document.close(SaveOptions.DONOTSAVECHANGES);

@@ -1,3 +1,11 @@
+@font-face {
+  font-family: "Moyu OCR-B";
+  src: url("../../assets/fonts/OCR-B.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+}
+
 :root {
   --accent-r: 105;
   --accent-g: 120;
