@@ -4,9 +4,21 @@ contextBridge.exposeInMainWorld(
   'api',
   Object.freeze({
     ping: () => ipcRenderer.invoke('ping'),
+    probeCom: () => ipcRenderer.invoke('com:probe'),
     saveBarcodeFile: (payload) => ipcRenderer.invoke('barcode:save-file', payload),
     saveBarcodeFiles: (payload) => ipcRenderer.invoke('barcode:save-files', payload),
+    exportBarcodeEps: (payload) => ipcRenderer.invoke('barcode:export-eps', payload),
+    openBarcodeInIllustrator: (payload) => ipcRenderer.invoke('barcode:open-illustrator', payload),
+    openBarcodeInPhotoshop: (payload) => ipcRenderer.invoke('barcode:open-photoshop', payload),
     saveImageFile: (payload) => ipcRenderer.invoke('image:save-file', payload),
+    pickIllustratorFiles: () => ipcRenderer.invoke('illustrator:pick-files'),
+    pickIllustratorFolder: () => ipcRenderer.invoke('illustrator:pick-folder'),
+    removeIllustratorInputs: (inputIds) => ipcRenderer.invoke('illustrator:remove-inputs', inputIds),
+    runIllustratorTask: (payload) => ipcRenderer.invoke('illustrator:run', payload),
+    cancelIllustratorTask: () => ipcRenderer.invoke('illustrator:cancel'),
+    pickOfficeFile: (kind) => ipcRenderer.invoke('office:pick-file', kind),
+    convertOfficeToPdf: (inputId) => ipcRenderer.invoke('office:to-pdf', inputId),
+    showComResult: (resultId) => ipcRenderer.invoke('com:show-result', resultId),
     getAiStatus: () => ipcRenderer.invoke('ai:get-status'),
     pickAiImages: (payload) => ipcRenderer.invoke('ai:pick-images', payload),
     pickAiFolder: () => ipcRenderer.invoke('ai:pick-folder'),
@@ -43,6 +55,11 @@ contextBridge.exposeInMainWorld(
       const listener = (_event, progress) => callback(progress)
       ipcRenderer.on('barcode:save-progress', listener)
       return () => ipcRenderer.removeListener('barcode:save-progress', listener)
+    },
+    onIllustratorProgress: (callback) => {
+      const listener = (_event, progress) => callback(progress)
+      ipcRenderer.on('illustrator:progress', listener)
+      return () => ipcRenderer.removeListener('illustrator:progress', listener)
     },
     onPdfSaveProgress: (callback) => {
       const listener = (_event, progress) => callback(progress)

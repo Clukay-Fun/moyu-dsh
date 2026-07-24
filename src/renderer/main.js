@@ -135,9 +135,9 @@ const submenuData = {
       heading: '转成 PDF',
       items: [
         ['图片转 PDF', 'IMG', '#3c9a5e'],
-        ['Word 转 PDF', 'W', '#2b6cb0', 'M4'],
-        ['Excel 转 PDF', 'X', '#217346', 'M4'],
-        ['PPT 转 PDF', 'P', '#d24726', 'M4']
+        ['Word 转 PDF', 'W', '#2b6cb0'],
+        ['Excel 转 PDF', 'X', '#217346'],
+        ['PPT 转 PDF', 'P', '#d24726']
       ]
     },
     {
@@ -200,10 +200,7 @@ const defaultSelections = {
 const deferredPdfActions = new Map([
   ['转 DOCX', 'M7x'],
   ['转 XLSX', 'M7x'],
-  ['转 PPTX', 'M7x'],
-  ['Word 转 PDF', 'M4'],
-  ['Excel 转 PDF', 'M4'],
-  ['PPT 转 PDF', 'M4']
+  ['转 PPTX', 'M7x']
 ])
 
 const moduleLabels = {
@@ -289,6 +286,8 @@ const state = {
   pdfFiles: [],
   pdfBusy: false,
   pdfLastOutput: null,
+  pdfComResult: null,
+  pdfNativeInput: null,
   pdfWatermarkImage: null,
   pdfPageItems: [],
   pdfPageOrganizerSource: null
@@ -401,6 +400,30 @@ const pdfActionConfig = {
     accept: 'image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp',
     multiple: true,
     minFiles: 1
+  },
+  'Word 转 PDF': {
+    inputLabel: 'Word',
+    kind: 'office',
+    officeKind: 'word',
+    accept: '',
+    multiple: false,
+    minFiles: 1
+  },
+  'Excel 转 PDF': {
+    inputLabel: 'Excel',
+    kind: 'office',
+    officeKind: 'excel',
+    accept: '',
+    multiple: false,
+    minFiles: 1
+  },
+  'PPT 转 PDF': {
+    inputLabel: 'PowerPoint',
+    kind: 'office',
+    officeKind: 'powerpoint',
+    accept: '',
+    multiple: false,
+    minFiles: 1
   }
 }
 const pdfFileInput = document.querySelector('#pdf-file-input')
@@ -425,6 +448,7 @@ function currentPdfConfig() {
 }
 
 function isAcceptedPdfToolFile(file, config = currentPdfConfig()) {
+  if (config.kind === 'office') return false
   const name = file.name.toLowerCase()
   if (config.kind === 'pdf') {
     return file.type === 'application/pdf' || name.endsWith('.pdf')
@@ -539,9 +563,13 @@ function renderPdfOptions() {
 
 function renderPdfFiles() {
   pdfFileBody.replaceChildren()
-  pdfEmpty.classList.toggle('hidden', state.pdfFiles.length > 0)
+  const config = currentPdfConfig()
+  const displayedFiles = config.kind === 'office'
+    ? (state.pdfNativeInput ? [state.pdfNativeInput] : [])
+    : state.pdfFiles
+  pdfEmpty.classList.toggle('hidden', displayedFiles.length > 0)
 
-  state.pdfFiles.forEach((file, index) => {
+  displayedFiles.forEach((file, index) => {
     const row = document.createElement('div')
     const order = document.createElement('span')
     const name = document.createElement('span')
@@ -557,7 +585,11 @@ function renderPdfFiles() {
     order.textContent = String(index + 1)
     name.textContent = file.name
     name.title = file.name
-    type.textContent = currentPdfConfig().kind === 'pdf' ? 'PDF' : (file.type.split('/')[1] || '图片').toUpperCase()
+    type.textContent = config.kind === 'pdf'
+      ? 'PDF'
+      : config.kind === 'office'
+        ? config.inputLabel
+        : (file.type.split('/')[1] || '图片').toUpperCase()
     size.textContent = `${(file.size / 1024 / 1024).toFixed(2)} MB`
     remove.type = 'button'
     remove.className = 'pdf-remove-file'
@@ -573,12 +605,15 @@ function renderPdfFiles() {
 
 function updatePdfRunState() {
   const config = currentPdfConfig()
-  const enoughFiles = state.pdfFiles.length >= config.minFiles
+  const fileCount = config.kind === 'office'
+    ? Number(Boolean(state.pdfNativeInput))
+    : state.pdfFiles.length
+  const enoughFiles = fileCount >= config.minFiles
   const hasWatermarkImage =
     state.selections.pdf !== '图片水印' || Boolean(state.pdfWatermarkImage)
   pdfRunButton.disabled = state.pdfBusy || !enoughFiles || !hasWatermarkImage
   pdfRunButton.textContent = state.pdfBusy ? '处理中…' : `开始${state.selections.pdf}`
-  pdfClearFilesButton.disabled = state.pdfBusy || state.pdfFiles.length === 0
+  pdfClearFilesButton.disabled = state.pdfBusy || fileCount === 0
   pdfAddFilesButton.disabled = state.pdfBusy
   const organizerButton = document.querySelector('#pdf-open-page-organizer')
   if (organizerButton) organizerButton.disabled = state.pdfBusy || !enoughFiles
@@ -594,13 +629,22 @@ function updatePdfState(action) {
   const config = pdfActionConfig[action]
   if (!config) return
 
-  state.pdfFiles = state.pdfFiles.filter((file) => isAcceptedPdfToolFile(file, config))
-  if (!config.multiple && state.pdfFiles.length > 1) {
-    state.pdfFiles = state.pdfFiles.slice(0, 1)
+  if (config.kind === 'office') {
+    state.pdfFiles = []
+    if (state.pdfNativeInput?.kind !== config.officeKind) {
+      state.pdfNativeInput = null
+    }
+  } else {
+    state.pdfNativeInput = null
+    state.pdfFiles = state.pdfFiles.filter((file) => isAcceptedPdfToolFile(file, config))
+    if (!config.multiple && state.pdfFiles.length > 1) {
+      state.pdfFiles = state.pdfFiles.slice(0, 1)
+    }
   }
 
   pdfFileInput.accept = config.accept
   pdfFileInput.multiple = config.multiple
+  pdfDropZone.classList.toggle('native-picker', config.kind === 'office')
   document.querySelector('#pdf-crumb').textContent = action
   document.querySelector('#pdf-hint').textContent =
     config.minFiles > 1
@@ -609,6 +653,7 @@ function updatePdfState(action) {
   document.querySelector('#pdf-empty-text').textContent = `上传 ${config.inputLabel} 文件`
   pdfAddFilesButton.textContent = `＋ 上传 ${config.inputLabel}`
   state.pdfLastOutput = null
+  state.pdfComResult = null
   state.pdfWatermarkImage = null
   resetPdfPageOrganizer()
   pdfOpenOutputButton.disabled = true
@@ -1507,6 +1552,7 @@ async function runPdfAction() {
   if (state.pdfBusy || pdfRunButton.disabled) return
   state.pdfBusy = true
   state.pdfLastOutput = null
+  state.pdfComResult = null
   pdfOpenOutputButton.disabled = true
   updatePdfRunState()
   setPdfResult('正在准备文件…', 'busy')
@@ -1515,7 +1561,13 @@ async function runPdfAction() {
     const action = state.selections.pdf
     let message
 
-    if (action === '转 PNG') message = await renderPdfPages('png')
+    if (['Word 转 PDF', 'Excel 转 PDF', 'PPT 转 PDF'].includes(action)) {
+      if (!state.pdfNativeInput) throw new Error('请先选择 Office 文件')
+      const result = await window.api.convertOfficeToPdf(state.pdfNativeInput.id)
+      state.pdfComResult = result.result
+      pdfOpenOutputButton.disabled = false
+      message = `${currentPdfConfig().inputLabel} 已导出为 PDF`
+    } else if (action === '转 PNG') message = await renderPdfPages('png')
     else if (action === '转 JPEG') message = await renderPdfPages('jpeg')
     else if (action === '转 TXT') message = await extractPdfText()
     else if (action === '合并 PDF') message = await mergePdfFiles()
@@ -1533,8 +1585,9 @@ async function runPdfAction() {
     else if (action === '图片转 PDF') message = await imagesToPdf()
     else throw new Error('该 PDF 功能尚未接入')
 
-    setPdfResult(message, state.pdfLastOutput ? 'success' : '')
-    if (state.pdfLastOutput) showToast(message)
+    const hasOutput = Boolean(state.pdfLastOutput || state.pdfComResult)
+    setPdfResult(message, hasOutput ? 'success' : '')
+    if (hasOutput) showToast(message)
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error)
     setPdfResult(`处理失败：${reason}`, 'error')
@@ -1545,13 +1598,31 @@ async function runPdfAction() {
   }
 }
 
-pdfAddFilesButton.addEventListener('click', () => {
-  pdfFileInput.value = ''
-  pdfFileInput.click()
+pdfAddFilesButton.addEventListener('click', async () => {
+  const config = currentPdfConfig()
+  if (config.kind !== 'office') {
+    pdfFileInput.value = ''
+    pdfFileInput.click()
+    return
+  }
+  try {
+    const input = await window.api.pickOfficeFile(config.officeKind)
+    if (!input) return
+    state.pdfNativeInput = input
+    state.pdfComResult = null
+    state.pdfLastOutput = null
+    pdfOpenOutputButton.disabled = true
+    renderPdfFiles()
+    setPdfResult(`${input.name} 已添加`)
+  } catch (error) {
+    setPdfResult(`无法选择文件：${error instanceof Error ? error.message : String(error)}`, 'error')
+  }
 })
 pdfFileInput.addEventListener('change', () => addPdfToolFiles(pdfFileInput.files))
 pdfClearFilesButton.addEventListener('click', () => {
   state.pdfFiles = []
+  state.pdfNativeInput = null
+  state.pdfComResult = null
   state.pdfLastOutput = null
   state.pdfWatermarkImage = null
   resetPdfPageOrganizer()
@@ -1562,7 +1633,11 @@ pdfClearFilesButton.addEventListener('click', () => {
 pdfFileBody.addEventListener('click', (event) => {
   const button = event.target.closest('.pdf-remove-file')
   if (!button || state.pdfBusy) return
-  state.pdfFiles.splice(Number(button.dataset.index), 1)
+  if (currentPdfConfig().kind === 'office') {
+    state.pdfNativeInput = null
+  } else {
+    state.pdfFiles.splice(Number(button.dataset.index), 1)
+  }
   resetPdfPageOrganizer()
   renderPdfFiles()
 })
@@ -1574,13 +1649,21 @@ pdfDropZone.addEventListener('dragleave', () => pdfDropZone.classList.remove('dr
 pdfDropZone.addEventListener('drop', (event) => {
   event.preventDefault()
   pdfDropZone.classList.remove('drag-over')
+  if (currentPdfConfig().kind === 'office') {
+    setPdfResult('Office 文件请使用“上传”按钮选择', 'error')
+    return
+  }
   addPdfToolFiles(event.dataTransfer.files)
 })
 pdfRunButton.addEventListener('click', runPdfAction)
 pdfOpenOutputButton.addEventListener('click', async () => {
-  if (!state.pdfLastOutput) return
+  if (!state.pdfLastOutput && !state.pdfComResult) return
   try {
-    await window.api.showPdfOutput(state.pdfLastOutput)
+    if (state.pdfComResult) {
+      await window.api.showComResult(state.pdfComResult.id)
+    } else {
+      await window.api.showPdfOutput(state.pdfLastOutput)
+    }
   } catch {
     setPdfResult('无法打开输出位置', 'error')
   }
@@ -2228,12 +2311,221 @@ window.addEventListener('beforeunload', () => {
   qpdfRunnerPromise?.then((runner) => runner.destroy()).catch(() => {})
 })
 
+const illustratorState = {
+  inputs: [],
+  statuses: new Map(),
+  busy: false,
+  outputs: []
+}
+const illustratorFileBody = document.querySelector('#illustrator-file-body')
+const illustratorEmpty = document.querySelector('#illustrator-empty')
+const illustratorAddFilesButton = document.querySelector('#illustrator-add-files')
+const illustratorAddFolderButton = document.querySelector('#illustrator-add-folder')
+const illustratorClearButton = document.querySelector('#illustrator-clear')
+const illustratorStopButton = document.querySelector('#illustrator-stop')
+const illustratorSameDirectory = document.querySelector('#illustrator-same-directory')
+const illustratorProgressFill = document.querySelector('#illustrator-progress-fill')
+const illustratorProgressText = document.querySelector('#illustrator-progress-text')
+const illustratorLog = document.querySelector('#illustrator-log')
+const illustratorOpenOutputButton = document.querySelector('#illustrator-open-output')
+const illustratorRunButtons = Array.from(document.querySelectorAll('.illustrator-run'))
+
+function illustratorFileSize(bytes) {
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(2)} MB`
+}
+
+function appendIllustratorLog(message) {
+  const timestamp = new Date().toLocaleTimeString('zh-CN', { hour12: false })
+  const lines = `${illustratorLog.textContent}\n[${timestamp}] ${message}`.trim().split('\n').slice(-120)
+  illustratorLog.textContent = lines.join('\n')
+  illustratorLog.scrollTop = illustratorLog.scrollHeight
+}
+
+function renderIllustratorFiles() {
+  illustratorFileBody.replaceChildren()
+  illustratorEmpty.classList.toggle('hidden', illustratorState.inputs.length > 0)
+
+  illustratorState.inputs.forEach((file, index) => {
+    const row = document.createElement('div')
+    const order = document.createElement('span')
+    const name = document.createElement('span')
+    const size = document.createElement('span')
+    const status = document.createElement('span')
+    const remove = document.createElement('button')
+    const currentStatus = illustratorState.statuses.get(file.id) || '等待'
+
+    row.className = 'pdf-file-row illustrator-file-row'
+    order.className = 'cell-index'
+    name.className = 'cell-name'
+    size.className = 'cell-meta'
+    status.className = `cell-status illustrator-status ${currentStatus === '完成' ? 'success' : currentStatus === '处理中' ? 'busy' : currentStatus === '失败' ? 'error' : ''}`
+    order.textContent = String(index + 1)
+    name.textContent = file.name
+    name.title = file.name
+    size.textContent = illustratorFileSize(file.size)
+    status.textContent = currentStatus
+    remove.type = 'button'
+    remove.className = 'pdf-remove-file illustrator-remove-file'
+    remove.dataset.id = file.id
+    remove.disabled = illustratorState.busy
+    remove.setAttribute('aria-label', `移除 ${file.name}`)
+    remove.textContent = '×'
+    row.append(order, name, size, status, remove)
+    illustratorFileBody.append(row)
+  })
+
+  const hasFiles = illustratorState.inputs.length > 0
+  illustratorAddFilesButton.disabled = illustratorState.busy
+  illustratorAddFolderButton.disabled = illustratorState.busy
+  illustratorClearButton.disabled = illustratorState.busy || !hasFiles
+  illustratorSameDirectory.disabled = illustratorState.busy
+  illustratorRunButtons.forEach((button) => {
+    button.disabled = illustratorState.busy || !hasFiles
+  })
+  illustratorStopButton.disabled = !illustratorState.busy
+}
+
+async function addIllustratorInputs(picker) {
+  if (illustratorState.busy) return
+  try {
+    const files = await picker()
+    if (!files.length) return
+    const known = new Set(illustratorState.inputs.map((file) => `${file.name}\0${file.size}`))
+    const skippedIds = []
+    const added = files.filter((file) => {
+      const key = `${file.name}\0${file.size}`
+      if (known.has(key)) {
+        skippedIds.push(file.id)
+        return false
+      }
+      known.add(key)
+      return true
+    })
+    if (skippedIds.length) await window.api.removeIllustratorInputs(skippedIds)
+    illustratorState.inputs.push(...added)
+    added.forEach((file) => illustratorState.statuses.set(file.id, '等待'))
+    illustratorState.outputs = []
+    illustratorOpenOutputButton.disabled = true
+    renderIllustratorFiles()
+    appendIllustratorLog(`已添加 ${added.length} 个文件，共 ${illustratorState.inputs.length} 个。`)
+  } catch (error) {
+    appendIllustratorLog(`添加失败：${error instanceof Error ? error.message : String(error)}`)
+    showToast('无法添加 Illustrator 文件')
+  }
+}
+
+async function runIllustratorAction(action, triggerButton) {
+  if (illustratorState.busy || !illustratorState.inputs.length) return
+  illustratorState.busy = true
+  illustratorState.outputs = []
+  illustratorOpenOutputButton.disabled = true
+  illustratorState.inputs.forEach((file) => illustratorState.statuses.set(file.id, '等待'))
+  illustratorProgressFill.style.width = '0%'
+  illustratorProgressText.textContent = '正在启动 Illustrator…'
+  renderIllustratorFiles()
+  const originalLabel = triggerButton.textContent
+  triggerButton.textContent = '处理中…'
+  appendIllustratorLog(`开始${originalLabel}，共 ${illustratorState.inputs.length} 个文件。`)
+
+  try {
+    const result = await window.api.runIllustratorTask({
+      action,
+      inputIds: illustratorState.inputs.map((file) => file.id),
+      sameDirectory: illustratorSameDirectory.checked
+    })
+    if (result.status === 'completed') {
+      illustratorState.inputs.forEach((file) => illustratorState.statuses.set(file.id, '完成'))
+      illustratorState.outputs = result.outputs
+      illustratorProgressFill.style.width = '100%'
+      illustratorProgressText.textContent = `已完成 ${result.outputs.length} / ${illustratorState.inputs.length}`
+      illustratorOpenOutputButton.disabled = result.outputs.length === 0
+      appendIllustratorLog(`${originalLabel}完成，已生成 ${result.outputs.length} 个文件。`)
+      showToast(`${originalLabel}完成`)
+    } else {
+      illustratorProgressText.textContent = '任务已取消'
+      appendIllustratorLog('任务已取消；当前 COM 操作完成后停止。')
+    }
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    illustratorState.inputs.forEach((file) => {
+      if (illustratorState.statuses.get(file.id) === '处理中') {
+        illustratorState.statuses.set(file.id, '失败')
+      }
+    })
+    illustratorProgressText.textContent = '任务失败'
+    appendIllustratorLog(`任务失败：${reason}`)
+    showToast('Illustrator 任务失败')
+  } finally {
+    illustratorState.busy = false
+    triggerButton.textContent = originalLabel
+    renderIllustratorFiles()
+  }
+}
+
+illustratorAddFilesButton.addEventListener('click', () => addIllustratorInputs(window.api.pickIllustratorFiles))
+illustratorAddFolderButton.addEventListener('click', () => addIllustratorInputs(window.api.pickIllustratorFolder))
+illustratorClearButton.addEventListener('click', async () => {
+  if (illustratorState.busy) return
+  const ids = illustratorState.inputs.map((file) => file.id)
+  await window.api.removeIllustratorInputs(ids)
+  illustratorState.inputs = []
+  illustratorState.statuses.clear()
+  illustratorState.outputs = []
+  illustratorProgressFill.style.width = '0%'
+  illustratorProgressText.textContent = '等待任务'
+  illustratorOpenOutputButton.disabled = true
+  illustratorLog.textContent = '等待添加 Illustrator 文件。'
+  renderIllustratorFiles()
+})
+illustratorFileBody.addEventListener('click', async (event) => {
+  const button = event.target.closest('.illustrator-remove-file')
+  if (!button || illustratorState.busy) return
+  await window.api.removeIllustratorInputs([button.dataset.id])
+  illustratorState.inputs = illustratorState.inputs.filter((file) => file.id !== button.dataset.id)
+  illustratorState.statuses.delete(button.dataset.id)
+  renderIllustratorFiles()
+})
+illustratorRunButtons.forEach((button) => {
+  button.addEventListener('click', () => runIllustratorAction(button.dataset.illustratorAction, button))
+})
+illustratorStopButton.addEventListener('click', async () => {
+  const result = await window.api.cancelIllustratorTask()
+  if (result.status === 'cancelling') {
+    illustratorStopButton.disabled = true
+    illustratorProgressText.textContent = '正在停止…'
+    appendIllustratorLog('已请求停止，将在当前文件处理结束后生效。')
+  }
+})
+illustratorOpenOutputButton.addEventListener('click', async () => {
+  if (illustratorState.outputs[0]) {
+    await window.api.showComResult(illustratorState.outputs[0].id)
+  }
+})
+window.api.onIllustratorProgress((progress) => {
+  if (!illustratorState.busy) return
+  const total = Math.max(1, Number(progress.total) || illustratorState.inputs.length || 1)
+  const completed = Math.max(0, Math.min(total, Number(progress.completed) || 0))
+  illustratorState.inputs.forEach((file, index) => {
+    if (index < completed) illustratorState.statuses.set(file.id, '完成')
+    else if (index === completed && completed < total) illustratorState.statuses.set(file.id, '处理中')
+  })
+  illustratorProgressFill.style.width = `${completed / total * 100}%`
+  illustratorProgressText.textContent = progress.message || `处理中 ${completed} / ${total}`
+  if (progress.message) appendIllustratorLog(progress.message)
+  renderIllustratorFiles()
+})
+renderIllustratorFiles()
+
 const barcodeInput = document.querySelector('#barcode-value')
 const barcodeSvg = document.querySelector('#barcode-svg')
 const barcodeMessage = document.querySelector('#barcode-message')
 const generateBarcodeButton = document.querySelector('#generate-barcode')
 const saveBarcodeSvgButton = document.querySelector('#save-barcode-svg')
 const saveBarcodePngButton = document.querySelector('#save-barcode-png')
+const saveBarcodeEpsButton = document.querySelector('#save-barcode-eps')
+const openBarcodeIllustratorButton = document.querySelector('#open-barcode-illustrator')
+const openBarcodePhotoshopButton = document.querySelector('#open-barcode-photoshop')
 const barcodeSingleTab = document.querySelector('#barcode-single-tab')
 const barcodeBatchTab = document.querySelector('#barcode-batch-tab')
 const barcodeSinglePane = document.querySelector('#barcode-single-pane')
@@ -2251,6 +2543,9 @@ const barcodePixelSize = document.querySelector('#barcode-pixel-size')
 function setBarcodeExportEnabled(enabled) {
   saveBarcodeSvgButton.disabled = !enabled
   saveBarcodePngButton.disabled = !enabled
+  saveBarcodeEpsButton.disabled = !enabled
+  openBarcodeIllustratorButton.disabled = !enabled
+  openBarcodePhotoshopButton.disabled = !enabled
 }
 
 function setBarcodeBatchExportEnabled(enabled) {
@@ -2447,6 +2742,55 @@ async function saveBarcode(type) {
   } finally {
     button.textContent = originalLabel
     setBarcodeExportEnabled(true)
+  }
+}
+
+function hasCurrentBarcode() {
+  return Boolean(
+    barcodeRenderedValue &&
+    barcodeInput.value.trim() === barcodeRenderedValue &&
+    barcodeRenderedType === state.selections.bc
+  )
+}
+
+async function runBarcodeCom(action, button) {
+  if (!hasCurrentBarcode()) {
+    setBarcodeMessage('内容已改变，请先重新生成条码。', 'error')
+    return
+  }
+  const originalLabel = button.textContent
+  setBarcodeExportEnabled(false)
+  button.textContent = '处理中…'
+
+  try {
+    const svgText = serializeBarcodeSvg()
+    let result
+    if (action === 'eps') {
+      result = await window.api.exportBarcodeEps({
+        name: `${state.selections.bc}-${barcodeRenderedValue}`,
+        data: svgText
+      })
+    } else if (action === 'illustrator') {
+      result = await window.api.openBarcodeInIllustrator({ data: svgText })
+    } else {
+      const png = await svgToPngBytes(svgText)
+      result = await window.api.openBarcodeInPhotoshop({ data: png })
+    }
+
+    if (result.status === 'cancelled') {
+      setBarcodeMessage('已取消操作。')
+    } else {
+      const label = action === 'eps' ? 'EPS 已保存' : action === 'illustrator' ? '已转入 Illustrator' : '已转入 Photoshop'
+      setBarcodeMessage(`${label}。`, 'success')
+      showToast(label)
+    }
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    setBarcodeMessage(`联动失败：${reason}`, 'error')
+    showToast('请确认 Adobe 软件已安装')
+  } finally {
+    button.textContent = originalLabel
+    setBarcodeExportEnabled(hasCurrentBarcode())
   }
 }
 
@@ -2660,6 +3004,9 @@ barcodeInput.addEventListener('input', () => {
 })
 saveBarcodeSvgButton.addEventListener('click', () => saveBarcode('svg'))
 saveBarcodePngButton.addEventListener('click', () => saveBarcode('png'))
+saveBarcodeEpsButton.addEventListener('click', () => runBarcodeCom('eps', saveBarcodeEpsButton))
+openBarcodeIllustratorButton.addEventListener('click', () => runBarcodeCom('illustrator', openBarcodeIllustratorButton))
+openBarcodePhotoshopButton.addEventListener('click', () => runBarcodeCom('photoshop', openBarcodePhotoshopButton))
 barcodeSingleTab.addEventListener('click', () => setBarcodeMode('single'))
 barcodeBatchTab.addEventListener('click', () => setBarcodeMode('batch'))
 generateBarcodeBatchButton.addEventListener('click', generateBarcodeBatch)
@@ -4140,6 +4487,7 @@ function renderImagePanel() {
           <button class="on" type="button" data-format="png">PNG</button>
           <button type="button" data-format="jpeg">JPG</button>
           <button type="button" data-format="webp">WebP</button>
+          <button type="button" data-format="tiff">TIFF</button>
         </div>
         <label class="inline-value"><span>质量</span><output id="image-quality-value">90%</output></label>
         <input id="image-quality" type="range" min="30" max="100" value="90">
@@ -4340,11 +4688,12 @@ async function exportEditedImage(format = 'png', triggerButton = null) {
     }
     context.drawImage(rendered, 0, 0, output.width, output.height)
 
+    const encodedFormat = format === 'tiff' ? 'png' : format
     const mimeType = {
       png: 'image/png',
       jpeg: 'image/jpeg',
       webp: 'image/webp'
-    }[format]
+    }[encodedFormat]
     const blob = await canvasToBlob(output, mimeType, imageState.quality)
     const data = new Uint8Array(await blob.arrayBuffer())
     const baseName = imageState.fileName.replace(/\.[^.]+$/, '') || 'edited-image'

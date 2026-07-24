@@ -8,15 +8,17 @@ v2 正在从旧版 Python/pywebview 桌面应用重构为 Electron。唯一正�
 
 目前已经接通：
 
-- 一维条码：9 类码制、单个/批量生成、SVG/PNG 与打印尺寸。
-- 图片编辑：裁切、旋转翻转、文字水印、涂鸦、调色、像素化及浏览器格式导出。
+- 一维条码：9 类码制、单个/批量生成、SVG/PNG/EPS、打印尺寸及一键转入 Illustrator/Photoshop。
+- 图片编辑：裁切、旋转翻转、文字水印、涂鸦、调色、像素化，以及 PNG/JPG/WebP/TIFF 导出。
 - PDF：转换、合并拆分、旋转提页、水印页码、页面重排、提图、OCR、AES 加解密。
+- Office：在已安装 Microsoft Office 的 Windows 上将 Word、Excel、PowerPoint 导出为 PDF。
+- Illustrator：批量导出 PDF、250 PPI 最小化 PDF 与文字转曲。
 - 截图：区域截图、标注、应用内滚动截图、离线中英 OCR、钉图。
 - 格式工厂：视频格式转换/压缩/抽取音频、音频转换，以及图片转换/压缩。
 - AI 图像：RMBG-1.4 抠图/批量抠图/证件照，MI-GAN 局部修补，分层 PSD 导出。
 - 设置：浅色/深色/跟随系统与自定义强调色。
 
-仍待 Windows 实机完成的模块是 Illustrator / Office COM（M4）。开发范围与验收以本地 `scope/` 子计划为准。
+COM 已采用独立 Electron utility process 隔离，winax 的 Electron ABI、发布包资源与启动已通过 Windows 自动验收；Office/Adobe 的真实文件处理仍需在安装了对应软件的 Windows 机器上做发布前回归。开发范围与验收以本地 `scope/` 子计划为准。
 
 ## 技术基线
 
@@ -24,6 +26,7 @@ v2 正在从旧版 Python/pywebview 桌面应用重构为 Electron。唯一正�
 - electron-vite + electron-builder + npm
 - renderer：JsBarcode、Fabric.js、pdf-lib、pdf.js、QPDF WebAssembly
 - 主进程：受限 IPC、文件系统、Tesseract.js、ag-psd、sharp、FFmpeg 子进程适配层
+- Windows COM：winax + Electron utility process；Office/Illustrator/Photoshop 不在 renderer 或主进程内直接执行
 - AI sidecar：Python、ONNX Runtime DirectML、Pillow；模型首次使用时下载并校验，不进仓库或安装包
 
 ## 开发

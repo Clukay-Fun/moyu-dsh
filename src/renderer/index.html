@@ -96,31 +96,34 @@
               <section class="page" id="page-ai">
                 <div class="crumb">Illustrator › <b>批量处理</b></div>
                 <div class="toolbar toolbar-wrap">
-                  <button class="gbtn placeholder-action" type="button" data-milestone="M4">＋ 添加文件</button>
-                  <button class="gbtn placeholder-action" type="button" data-milestone="M4">＋ 文件夹</button>
-                  <button class="gbtn ghost placeholder-action" type="button" data-milestone="M4">清空</button>
-                  <label class="toggle-wrap"><input type="checkbox" checked /><span class="toggle"></span>与原文件同目录</label>
+                  <button class="gbtn" id="illustrator-add-files" type="button">＋ 添加文件</button>
+                  <button class="gbtn" id="illustrator-add-folder" type="button">＋ 文件夹</button>
+                  <button class="gbtn ghost" id="illustrator-clear" type="button" disabled>清空</button>
+                  <label class="toggle-wrap"><input id="illustrator-same-directory" type="checkbox" checked /><span class="toggle"></span>与原文件同目录</label>
                   <span class="toolbar-space"></span>
-                  <button class="primary placeholder-action" type="button" data-milestone="M4">导出 PDF</button>
-                  <button class="gbtn placeholder-action" type="button" data-milestone="M4">最小化 PDF</button>
-                  <button class="gbtn placeholder-action" type="button" data-milestone="M4">文字转曲</button>
+                  <button class="primary illustrator-run" type="button" data-illustrator-action="standard-pdf" disabled>导出 PDF</button>
+                  <button class="gbtn illustrator-run" type="button" data-illustrator-action="minimal-pdf" disabled>最小化 PDF</button>
+                  <button class="gbtn illustrator-run" type="button" data-illustrator-action="outline" disabled>文字转曲</button>
+                  <button class="gbtn danger" id="illustrator-stop" type="button" disabled>停止任务</button>
                 </div>
                 <div class="glass-card file-list">
                   <div class="file-head">
                     <span class="cell-index">#</span><span class="cell-name">文件名</span>
                     <span class="cell-meta">大小</span><span class="cell-status">状态</span>
                   </div>
-                  <div class="empty">
+                  <div class="pdf-file-body" id="illustrator-file-body"></div>
+                  <div class="empty" id="illustrator-empty">
                     <div class="empty-icon">Ai</div>
                     <div>添加 Illustrator 文件后开始批量处理</div>
-                    <small>Windows COM 能力将在 M4 接入</small>
+                    <small>需要 Windows 与已安装的 Adobe Illustrator</small>
                   </div>
                 </div>
                 <div class="glass-card run-card">
-                  <div class="progress-track"><div class="progress-fill"></div></div>
-                  <span class="progress-text">等待任务</span>
+                  <div class="progress-track"><div class="progress-fill" id="illustrator-progress-fill"></div></div>
+                  <span class="progress-text" id="illustrator-progress-text">等待任务</span>
+                  <button class="gbtn open" id="illustrator-open-output" type="button" disabled>打开输出</button>
                 </div>
-                <div class="glass-card log-card"><div class="log-inner">Illustrator 日志将在任务开始后显示。</div></div>
+                <div class="glass-card log-card"><div class="log-inner" id="illustrator-log">等待添加 Illustrator 文件。</div></div>
               </section>
 
               <section class="page" id="page-bc">
@@ -174,13 +177,14 @@
                       <div class="format-grid">
                         <button id="save-barcode-svg" type="button">保存 SVG</button>
                         <button id="save-barcode-png" type="button">保存 PNG</button>
+                        <button id="save-barcode-eps" type="button">保存 EPS</button>
                       </div>
                     </div>
                     <div class="glass-card control-card">
                       <span class="label">一键转入</span>
                       <div class="app-grid">
-                        <button class="app-button placeholder-action" type="button" data-milestone="M4"><b class="ai-icon">Ai</b><span>Illustrator</span></button>
-                        <button class="app-button placeholder-action" type="button" data-milestone="M4"><b class="ps-icon">Ps</b><span>Photoshop</span></button>
+                        <button class="app-button" id="open-barcode-illustrator" type="button"><b class="ai-icon">Ai</b><span>Illustrator</span></button>
+                        <button class="app-button" id="open-barcode-photoshop" type="button"><b class="ps-icon">Ps</b><span>Photoshop</span></button>
                       </div>
                     </div>
                   </div>

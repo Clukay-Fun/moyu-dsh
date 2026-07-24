@@ -7,6 +7,12 @@
 - M0a Electron + Vite + Vanilla 最小安全外壳。
 - `sandbox:true`、上下文隔离、关闭 Node 集成的 preload 白名单 IPC。
 - Windows x64 portable 打包配置。
+- JsBarcode 单个与批量一维条码、SVG/PNG/EPS 导出及 Adobe 联动。
+- Fabric.js 图片编辑与 PNG/JPG/WebP/TIFF 导出。
+- PDF 转换、编辑、OCR、AES 加解密与图片转 PDF。
+- 区域截图、应用内滚动截图、离线 OCR 与钉图。
+- FFmpeg/sharp 格式工厂与本地 AI 图像 sidecar。
+- winax utility process：Illustrator 批处理与 Office 转 PDF。
 
 ### Changed
 

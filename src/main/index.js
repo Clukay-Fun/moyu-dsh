@@ -7,7 +7,8 @@ import {
   ipcMain,
   nativeImage,
   screen,
-  shell
+  shell,
+  utilityProcess
 } from 'electron'
 import { writePsdBuffer } from 'ag-psd'
 import { createWorker, OEM } from 'tesseract.js'
@@ -55,6 +56,10 @@ const IMAGE_FILE_TYPES = {
   webp: {
     extension: 'webp',
     filterName: 'WebP 图片'
+  },
+  tiff: {
+    extension: 'tiff',
+    filterName: 'TIFF 图片'
   }
 }
 
@@ -85,10 +90,17 @@ const aiModelDownloads = new Map()
 const formatInputSessions = new Map()
 const formatResultSessions = new Map()
 const formatTasks = new Map()
+const illustratorInputSessions = new Map()
+const officeInputSessions = new Map()
+const comResultSessions = new Map()
+const activeIllustratorTasks = new Map()
+const comPendingRequests = new Map()
 let ocrWorkerPromise = null
 let ocrProgressTarget = null
 let ocrBusy = false
 let mainWindow = null
+let comWorker = null
+let comWorkerStderr = ''
 
 const AI_MODELS = {
   rmbg: {
@@ -192,6 +204,208 @@ function assertMainWindowSender(event) {
   if (!mainWindow || event.sender !== mainWindow.webContents) {
     throw new Error('此操作只允许从主窗口发起')
   }
+}
+
+function comWorkerPath() {
+  return app.isPackaged
+    ? join(process.resourcesPath, 'workers', 'com-worker.cjs')
+    : join(app.getAppPath(), 'resources', 'com-worker.cjs')
+}
+
+function winaxModulePath() {
+  return app.isPackaged
+    ? join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', 'winax')
+    : join(app.getAppPath(), 'node_modules', 'winax')
+}
+
+function rejectComRequests(error) {
+  for (const pending of comPendingRequests.values()) {
+    clearTimeout(pending.timer)
+    pending.reject(error)
+  }
+  comPendingRequests.clear()
+}
+
+function ensureComWorker() {
+  if (process.platform !== 'win32') {
+    throw new Error('Office 与 Adobe 联动仅支持 Windows')
+  }
+  if (comWorker) return comWorker
+
+  const child = utilityProcess.fork(comWorkerPath(), [], {
+    env: {
+      ...process.env,
+      MOYU_WINAX_MODULE: winaxModulePath()
+    },
+    stdio: 'pipe',
+    serviceName: 'moyu-tools-com'
+  })
+  comWorker = child
+  comWorkerStderr = ''
+  child.stderr?.on('data', (chunk) => {
+    comWorkerStderr = `${comWorkerStderr}${chunk}`.slice(-4000)
+  })
+  child.on('message', (message) => {
+    const pending = comPendingRequests.get(message?.id)
+    if (!pending) return
+    if (message.type === 'progress') {
+      if (!pending.sender.isDestroyed()) {
+        pending.sender.send(pending.progressChannel, {
+          completed: message.completed,
+          total: message.total,
+          name: message.name,
+          message: message.message
+        })
+      }
+      return
+    }
+    if (message.type !== 'result') return
+    clearTimeout(pending.timer)
+    comPendingRequests.delete(message.id)
+    if (message.ok) pending.resolve(message.result)
+    else if (message.error === 'TASK_CANCELLED') pending.reject(new Error('TASK_CANCELLED'))
+    else pending.reject(new Error(message.error || 'COM 任务执行失败'))
+  })
+  child.once('exit', (code) => {
+    if (comWorker !== child) return
+    comWorker = null
+    const detail = comWorkerStderr.trim()
+    rejectComRequests(new Error(
+      `COM 任务进程已退出（${code ?? '未知'}）${detail ? `：${detail}` : ''}`
+    ))
+  })
+  child.once('error', (error) => {
+    if (comWorker === child) comWorker = null
+    rejectComRequests(error)
+  })
+  return child
+}
+
+function runComCommand(event, command, payload, options = {}) {
+  const worker = ensureComWorker()
+  const id = options.id || randomUUID()
+  const timeoutMs = options.timeoutMs || 3 * 60 * 1000
+
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      comPendingRequests.delete(id)
+      reject(new Error('COM 任务执行超时，请关闭软件中的弹窗后重试'))
+    }, timeoutMs)
+    comPendingRequests.set(id, {
+      sender: event.sender,
+      progressChannel: options.progressChannel || 'com:progress',
+      resolve,
+      reject,
+      timer
+    })
+    worker.postMessage({
+      type: 'request',
+      id,
+      command,
+      payload
+    })
+  })
+}
+
+function cancelComCommand(id) {
+  if (comWorker && comPendingRequests.has(id)) {
+    comWorker.postMessage({ type: 'cancel', id })
+    return true
+  }
+  return false
+}
+
+async function availableOutputPath(directory, baseName, extension) {
+  const safeBase = sanitizeFileBaseName(baseName, 'output')
+  for (let occurrence = 1; occurrence <= 999; occurrence += 1) {
+    const suffix = occurrence === 1 ? '' : `-${occurrence}`
+    const candidate = join(directory, `${safeBase}${suffix}.${extension}`)
+    const exists = await stat(candidate).then(() => true).catch(() => false)
+    if (!exists) return candidate
+  }
+  throw new Error('输出目录中同名文件过多，请先整理后重试')
+}
+
+async function assertOutputFile(filePath, label) {
+  const info = await stat(filePath).catch(() => null)
+  if (!info?.isFile() || info.size < 1) {
+    throw new Error(`${label} 未生成输出文件`)
+  }
+  return info
+}
+
+function registerComResult(ownerId, filePath) {
+  const id = randomUUID()
+  comResultSessions.set(id, {
+    id,
+    ownerId,
+    path: filePath,
+    name: basename(filePath)
+  })
+  return { id, name: basename(filePath) }
+}
+
+function illustratorSession(event, inputId) {
+  const input = illustratorInputSessions.get(inputId)
+  if (!input || input.ownerId !== event.sender.id) {
+    throw new Error('Illustrator 文件会话不存在或无权访问')
+  }
+  return input
+}
+
+async function registerIllustratorInput(filePath, ownerId) {
+  if (extname(filePath).toLowerCase() !== '.ai') {
+    throw new Error(`${basename(filePath)} 不是 Illustrator 文件`)
+  }
+  const info = await stat(filePath)
+  if (!info.isFile() || info.size > 2 * 1024 * 1024 * 1024) {
+    throw new Error(`${basename(filePath)} 不是文件或超过 2 GB`)
+  }
+  const id = randomUUID()
+  const input = {
+    id,
+    ownerId,
+    path: filePath,
+    name: basename(filePath),
+    size: info.size
+  }
+  illustratorInputSessions.set(id, input)
+  return { id, name: input.name, size: input.size }
+}
+
+async function collectIllustratorFolder(directory, ownerId, output = []) {
+  if (output.length >= 500) return output
+  const entries = await readdir(directory, { withFileTypes: true })
+  for (const entry of entries) {
+    if (output.length >= 500) break
+    const entryPath = join(directory, entry.name)
+    if (entry.isDirectory()) {
+      await collectIllustratorFolder(entryPath, ownerId, output)
+    } else if (entry.isFile() && extname(entry.name).toLowerCase() === '.ai') {
+      output.push(await registerIllustratorInput(entryPath, ownerId))
+    }
+  }
+  return output
+}
+
+function officeKindConfig(kind) {
+  const configs = {
+    word: {
+      label: 'Word',
+      extensions: ['doc', 'docx', 'docm', 'rtf']
+    },
+    excel: {
+      label: 'Excel',
+      extensions: ['xls', 'xlsx', 'xlsm', 'xlsb']
+    },
+    powerpoint: {
+      label: 'PowerPoint',
+      extensions: ['ppt', 'pptx', 'pptm']
+    }
+  }
+  const config = configs[kind]
+  if (!config) throw new Error('不支持的 Office 文件类型')
+  return config
 }
 
 function getAiModelDirectory() {
@@ -890,6 +1104,242 @@ function createWindow() {
 
 ipcMain.handle('ping', () => 'pong')
 
+ipcMain.handle('com:probe', async (event) => {
+  assertMainWindowSender(event)
+  return runComCommand(event, 'probe', {})
+})
+
+ipcMain.handle('illustrator:pick-files', async (event) => {
+  assertMainWindowSender(event)
+  const ownerWindow = BrowserWindow.fromWebContents(event.sender)
+  const result = await dialog.showOpenDialog(ownerWindow, {
+    title: '选择 Illustrator 文件',
+    filters: [{ name: 'Adobe Illustrator', extensions: ['ai'] }],
+    properties: ['openFile', 'multiSelections']
+  })
+  if (result.canceled) return []
+  const files = []
+  for (const filePath of result.filePaths.slice(0, 500)) {
+    files.push(await registerIllustratorInput(filePath, event.sender.id))
+  }
+  return files
+})
+
+ipcMain.handle('illustrator:pick-folder', async (event) => {
+  assertMainWindowSender(event)
+  const ownerWindow = BrowserWindow.fromWebContents(event.sender)
+  const result = await dialog.showOpenDialog(ownerWindow, {
+    title: '选择 Illustrator 文件夹',
+    properties: ['openDirectory']
+  })
+  if (result.canceled || !result.filePaths[0]) return []
+  return collectIllustratorFolder(result.filePaths[0], event.sender.id)
+})
+
+ipcMain.handle('illustrator:remove-inputs', (event, inputIds) => {
+  assertMainWindowSender(event)
+  const ids = Array.isArray(inputIds) ? inputIds : []
+  for (const id of ids) {
+    const input = illustratorInputSessions.get(id)
+    if (input?.ownerId === event.sender.id) illustratorInputSessions.delete(id)
+  }
+  return { status: 'removed' }
+})
+
+ipcMain.handle('illustrator:run', async (event, payload) => {
+  assertMainWindowSender(event)
+  const ids = Array.isArray(payload?.inputIds) ? payload.inputIds : []
+  if (!ids.length || ids.length > 500) {
+    throw new Error('请选择 1–500 个 Illustrator 文件')
+  }
+  const action = ['standard-pdf', 'minimal-pdf', 'outline'].includes(payload?.action)
+    ? payload.action
+    : null
+  if (!action) throw new Error('不支持的 Illustrator 任务')
+  if (activeIllustratorTasks.has(event.sender.id)) {
+    throw new Error('已有 Illustrator 任务正在执行')
+  }
+
+  const inputs = ids.map((id) => illustratorSession(event, id))
+  let outputDirectory = null
+  if (!payload.sameDirectory) {
+    const ownerWindow = BrowserWindow.fromWebContents(event.sender)
+    const selection = await dialog.showOpenDialog(ownerWindow, {
+      title: '选择 Illustrator 输出文件夹',
+      properties: ['openDirectory', 'createDirectory', 'promptToCreate']
+    })
+    if (selection.canceled || !selection.filePaths[0]) return { status: 'cancelled', outputs: [] }
+    outputDirectory = selection.filePaths[0]
+  }
+
+  const files = []
+  for (const input of inputs) {
+    const sourceBase = basename(input.path, extname(input.path))
+    const directory = outputDirectory || dirname(input.path)
+    const extension = action === 'outline' ? 'ai' : 'pdf'
+    const outputBase = action === 'outline'
+      ? `${sourceBase}-OL`
+      : action === 'minimal-pdf'
+        ? `${sourceBase}-min`
+        : sourceBase
+    files.push({
+      inputPath: input.path,
+      outputPath: await availableOutputPath(directory, outputBase, extension),
+      name: input.name
+    })
+  }
+
+  const taskId = randomUUID()
+  activeIllustratorTasks.set(event.sender.id, taskId)
+  try {
+    const result = await runComCommand(
+      event,
+      'illustrator-batch',
+      { action, files },
+      {
+        id: taskId,
+        timeoutMs: 2 * 60 * 60 * 1000,
+        progressChannel: 'illustrator:progress'
+      }
+    )
+    for (const output of result.outputs) {
+      await assertOutputFile(output.outputPath, output.name)
+    }
+    const outputs = result.outputs.map((output) => registerComResult(event.sender.id, output.outputPath))
+    return { status: 'completed', outputs }
+  } catch (error) {
+    if (error.message === 'TASK_CANCELLED') return { status: 'cancelled', outputs: [] }
+    throw error
+  } finally {
+    activeIllustratorTasks.delete(event.sender.id)
+  }
+})
+
+ipcMain.handle('illustrator:cancel', (event) => {
+  assertMainWindowSender(event)
+  const taskId = activeIllustratorTasks.get(event.sender.id)
+  return { status: taskId && cancelComCommand(taskId) ? 'cancelling' : 'idle' }
+})
+
+ipcMain.handle('office:pick-file', async (event, kind) => {
+  assertMainWindowSender(event)
+  const config = officeKindConfig(kind)
+  const ownerWindow = BrowserWindow.fromWebContents(event.sender)
+  const result = await dialog.showOpenDialog(ownerWindow, {
+    title: `选择 ${config.label} 文件`,
+    filters: [{ name: `${config.label} 文档`, extensions: config.extensions }],
+    properties: ['openFile']
+  })
+  if (result.canceled || !result.filePaths[0]) return null
+  const filePath = result.filePaths[0]
+  const info = await stat(filePath)
+  if (!info.isFile() || info.size > 2 * 1024 * 1024 * 1024) {
+    throw new Error('Office 文件无效或超过 2 GB')
+  }
+  const id = randomUUID()
+  officeInputSessions.set(id, {
+    id,
+    ownerId: event.sender.id,
+    kind,
+    path: filePath,
+    name: basename(filePath),
+    size: info.size
+  })
+  return { id, name: basename(filePath), size: info.size, kind }
+})
+
+ipcMain.handle('office:to-pdf', async (event, inputId) => {
+  assertMainWindowSender(event)
+  const input = officeInputSessions.get(inputId)
+  if (!input || input.ownerId !== event.sender.id) {
+    throw new Error('Office 文件会话不存在或无权访问')
+  }
+  const baseName = basename(input.path, extname(input.path))
+  const outputPath = await availableOutputPath(dirname(input.path), baseName, 'pdf')
+  await runComCommand(event, 'office-to-pdf', {
+    kind: input.kind,
+    inputPath: input.path,
+    outputPath
+  }, { timeoutMs: 20 * 60 * 1000 })
+  await assertOutputFile(outputPath, `${officeKindConfig(input.kind).label} 转 PDF`)
+  return {
+    status: 'completed',
+    result: registerComResult(event.sender.id, outputPath)
+  }
+})
+
+ipcMain.handle('com:show-result', async (event, resultId) => {
+  assertMainWindowSender(event)
+  const result = comResultSessions.get(resultId)
+  if (!result || result.ownerId !== event.sender.id) {
+    throw new Error('输出文件会话不存在或无权访问')
+  }
+  shell.showItemInFolder(result.path)
+  return { status: 'shown' }
+})
+
+ipcMain.handle('barcode:export-eps', async (event, payload) => {
+  assertMainWindowSender(event)
+  const normalized = normalizeBarcodeData('svg', payload?.data)
+  if (Buffer.byteLength(normalized.data) > 20 * 1024 * 1024) {
+    throw new Error('条码 SVG 超过 20 MB')
+  }
+  const ownerWindow = BrowserWindow.fromWebContents(event.sender)
+  const selection = await dialog.showSaveDialog(ownerWindow, {
+    title: '保存 EPS 条码',
+    defaultPath: `${sanitizeFileBaseName(payload?.name, 'barcode')}.eps`,
+    filters: [{ name: 'EPS 矢量图', extensions: ['eps'] }]
+  })
+  if (selection.canceled || !selection.filePath) return { status: 'cancelled' }
+  const temporaryDirectory = join(app.getPath('temp'), 'moyu-tools-com')
+  await mkdir(temporaryDirectory, { recursive: true })
+  const inputPath = join(temporaryDirectory, `${randomUUID()}.svg`)
+  await writeFile(inputPath, normalized.data, 'utf8')
+  try {
+    await runComCommand(event, 'illustrator-svg', {
+      inputPath,
+      outputPath: selection.filePath
+    }, { timeoutMs: 10 * 60 * 1000 })
+    await assertOutputFile(selection.filePath, 'EPS 条码')
+    return {
+      status: 'saved',
+      result: registerComResult(event.sender.id, selection.filePath)
+    }
+  } finally {
+    await unlink(inputPath).catch(() => {})
+  }
+})
+
+ipcMain.handle('barcode:open-illustrator', async (event, payload) => {
+  assertMainWindowSender(event)
+  const normalized = normalizeBarcodeData('svg', payload?.data)
+  const temporaryDirectory = join(app.getPath('temp'), 'moyu-tools-com')
+  await mkdir(temporaryDirectory, { recursive: true })
+  const inputPath = join(temporaryDirectory, `${randomUUID()}.svg`)
+  await writeFile(inputPath, normalized.data, 'utf8')
+  try {
+    await runComCommand(event, 'illustrator-svg', { inputPath }, { timeoutMs: 10 * 60 * 1000 })
+    return { status: 'opened' }
+  } finally {
+    await unlink(inputPath).catch(() => {})
+  }
+})
+
+ipcMain.handle('barcode:open-photoshop', async (event, payload) => {
+  assertMainWindowSender(event)
+  const normalized = normalizeBarcodeData('png', payload?.data)
+  const temporaryDirectory = join(app.getPath('temp'), 'moyu-tools-com')
+  await mkdir(temporaryDirectory, { recursive: true })
+  const inputPath = join(temporaryDirectory, `${randomUUID()}.png`)
+  await writeFile(inputPath, normalized.data)
+  try {
+    await runComCommand(event, 'photoshop-open', { inputPath }, { timeoutMs: 10 * 60 * 1000 })
+    return { status: 'opened' }
+  } finally {
+    await unlink(inputPath).catch(() => {})
+  }
+})
+
 ipcMain.handle('barcode:save-file', async (event, payload) => {
   const { data, fileType } = normalizeBarcodeData(payload?.type, payload?.data)
 
@@ -1002,7 +1452,12 @@ ipcMain.handle('image:save-file', async (event, payload) => {
     return { status: 'cancelled' }
   }
 
-  await writeFile(result.filePath, data)
+  const outputData = payload.type === 'tiff'
+    ? await sharp(data, { limitInputPixels: 400_000_000 })
+      .tiff({ compression: 'lzw', quality: 92 })
+      .toBuffer()
+    : data
+  await writeFile(result.filePath, outputData)
   return { status: 'saved', path: result.filePath }
 })
 
@@ -2027,6 +2482,10 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   ocrWorkerPromise?.then((worker) => worker.terminate()).catch(() => {})
+  if (comWorker) {
+    comWorker.kill()
+    comWorker = null
+  }
   if (aiSidecar && !aiSidecar.killed) {
     aiSidecar.stdin.write(`${JSON.stringify({ id: randomUUID(), action: 'shutdown' })}\n`)
     setTimeout(() => {

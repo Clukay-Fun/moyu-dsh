@@ -593,6 +593,16 @@ input:focus-visible {
   background: var(--accent-10);
 }
 
+.gbtn.danger {
+  color: #d54f50;
+}
+
+.gbtn.danger:hover {
+  border-color: rgba(213, 79, 80, 0.34);
+  color: #c83d40;
+  background: rgba(213, 79, 80, 0.1);
+}
+
 .gbtn:active,
 .primary:active {
   transform: scale(0.98);
@@ -965,6 +975,18 @@ input:focus-visible {
   color: var(--foreground);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.illustrator-status.success {
+  color: #4a9a6a;
+}
+
+.illustrator-status.busy {
+  color: #d49119;
+}
+
+.illustrator-status.error {
+  color: #d54f50;
 }
 
 .pdf-remove-file {
