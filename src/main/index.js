@@ -207,11 +207,11 @@ function getFormatResultDirectory() {
 }
 
 function getFormatToolPath(tool) {
+  const override = tool === 'ffmpeg'
+    ? process.env.MOYU_FFMPEG_PATH
+    : process.env.MOYU_FFPROBE_PATH
+  if (!app.isPackaged && override) return override
   if (process.platform !== 'win32') {
-    const override = tool === 'ffmpeg'
-      ? process.env.MOYU_FFMPEG_PATH
-      : process.env.MOYU_FFPROBE_PATH
-    if (override) return override
     throw new Error('音视频格式工厂当前只随 Windows 发布包提供')
   }
   const fileName = `${tool}.exe`
