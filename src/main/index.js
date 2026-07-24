@@ -282,14 +282,22 @@ function ensureComWorker() {
 }
 
 function runComCommand(event, command, payload, options = {}) {
+  if (comPendingRequests.size) {
+    throw new Error('已有 Office 或 Adobe 任务正在执行，请等待当前任务完成')
+  }
   const worker = ensureComWorker()
   const id = options.id || randomUUID()
   const timeoutMs = options.timeoutMs || 3 * 60 * 1000
 
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
-      comPendingRequests.delete(id)
+      if (!comPendingRequests.delete(id)) return
       reject(new Error('COM 任务执行超时，请关闭软件中的弹窗后重试'))
+      if (comWorker === worker) {
+        comWorker = null
+        worker.kill()
+        rejectComRequests(new Error('COM 任务进程已因超时重启，请重试'))
+      }
     }, timeoutMs)
     comPendingRequests.set(id, {
       sender: event.sender,

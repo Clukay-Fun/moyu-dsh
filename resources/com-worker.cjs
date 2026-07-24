@@ -36,6 +36,8 @@ function assertWindows() {
 
 function extendScriptString(value) {
   return JSON.stringify(String(value))
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029')
 }
 
 function illustratorScript(inputPath, outputPath, action) {
@@ -43,8 +45,16 @@ function illustratorScript(inputPath, outputPath, action) {
   const output = extendScriptString(outputPath)
   const operation = action === 'outline'
     ? `
+      var outlineFailures = 0;
       for (var index = document.textFrames.length - 1; index >= 0; index -= 1) {
-        try { document.textFrames[index].createOutline(); } catch (outlineError) {}
+        try {
+          document.textFrames[index].createOutline();
+        } catch (outlineError) {
+          outlineFailures += 1;
+        }
+      }
+      if (outlineFailures > 0) {
+        throw new Error(outlineFailures + " 个文本对象无法转曲，请检查锁定对象或缺失字体");
       }
       var options = new IllustratorSaveOptions();
       options.pdfCompatible = true;
@@ -90,17 +100,29 @@ function illustratorScript(inputPath, outputPath, action) {
 function illustratorSvgScript(inputPath, outputPath) {
   const input = extendScriptString(inputPath)
   if (!outputPath) {
-    return `app.open(new File(${input}));`
+    return `
+      var previousInteractionLevel = app.userInteractionLevel;
+      try {
+        app.userInteractionLevel = UserInteractionLevel.DONTDISPLAYALERTS;
+        app.open(new File(${input}));
+      } finally {
+        app.userInteractionLevel = previousInteractionLevel;
+      }
+    `
   }
   const output = extendScriptString(outputPath)
   return `
-    var document = app.open(new File(${input}));
+    var previousInteractionLevel = app.userInteractionLevel;
+    var document = null;
     try {
+      app.userInteractionLevel = UserInteractionLevel.DONTDISPLAYALERTS;
+      document = app.open(new File(${input}));
       var options = new EPSSaveOptions();
       options.includeDocumentThumbnails = false;
       document.saveAs(new File(${output}), options);
     } finally {
-      document.close(SaveOptions.DONOTSAVECHANGES);
+      if (document) document.close(SaveOptions.DONOTSAVECHANGES);
+      app.userInteractionLevel = previousInteractionLevel;
     }
   `
 }
@@ -115,6 +137,14 @@ function createComObject(progId, activateExisting = false) {
   }
 }
 
+function disableOfficeMacros(application) {
+  try {
+    application.AutomationSecurity = 3
+  } catch {
+    // Older Office versions may not expose the shared automation security property.
+  }
+}
+
 function runOfficeToPdf(payload) {
   const { kind, inputPath, outputPath } = payload
   let application
@@ -125,16 +155,19 @@ function runOfficeToPdf(payload) {
       application = createComObject('Word.Application')
       application.Visible = false
       application.DisplayAlerts = 0
+      disableOfficeMacros(application)
       document = application.Documents.Open(inputPath, false, true)
       document.ExportAsFixedFormat(outputPath, 17)
     } else if (kind === 'excel') {
       application = createComObject('Excel.Application')
       application.Visible = false
       application.DisplayAlerts = false
+      disableOfficeMacros(application)
       document = application.Workbooks.Open(inputPath, 0, true)
       document.ExportAsFixedFormat(0, outputPath)
     } else if (kind === 'powerpoint') {
       application = createComObject('PowerPoint.Application')
+      disableOfficeMacros(application)
       document = application.Presentations.Open(inputPath, true, false, false)
       document.SaveAs(outputPath, 32)
     } else {
