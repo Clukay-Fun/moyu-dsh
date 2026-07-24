@@ -400,12 +400,51 @@
               </section>
 
               <section class="page" id="page-video">
-                <div class="crumb">格式工厂 › <b>格式转换</b></div>
-                <div class="glass-card center-hint">
-                  <div class="hint-mark">▶</div>
-                  <b>音视频格式转换</b>
-                  <div>FFmpeg 转换能力将在 M6 接入</div>
-                  <button class="gbtn placeholder-action" type="button" data-milestone="M6">查看计划状态</button>
+                <div class="crumb">格式工厂 › <b id="format-crumb">视频转换</b></div>
+                <div class="toolbar toolbar-wrap">
+                  <button class="gbtn" id="format-pick-files" type="button">＋ 添加视频</button>
+                  <button class="gbtn" id="format-pick-folder" type="button">＋ 文件夹</button>
+                  <button class="gbtn ghost" id="format-clear-inputs" type="button">清空</button>
+                  <span class="toolbar-space"></span>
+                  <span class="format-runtime-state" id="format-runtime-state"><i></i>检查转换引擎…</span>
+                </div>
+                <div class="format-workspace">
+                  <section class="glass-card format-file-panel">
+                    <header class="format-file-head">
+                      <span class="cell-index">#</span>
+                      <span class="cell-name">文件名</span>
+                      <span class="cell-meta">类型</span>
+                      <span class="cell-status">大小</span>
+                    </header>
+                    <div class="format-file-list" id="format-file-list"></div>
+                    <div class="empty" id="format-empty">
+                      <div class="empty-icon">▶</div>
+                      <div id="format-empty-title">添加视频文件</div>
+                      <small>支持批量选择或读取文件夹</small>
+                    </div>
+                  </section>
+                  <aside class="glass-card format-control-panel">
+                    <div class="format-action-copy">
+                      <span id="format-action-mark">VID</span>
+                      <div>
+                        <b id="format-action-title">视频转换</b>
+                        <p id="format-action-copy">转换为 MP4、MKV 或 WebM。</p>
+                      </div>
+                    </div>
+                    <div class="format-options" id="format-options"></div>
+                    <div class="format-engine-card">
+                      <span>本地处理引擎</span>
+                      <b id="format-engine-name">FFmpeg 6.1.1</b>
+                      <small id="format-engine-status">等待检查</small>
+                    </div>
+                    <button class="primary format-run" id="format-run-task" type="button" disabled>开始视频转换</button>
+                    <button class="gbtn format-cancel" id="format-cancel-task" type="button" hidden>取消任务</button>
+                  </aside>
+                </div>
+                <div class="glass-card format-result-bar">
+                  <div class="format-progress-track"><span id="format-progress-fill"></span></div>
+                  <span id="format-status-text">添加文件后可开始</span>
+                  <button class="gbtn" id="format-save-results" type="button" disabled>保存结果</button>
                 </div>
               </section>
 

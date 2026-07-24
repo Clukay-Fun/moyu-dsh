@@ -12,17 +12,18 @@ v2 正在从旧版 Python/pywebview 桌面应用重构为 Electron。唯一正�
 - 图片编辑：裁切、旋转翻转、文字水印、涂鸦、调色、像素化及浏览器格式导出。
 - PDF：转换、合并拆分、旋转提页、水印页码、页面重排、提图、OCR、AES 加解密。
 - 截图：区域截图、标注、应用内滚动截图、离线中英 OCR、钉图。
+- 格式工厂：视频格式转换/压缩/抽取音频、音频转换，以及图片转换/压缩。
 - AI 图像：RMBG-1.4 抠图/批量抠图/证件照，MI-GAN 局部修补，分层 PSD 导出。
 - 设置：浅色/深色/跟随系统与自定义强调色。
 
-仍待 Windows 实机完成的模块是 Illustrator / Office COM（M4）与 FFmpeg 格式工厂（M6）。开发范围与验收以本地 `scope/` 子计划为准。
+仍待 Windows 实机完成的模块是 Illustrator / Office COM（M4）。开发范围与验收以本地 `scope/` 子计划为准。
 
 ## 技术基线
 
 - Electron + Vite + Vanilla JavaScript
 - electron-vite + electron-builder + npm
 - renderer：JsBarcode、Fabric.js、pdf-lib、pdf.js、QPDF WebAssembly
-- 主进程：受限 IPC、文件系统、Tesseract.js、ag-psd
+- 主进程：受限 IPC、文件系统、Tesseract.js、ag-psd、sharp、FFmpeg 子进程适配层
 - AI sidecar：Python、ONNX Runtime DirectML、Pillow；模型首次使用时下载并校验，不进仓库或安装包
 
 ## 开发

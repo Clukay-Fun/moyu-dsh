@@ -43,3 +43,11 @@
 - 实际许可证：GPL-3.0-or-later；构建启用了 `--enable-gpl --enable-version3 --enable-static`。
 - 版本、二进制哈希、源码获取与发布义务：`licenses/FFMPEG-NOTICE.md`
 - 上游许可证与完整构建配置随二进制放在发布包 `resources/tools/ffmpeg/`。
+
+## sharp 0.35.3 / libvips
+
+- 用途：格式工厂读取图片元数据并执行批量格式转换、缩放和压缩。
+- sharp 许可证：Apache License 2.0。
+- Windows 原生包与 libvips 许可证：Apache-2.0 AND LGPL-3.0-or-later。
+- 固定版本、npm integrity、动态链接边界和源码获取方式：`licenses/SHARP-NOTICE.md`
+- Apache License 2.0 全文：`licenses/QPDF-Apache-2.0.txt`

@@ -167,11 +167,24 @@ const submenuData = {
   ],
   video: [
     {
-      heading: '格式工厂',
+      heading: '视频',
       items: [
-        ['格式转换', 'CONV', '#6978e6'],
-        ['压缩', 'ZIP', '#6978e6'],
-        ['抽取音频', 'MP3', '#6978e6']
+        ['视频转换', 'VID', '#6978e6'],
+        ['视频压缩', 'ZIP', '#e88c32'],
+        ['抽取音频', 'MP3', '#59a6ae']
+      ]
+    },
+    {
+      heading: '音频',
+      items: [
+        ['音频转换', 'AUD', '#8678d9']
+      ]
+    },
+    {
+      heading: '图片',
+      items: [
+        ['图片转换', 'IMG', '#3c9a5e'],
+        ['图片压缩', 'MIN', '#d35f79']
       ]
     }
   ]
@@ -181,7 +194,7 @@ const defaultSelections = {
   pdf: '转 PNG',
   bc: 'EAN-13',
   aimg: '智能抠图',
-  video: '格式转换'
+  video: '视频转换'
 }
 
 const deferredPdfActions = new Map([
@@ -249,7 +262,12 @@ const searchFeatures = [
   ['图像修补', 'AI 图像', 'aimg', '图像修补', '擦除 物体 移除 MI-GAN'],
   ['区域截图', '截图', 'screen', '', '屏幕 截屏 标注'],
   ['截图复制', '截图', 'screen', '', '剪贴板 PNG'],
-  ['格式转换', '格式工厂', 'video', '格式转换', 'FFmpeg 视频 音频'],
+  ['视频转换', '格式工厂', 'video', '视频转换', 'FFmpeg MP4 MKV WebM'],
+  ['视频压缩', '格式工厂', 'video', '视频压缩', 'FFmpeg CRF 体积'],
+  ['抽取音频', '格式工厂', 'video', '抽取音频', '视频 MP3 WAV'],
+  ['音频转换', '格式工厂', 'video', '音频转换', 'MP3 AAC WAV FLAC'],
+  ['图片转换', '格式工厂', 'video', '图片转换', 'sharp JPG PNG WebP AVIF TIFF GIF'],
+  ['图片压缩', '格式工厂', 'video', '图片压缩', 'sharp 批量 质量'],
   ['主题与强调色', '设置', 'more', '', '外观 深色 浅色 颜色'],
   ['关于摸鱼工具箱', '设置', 'more', '', '版本 作者']
 ].map(([name, group, module, action, keywords]) => ({
@@ -321,13 +339,6 @@ function renderSubmenu(module) {
     })
   })
 
-  if (module === 'video') {
-    const soon = document.createElement('div')
-    soon.className = 'submenu-soon'
-    soon.textContent = '将在 M6 接入'
-    fragment.append(soon)
-  }
-
   submenu.replaceChildren(fragment)
   submenu.classList.add('show')
 }
@@ -363,6 +374,8 @@ function activateModule(module, action = '') {
     setImageMode(action)
   } else if (module === 'aimg') {
     setAiMode(state.selections.aimg)
+  } else if (module === 'video') {
+    setFormatAction(state.selections.video)
   }
 }
 
@@ -606,6 +619,10 @@ function updatePdfState(action) {
 }
 
 function chooseSubmenu(module, action) {
+  if (module === 'video') {
+    setFormatAction(action)
+    return
+  }
   state.selections[module] = action
   renderSubmenu(module)
 
@@ -615,8 +632,6 @@ function chooseSubmenu(module, action) {
     selectBarcodeType(action, true)
   } else if (module === 'aimg') {
     setAiMode(action)
-  } else if (module === 'video') {
-    showToast(`“${action}”将在 M6 接入`)
   }
 }
 
@@ -3172,6 +3187,371 @@ window.api.onAiTaskProgress((progress) => {
   }
 })
 
+const formatActionConfigs = {
+  视频转换: {
+    kind: 'video',
+    mark: 'VID',
+    copy: '转换为 MP4、MKV 或 WebM。',
+    runLabel: '开始视频转换',
+    targets: [['mp4', 'MP4 · H.264'], ['mkv', 'MKV · H.264'], ['webm', 'WebM · VP9']]
+  },
+  视频压缩: {
+    kind: 'video',
+    mark: 'ZIP',
+    copy: '使用 H.264 CRF 档位缩小视频体积。',
+    runLabel: '开始压缩视频'
+  },
+  抽取音频: {
+    kind: 'video',
+    mark: 'MP3',
+    copy: '从视频中导出 MP3、AAC、WAV 或 FLAC。',
+    runLabel: '开始抽取音频',
+    targets: [['mp3', 'MP3'], ['m4a', 'AAC / M4A'], ['wav', 'WAV'], ['flac', 'FLAC']]
+  },
+  音频转换: {
+    kind: 'audio',
+    mark: 'AUD',
+    copy: '在常用音频格式之间批量转换。',
+    runLabel: '开始音频转换',
+    targets: [['mp3', 'MP3'], ['m4a', 'AAC / M4A'], ['wav', 'WAV'], ['flac', 'FLAC']]
+  },
+  图片转换: {
+    kind: 'image',
+    mark: 'IMG',
+    copy: '由 sharp 批量输出常用图片格式。',
+    runLabel: '开始图片转换',
+    targets: [['webp', 'WebP'], ['jpeg', 'JPEG'], ['png', 'PNG'], ['avif', 'AVIF'], ['tiff', 'TIFF'], ['gif', 'GIF']]
+  },
+  图片压缩: {
+    kind: 'image',
+    mark: 'MIN',
+    copy: '保持原格式，按质量与最大宽度批量压缩。',
+    runLabel: '开始图片压缩'
+  }
+}
+
+const formatFileList = document.querySelector('#format-file-list')
+const formatEmpty = document.querySelector('#format-empty')
+const formatOptions = document.querySelector('#format-options')
+const formatRunButton = document.querySelector('#format-run-task')
+const formatCancelButton = document.querySelector('#format-cancel-task')
+const formatSaveButton = document.querySelector('#format-save-results')
+const formatProgressFill = document.querySelector('#format-progress-fill')
+const formatStatusText = document.querySelector('#format-status-text')
+const formatRuntimeState = document.querySelector('#format-runtime-state')
+const formatState = {
+  inputs: [],
+  results: [],
+  busy: false,
+  saving: false,
+  taskId: '',
+  ffmpegReady: false,
+  sharpReady: false
+}
+
+function formatConfig() {
+  return formatActionConfigs[state.selections.video] || formatActionConfigs.视频转换
+}
+
+function formatSize(bytes) {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`
+}
+
+function renderFormatFiles() {
+  formatFileList.replaceChildren()
+  formatEmpty.hidden = formatState.inputs.length > 0
+  const resultInputIds = new Set(formatState.results.map((result) => result.inputId))
+  const fragment = document.createDocumentFragment()
+  formatState.inputs.forEach((input, index) => {
+    const row = document.createElement('article')
+    const indexNode = document.createElement('span')
+    const nameNode = document.createElement('span')
+    const name = document.createElement('b')
+    const detail = document.createElement('small')
+    const kind = document.createElement('span')
+    const size = document.createElement('span')
+    row.className = 'format-file-item'
+    indexNode.className = 'format-index'
+    nameNode.className = 'format-name'
+    kind.className = 'format-kind'
+    size.className = 'format-size'
+    indexNode.textContent = String(index + 1)
+    name.textContent = input.name
+    detail.textContent = input.dimensions?.width
+      ? `${input.dimensions.width} × ${input.dimensions.height}${resultInputIds.has(input.id) ? ' · 已完成' : ''}`
+      : resultInputIds.has(input.id) ? '已完成' : '等待处理'
+    kind.textContent = input.name.split('.').at(-1) || input.kind
+    size.textContent = formatSize(input.size)
+    nameNode.append(name, detail)
+    row.append(indexNode, nameNode, kind, size)
+    fragment.append(row)
+  })
+  formatFileList.append(fragment)
+  updateFormatControls()
+}
+
+function updateFormatControls() {
+  const config = formatConfig()
+  const engineReady = config.kind === 'image' ? formatState.sharpReady : formatState.ffmpegReady
+  formatRunButton.disabled = formatState.busy || !formatState.inputs.length || !engineReady
+  formatSaveButton.disabled = formatState.busy || !formatState.results.length
+  document.querySelector('#format-pick-files').disabled = formatState.busy
+  document.querySelector('#format-pick-folder').disabled = formatState.busy
+  document.querySelector('#format-clear-inputs').disabled = formatState.busy
+}
+
+function renderFormatOptions() {
+  const config = formatConfig()
+  const isImage = config.kind === 'image'
+  const qualityLabel = isImage ? '质量' : 'CRF（越低越清晰）'
+  const qualityValue = isImage ? 82 : state.selections.video === '视频压缩' ? 28 : 23
+  const qualityMin = isImage ? 10 : 18
+  const qualityMax = isImage ? 100 : 35
+  const target = config.targets
+    ? `
+      <label>输出格式
+        <select id="format-target">
+          ${config.targets.map(([value, label]) => `<option value="${value}">${label}</option>`).join('')}
+        </select>
+      </label>
+    `
+    : ''
+  const audioOptions = ['视频转换', '视频压缩', '抽取音频', '音频转换'].includes(state.selections.video)
+    ? `
+      <label>音频码率 <b id="format-bitrate-value">192 kbps</b>
+        <input id="format-audio-bitrate" type="range" min="64" max="320" step="32" value="192" />
+      </label>
+      <label>采样率
+        <select id="format-sample-rate">
+          <option value="44100">44.1 kHz</option>
+          <option value="48000">48 kHz</option>
+          <option value="32000">32 kHz</option>
+        </select>
+      </label>
+    `
+    : ''
+  formatOptions.innerHTML = `
+    ${target}
+    <label>${qualityLabel} <b id="format-quality-value">${qualityValue}</b>
+      <input id="format-quality" type="range" min="${qualityMin}" max="${qualityMax}" value="${qualityValue}" />
+    </label>
+    <label>最大宽度
+      <select id="format-max-width">
+        <option value="0">保持原尺寸</option>
+        <option value="3840">3840 px</option>
+        <option value="1920">1920 px</option>
+        <option value="1280">1280 px</option>
+        <option value="720">720 px</option>
+      </select>
+    </label>
+    ${audioOptions}
+  `
+  const quality = formatOptions.querySelector('#format-quality')
+  quality.addEventListener('input', () => {
+    formatOptions.querySelector('#format-quality-value').textContent = quality.value
+  })
+  const bitrate = formatOptions.querySelector('#format-audio-bitrate')
+  bitrate?.addEventListener('input', () => {
+    formatOptions.querySelector('#format-bitrate-value').textContent = `${bitrate.value} kbps`
+  })
+}
+
+function setFormatAction(action) {
+  if (!formatActionConfigs[action]) return
+  const previousKind = formatConfig().kind
+  state.selections.video = action
+  const config = formatConfig()
+  document.querySelector('#format-crumb').textContent = action
+  document.querySelector('#format-action-title').textContent = action
+  document.querySelector('#format-action-mark').textContent = config.mark
+  document.querySelector('#format-action-copy').textContent = config.copy
+  document.querySelector('#format-empty-title').textContent =
+    `添加${config.kind === 'video' ? '视频' : config.kind === 'audio' ? '音频' : '图片'}文件`
+  document.querySelector('#format-pick-files').textContent =
+    `＋ 添加${config.kind === 'video' ? '视频' : config.kind === 'audio' ? '音频' : '图片'}`
+  formatRunButton.textContent = config.runLabel
+  if (previousKind !== config.kind && formatState.inputs.length) clearFormatInputs()
+  formatState.results = []
+  formatProgressFill.style.width = '0'
+  formatStatusText.textContent = formatState.inputs.length ? '准备就绪' : '添加文件后可开始'
+  renderFormatOptions()
+  renderSubmenu('video')
+  renderFormatFiles()
+  loadFormatRuntimeStatus()
+}
+
+function addFormatInputs(files, replace = false) {
+  if (replace) {
+    window.api.removeFormatInputs(formatState.inputs.map((input) => input.id)).catch(() => {})
+    formatState.inputs = []
+  }
+  const knownIds = new Set(formatState.inputs.map((input) => input.id))
+  const unique = files.filter((file) => !knownIds.has(file.id))
+  const available = Math.max(0, 100 - formatState.inputs.length)
+  const accepted = unique.slice(0, available)
+  const rejected = unique.slice(available)
+  if (rejected.length) {
+    window.api.removeFormatInputs(rejected.map((file) => file.id)).catch(() => {})
+  }
+  formatState.inputs.push(...accepted)
+  formatState.results = []
+  formatStatusText.textContent = `已添加 ${formatState.inputs.length} 个文件`
+  formatProgressFill.style.width = '0'
+  renderFormatFiles()
+}
+
+async function pickFormatFiles() {
+  try {
+    const result = await window.api.pickFormatFiles({ kind: formatConfig().kind })
+    if (result.status !== 'selected') return
+    addFormatInputs(result.files)
+    if (result.errors.length) showToast(`${result.errors.length} 个文件未能加入`)
+  } catch (error) {
+    showToast(`添加文件失败：${error.message}`)
+  }
+}
+
+async function pickFormatFolder() {
+  try {
+    const result = await window.api.pickFormatFolder({ kind: formatConfig().kind })
+    if (result.status !== 'selected') return
+    addFormatInputs(result.files, true)
+    if (result.truncated) showToast('文件超过 100 个，已取前 100 个')
+    else if (result.errors.length) showToast(`${result.errors.length} 个文件未能加入`)
+  } catch (error) {
+    showToast(`读取文件夹失败：${error.message}`)
+  }
+}
+
+async function clearFormatInputs() {
+  const ids = formatState.inputs.map((input) => input.id)
+  formatState.inputs = []
+  formatState.results = []
+  formatState.taskId = ''
+  formatProgressFill.style.width = '0'
+  formatStatusText.textContent = '添加文件后可开始'
+  renderFormatFiles()
+  if (ids.length) await window.api.removeFormatInputs(ids).catch(() => {})
+}
+
+function currentFormatOptions() {
+  return {
+    target: formatOptions.querySelector('#format-target')?.value || '',
+    quality: Number(formatOptions.querySelector('#format-quality')?.value),
+    maxWidth: Number(formatOptions.querySelector('#format-max-width')?.value),
+    audioBitrate: Number(formatOptions.querySelector('#format-audio-bitrate')?.value || 192),
+    sampleRate: Number(formatOptions.querySelector('#format-sample-rate')?.value || 44100)
+  }
+}
+
+async function runFormatTask() {
+  if (formatState.busy || !formatState.inputs.length) return
+  formatState.busy = true
+  formatState.results = []
+  formatState.taskId = crypto.randomUUID()
+  formatRunButton.textContent = '处理中…'
+  formatCancelButton.hidden = false
+  formatStatusText.textContent = '正在准备任务…'
+  updateFormatControls()
+  try {
+    const response = await window.api.runFormatTask({
+      taskId: formatState.taskId,
+      action: state.selections.video,
+      inputIds: formatState.inputs.map((input) => input.id),
+      options: currentFormatOptions()
+    })
+    if (response.status === 'cancelled') {
+      formatStatusText.textContent = '任务已取消'
+      showToast('格式转换任务已取消')
+    } else {
+      formatState.results = response.results
+      formatProgressFill.style.width = '100%'
+      formatStatusText.textContent = response.errors.length
+        ? `完成 ${response.results.length} 个，失败 ${response.errors.length} 个`
+        : `已完成 ${response.results.length} 个文件`
+      showToast('格式转换任务完成')
+    }
+  } catch (error) {
+    formatStatusText.textContent = `处理失败：${error.message}`
+    showToast('格式转换失败')
+  } finally {
+    formatState.busy = false
+    formatState.taskId = ''
+    formatRunButton.textContent = formatConfig().runLabel
+    formatCancelButton.hidden = true
+    renderFormatFiles()
+  }
+}
+
+async function cancelFormatTask() {
+  if (!formatState.taskId) return
+  formatCancelButton.disabled = true
+  formatStatusText.textContent = '正在取消任务…'
+  try {
+    await window.api.cancelFormatTask(formatState.taskId)
+  } finally {
+    formatCancelButton.disabled = false
+  }
+}
+
+async function saveFormatResults() {
+  if (!formatState.results.length || formatState.saving) return
+  formatState.saving = true
+  formatSaveButton.disabled = true
+  try {
+    const response = await window.api.saveFormatResults(formatState.results.map((result) => result.id))
+    if (response.status === 'saved') {
+      formatStatusText.textContent = `已保存 ${response.saved} 个结果`
+      showToast('格式转换结果已保存')
+    }
+  } catch (error) {
+    showToast(`保存失败：${error.message}`)
+  } finally {
+    formatState.saving = false
+    formatSaveButton.disabled = formatState.results.length === 0
+  }
+}
+
+async function loadFormatRuntimeStatus() {
+  try {
+    const status = await window.api.getFormatStatus()
+    formatState.ffmpegReady = status.ffmpegReady
+    formatState.sharpReady = Boolean(status.sharp?.sharp)
+    const ready = formatConfig().kind === 'image' ? formatState.sharpReady : formatState.ffmpegReady
+    formatRuntimeState.classList.toggle('ready', ready)
+    formatRuntimeState.classList.toggle('error', !ready)
+    formatRuntimeState.lastChild.textContent = ready
+      ? formatConfig().kind === 'image' ? `sharp ${status.sharp.sharp}` : 'FFmpeg 6.1.1 就绪'
+      : formatConfig().kind === 'image' ? 'sharp 未能加载' : status.ffmpegMessage
+    document.querySelector('#format-engine-name').textContent =
+      formatConfig().kind === 'image' ? `sharp ${status.sharp?.sharp || ''}` : 'FFmpeg 6.1.1'
+    document.querySelector('#format-engine-status').textContent =
+      ready ? '本地引擎可用' : '当前环境不可用'
+    updateFormatControls()
+  } catch (error) {
+    formatRuntimeState.classList.add('error')
+    formatRuntimeState.lastChild.textContent = `引擎检查失败：${error.message}`
+  }
+}
+
+document.querySelector('#format-pick-files').addEventListener('click', pickFormatFiles)
+document.querySelector('#format-pick-folder').addEventListener('click', pickFormatFolder)
+document.querySelector('#format-clear-inputs').addEventListener('click', clearFormatInputs)
+formatRunButton.addEventListener('click', runFormatTask)
+formatCancelButton.addEventListener('click', cancelFormatTask)
+formatSaveButton.addEventListener('click', saveFormatResults)
+window.api.onFormatProgress((progress) => {
+  if (progress.status === 'running' && progress.taskId === formatState.taskId) {
+    const overall = (progress.completed + (progress.fileProgress || 0)) / Math.max(1, progress.total)
+    formatProgressFill.style.width = `${Math.min(100, overall * 100)}%`
+    formatStatusText.textContent = `正在处理 ${Math.min(progress.completed + 1, progress.total)} / ${progress.total}${progress.name ? ` · ${progress.name}` : ''}`
+  } else if (progress.status === 'saving' && formatState.saving) {
+    formatStatusText.textContent = `正在保存 ${progress.completed} / ${progress.total}`
+  }
+})
+
 const imageEditor = document.querySelector('#image-editor')
 const imageDropZone = document.querySelector('#image-drop-zone')
 const imageStage = document.querySelector('#image-stage')
@@ -4426,5 +4806,6 @@ setBarcodeMode('single')
 generateBarcode()
 setImageMode('crop')
 setAiMode('智能抠图')
+setFormatAction('视频转换')
 activateModule('pdf', defaultSelections.pdf)
 verifyPreloadBridge()

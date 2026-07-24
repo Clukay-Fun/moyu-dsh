@@ -14,6 +14,13 @@ contextBridge.exposeInMainWorld(
     runAiTask: (payload) => ipcRenderer.invoke('ai:run', payload),
     saveAiResults: (resultIds) => ipcRenderer.invoke('ai:save-results', resultIds),
     exportAiPsd: (resultId) => ipcRenderer.invoke('ai:export-psd', resultId),
+    getFormatStatus: () => ipcRenderer.invoke('format:get-status'),
+    pickFormatFiles: (payload) => ipcRenderer.invoke('format:pick-files', payload),
+    pickFormatFolder: (payload) => ipcRenderer.invoke('format:pick-folder', payload),
+    removeFormatInputs: (inputIds) => ipcRenderer.invoke('format:remove-inputs', inputIds),
+    runFormatTask: (payload) => ipcRenderer.invoke('format:run', payload),
+    cancelFormatTask: (taskId) => ipcRenderer.invoke('format:cancel', taskId),
+    saveFormatResults: (resultIds) => ipcRenderer.invoke('format:save-results', resultIds),
     savePdfFile: (payload) => ipcRenderer.invoke('pdf:save-file', payload),
     savePdfFiles: (payload) => ipcRenderer.invoke('pdf:save-files', payload),
     showPdfOutput: (path) => ipcRenderer.invoke('pdf:show-item', path),
@@ -51,6 +58,11 @@ contextBridge.exposeInMainWorld(
       const listener = (_event, progress) => callback(progress)
       ipcRenderer.on('ai:task-progress', listener)
       return () => ipcRenderer.removeListener('ai:task-progress', listener)
+    },
+    onFormatProgress: (callback) => {
+      const listener = (_event, progress) => callback(progress)
+      ipcRenderer.on('format:progress', listener)
+      return () => ipcRenderer.removeListener('format:progress', listener)
     },
     onScreenshotCaptured: (callback) => {
       const listener = (_event, result) => callback(result)

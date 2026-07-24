@@ -21,6 +21,10 @@
     "appId": "com.clukay.moyutools",
     "productName": "摸鱼工具箱",
     "asar": true,
+    "asarUnpack": [
+      "node_modules/sharp/**/*",
+      "node_modules/@img/**/*"
+    ],
     "directories": {
       "output": "release"
     },
@@ -80,6 +84,7 @@
     "pdf-lib": "1.17.1",
     "pdfjs-dist": "5.4.624",
     "qpdf-run": "0.2.1",
+    "sharp": "0.35.3",
     "tesseract.js": "7.0.0"
   }
 }
