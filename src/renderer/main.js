@@ -4625,9 +4625,13 @@ const imageState = {
   brushSize: 8,
   adjustments: {
     brightness: 0,
+    exposure: 0,
     contrast: 0,
+    shadows: 0,
     saturation: 0,
-    pixelate: 1
+    warmth: 0,
+    tint: 0,
+    clarity: 0
   },
   history: [],
   historyIndex: -1,
@@ -4777,17 +4781,101 @@ function getOverlayObjects() {
   return imageCanvas.getObjects().filter((object) => object.dataRole === 'overlay')
 }
 
+function clampColor(value) {
+  return Math.max(0, Math.min(255, value))
+}
+
+function applyImageAdjustmentPixels(imageData) {
+  const { data, width, height } = imageData
+  const settings = imageState.adjustments
+  const original = settings.clarity ? new Uint8ClampedArray(data) : null
+  const brightnessOffset = settings.brightness / 100 * 64
+  const exposureFactor = 2 ** (settings.exposure / 100)
+  const contrastValue = settings.contrast / 100 * 180
+  const contrastFactor = (259 * (contrastValue + 255)) / (255 * (259 - contrastValue))
+  const saturationFactor = 1 + settings.saturation / 100
+  const warmth = settings.warmth / 100 * 42
+  const tint = settings.tint / 100
+
+  for (let index = 0; index < data.length; index += 4) {
+    let red = (data[index] + brightnessOffset) * exposureFactor
+    let green = (data[index + 1] + brightnessOffset) * exposureFactor
+    let blue = (data[index + 2] + brightnessOffset) * exposureFactor
+    const luminance = red * 0.2126 + green * 0.7152 + blue * 0.0722
+    const shadowWeight = (1 - Math.min(1, luminance / 255)) ** 2
+    const shadowOffset = settings.shadows / 100 * 72 * shadowWeight
+    red += shadowOffset
+    green += shadowOffset
+    blue += shadowOffset
+    red = contrastFactor * (red - 128) + 128
+    green = contrastFactor * (green - 128) + 128
+    blue = contrastFactor * (blue - 128) + 128
+    const gray = red * 0.2126 + green * 0.7152 + blue * 0.0722
+    red = gray + (red - gray) * saturationFactor + warmth
+    green = gray + (green - gray) * saturationFactor + Math.abs(warmth) * 0.08
+    blue = gray + (blue - gray) * saturationFactor - warmth
+    if (tint > 0) {
+      red += (255 - red) * tint * 0.38
+      green += (245 - green) * tint * 0.38
+      blue += (236 - blue) * tint * 0.38
+    } else if (tint < 0) {
+      const amount = -tint * 0.3
+      red *= 1 - amount
+      green *= 1 - amount
+      blue *= 1 - amount
+    }
+    data[index] = clampColor(red)
+    data[index + 1] = clampColor(green)
+    data[index + 2] = clampColor(blue)
+  }
+
+  if (original && width > 2 && height > 2) {
+    const clarity = settings.clarity / 100 * 0.5
+    for (let y = 1; y < height - 1; y += 1) {
+      for (let x = 1; x < width - 1; x += 1) {
+        const index = (y * width + x) * 4
+        for (let channel = 0; channel < 3; channel += 1) {
+          const center = original[index + channel]
+          const neighbor =
+            (original[index - 4 + channel] + original[index + 4 + channel] +
+              original[index - width * 4 + channel] + original[index + width * 4 + channel]) / 4
+          data[index + channel] = clampColor(data[index + channel] + (center - neighbor) * clarity)
+        }
+      }
+    }
+  }
+  return imageData
+}
+
+function createAdjustedImageCanvas(source, width = source.width, height = source.height) {
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, Math.round(width))
+  canvas.height = Math.max(1, Math.round(height))
+  const context = canvas.getContext('2d', { willReadFrequently: true })
+  context.imageSmoothingEnabled = true
+  context.imageSmoothingQuality = 'high'
+  context.drawImage(source, 0, 0, canvas.width, canvas.height)
+  const imageData = context.getImageData(0, 0, canvas.width, canvas.height)
+  context.putImageData(applyImageAdjustmentPixels(imageData), 0, 0)
+  return canvas
+}
+
 function rebuildImageCanvas(overlays = []) {
   if (!imageState.sourceCanvas) return
 
   const preview = getImagePreviewSize()
   imageCanvas.clear()
   imageCanvas.setDimensions({ width: preview.width, height: preview.height })
-  imageState.baseImage = new fabric.Image(imageState.sourceCanvas, {
+  const previewSource = createAdjustedImageCanvas(
+    imageState.sourceCanvas,
+    preview.width,
+    preview.height
+  )
+  imageState.baseImage = new fabric.Image(previewSource, {
     left: 0,
     top: 0,
-    scaleX: preview.width / imageState.sourceWidth,
-    scaleY: preview.height / imageState.sourceHeight,
+    scaleX: 1,
+    scaleY: 1,
     selectable: false,
     evented: false,
     hoverCursor: 'default',
@@ -5104,26 +5192,13 @@ async function configureImageBrush(kind = imageState.brushKind) {
 
 function applyImageAdjustments(render = true) {
   if (!imageState.baseImage) return
-
-  const filters = []
-  const { brightness, contrast, saturation, pixelate } = imageState.adjustments
-
-  if (brightness !== 0) {
-    filters.push(new fabric.Image.filters.Brightness({ brightness: brightness / 100 }))
-  }
-  if (contrast !== 0) {
-    filters.push(new fabric.Image.filters.Contrast({ contrast: contrast / 100 }))
-  }
-  if (saturation !== 0) {
-    filters.push(new fabric.Image.filters.Saturation({ saturation: saturation / 100 }))
-  }
-  if (pixelate > 1) {
-    filters.push(new fabric.Image.filters.Pixelate({ blocksize: pixelate }))
-  }
-
-  imageState.baseImage.filters = filters
-  imageState.baseImage.applyFilters()
-  imageState.baseImage.dirty = true
+  const adjusted = createAdjustedImageCanvas(
+    imageState.sourceCanvas,
+    imageCanvas.getWidth(),
+    imageCanvas.getHeight()
+  )
+  imageState.baseImage.setElement(adjusted)
+  imageState.baseImage.set({ scaleX: 1, scaleY: 1, dirty: true })
   if (render) imageCanvas.requestRenderAll()
 }
 
@@ -5328,13 +5403,17 @@ function renderImagePanel() {
       configureImageBrush()
     })
   } else if (imageState.mode === 'adjust') {
-    imagePanelTitle.textContent = '调色与马赛克'
-    imagePanelCopy.textContent = '基础调色实时预览；块度大于 1 时启用整图马赛克。'
+    imagePanelTitle.textContent = '调色'
+    imagePanelCopy.textContent = '预览使用降采样画布，导出时对原始像素重放相同参数。'
     const controls = [
       ['brightness', '亮度', -100, 100],
+      ['exposure', '曝光', -100, 100],
       ['contrast', '对比度', -100, 100],
+      ['shadows', '阴影', -100, 100],
       ['saturation', '饱和度', -100, 100],
-      ['pixelate', '马赛克块度', 1, 40]
+      ['warmth', '暖度', -100, 100],
+      ['tint', '淡色', -100, 100],
+      ['clarity', '清晰度', -100, 100]
     ]
     imagePanelContent.innerHTML = `
       <div class="image-panel">
@@ -5359,9 +5438,13 @@ function renderImagePanel() {
     imagePanelContent.querySelector('#reset-image-adjustments').addEventListener('click', () => {
       Object.assign(imageState.adjustments, {
         brightness: 0,
+        exposure: 0,
         contrast: 0,
+        shadows: 0,
         saturation: 0,
-        pixelate: 1
+        warmth: 0,
+        tint: 0,
+        clarity: 0
       })
       applyImageAdjustments()
       renderImagePanel()
@@ -5469,9 +5552,13 @@ async function loadImageFile(file) {
     bitmap.close()
     Object.assign(imageState.adjustments, {
       brightness: 0,
+      exposure: 0,
       contrast: 0,
+      shadows: 0,
       saturation: 0,
-      pixelate: 1
+      warmth: 0,
+      tint: 0,
+      clarity: 0
     })
     imageState.sourceCanvas = sourceCanvas
     imageState.sourceWidth = sourceCanvas.width
@@ -5511,12 +5598,31 @@ function applyImageCrop() {
   imageCanvas.discardActiveObject()
   imageCanvas.requestRenderAll()
   const multiplier = 1 / Math.max(0.0001, Math.abs(imageState.baseImage.scaleX))
-  const croppedCanvas = imageCanvas.toCanvasElement(multiplier, {
+  const baseVisible = imageState.baseImage.visible
+  imageState.baseImage.visible = false
+  const overlayCanvas = imageCanvas.toCanvasElement(multiplier, {
     left,
     top,
     width,
     height
   })
+  imageState.baseImage.visible = baseVisible
+  const croppedCanvas = document.createElement('canvas')
+  croppedCanvas.width = Math.max(1, Math.round(width * multiplier))
+  croppedCanvas.height = Math.max(1, Math.round(height * multiplier))
+  const context = croppedCanvas.getContext('2d')
+  context.scale(multiplier, multiplier)
+  context.translate(-left, -top)
+  context.translate(imageState.baseImage.left, imageState.baseImage.top)
+  context.rotate(imageState.baseImage.angle * Math.PI / 180)
+  context.scale(imageState.baseImage.scaleX, imageState.baseImage.scaleY)
+  context.drawImage(
+    createAdjustedImageCanvas(imageState.sourceCanvas),
+    -imageState.sourceWidth / 2,
+    -imageState.sourceHeight / 2
+  )
+  context.setTransform(1, 0, 0, 1, 0, 0)
+  context.drawImage(overlayCanvas, 0, 0, croppedCanvas.width, croppedCanvas.height)
   cropObjects.forEach((object) => {
     object.visible = true
   })
@@ -5525,9 +5631,13 @@ function applyImageCrop() {
   imageState.sourceHeight = croppedCanvas.height
   Object.assign(imageState.adjustments, {
     brightness: 0,
+    exposure: 0,
     contrast: 0,
+    shadows: 0,
     saturation: 0,
-    pixelate: 1
+    warmth: 0,
+    tint: 0,
+    clarity: 0
   })
   imageState.cropAngle = 0
   imageState.cropZoom = 100
@@ -5548,7 +5658,10 @@ function canvasToBlob(canvas, type, quality) {
 
 function renderEditedImageCanvas(format = 'png') {
   const multiplier = imageState.sourceWidth / imageCanvas.getWidth()
-  const rendered = imageCanvas.toCanvasElement(multiplier)
+  const baseVisible = imageState.baseImage?.visible
+  if (imageState.baseImage) imageState.baseImage.visible = false
+  const overlays = imageCanvas.toCanvasElement(multiplier)
+  if (imageState.baseImage) imageState.baseImage.visible = baseVisible
   const output = document.createElement('canvas')
   output.width = imageState.sourceWidth
   output.height = imageState.sourceHeight
@@ -5557,7 +5670,14 @@ function renderEditedImageCanvas(format = 'png') {
     context.fillStyle = '#ffffff'
     context.fillRect(0, 0, output.width, output.height)
   }
-  context.drawImage(rendered, 0, 0, output.width, output.height)
+  context.drawImage(
+    createAdjustedImageCanvas(imageState.sourceCanvas),
+    0,
+    0,
+    output.width,
+    output.height
+  )
+  context.drawImage(overlays, 0, 0, output.width, output.height)
   return output
 }
 
@@ -5626,9 +5746,13 @@ function clearImageEditor() {
   imageCanvas.isDrawingMode = false
   Object.assign(imageState.adjustments, {
     brightness: 0,
+    exposure: 0,
     contrast: 0,
+    shadows: 0,
     saturation: 0,
-    pixelate: 1
+    warmth: 0,
+    tint: 0,
+    clarity: 0
   })
   resetImageHistory()
   imageStage.classList.remove('ready')
