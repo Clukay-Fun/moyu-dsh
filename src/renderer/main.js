@@ -4609,6 +4609,12 @@ const imageState = {
   sourceHeight: 0,
   baseImage: null,
   cropRect: null,
+  cropBounds: null,
+  cropSize: 90,
+  cropAspect: 'original',
+  cropAngle: 0,
+  cropZoom: 100,
+  cropLastValid: null,
   mode: 'view',
   viewZoom: 1,
   format: 'png',
@@ -4750,9 +4756,21 @@ function updateImageViewZoom() {
 }
 
 function removeCropSelection() {
-  if (!imageState.cropRect) return
-  imageCanvas.remove(imageState.cropRect)
+  imageCanvas.getObjects()
+    .filter((object) => object.dataRole === 'crop')
+    .forEach((object) => imageCanvas.remove(object))
   imageState.cropRect = null
+  imageState.cropBounds = null
+  imageState.cropLastValid = null
+  if (imageState.baseImage) {
+    imageState.baseImage.set({
+      selectable: false,
+      evented: false,
+      hasControls: true,
+      lockMovementX: false,
+      lockMovementY: false
+    })
+  }
 }
 
 function getOverlayObjects() {
@@ -4792,31 +4810,139 @@ function rebuildImageCanvas(overlays = []) {
 function createCropSelection() {
   if (!imageState.sourceCanvas) return
   removeCropSelection()
-  const width = imageCanvas.getWidth()
-  const height = imageCanvas.getHeight()
+  const canvasWidth = imageCanvas.getWidth()
+  const canvasHeight = imageCanvas.getHeight()
+  const sourceAspect = imageState.sourceWidth / imageState.sourceHeight
+  const aspect = imageState.cropAspect === 'original'
+    ? sourceAspect
+    : imageState.cropAspect === 'free'
+      ? canvasWidth / canvasHeight
+      : Number(imageState.cropAspect)
+  const maxWidth = canvasWidth * imageState.cropSize / 100
+  const maxHeight = canvasHeight * imageState.cropSize / 100
+  const width = Math.min(maxWidth, maxHeight * aspect)
+  const height = width / aspect
+  const left = (canvasWidth - width) / 2
+  const top = (canvasHeight - height) / 2
   const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#6978e6'
+  const mask = 'rgba(14, 17, 27, 0.52)'
+  const maskRects = [
+    [0, 0, canvasWidth, top],
+    [0, top + height, canvasWidth, canvasHeight - top - height],
+    [0, top, left, height],
+    [left + width, top, canvasWidth - left - width, height]
+  ]
+  maskRects.forEach(([maskLeft, maskTop, maskWidth, maskHeight]) => {
+    const object = new fabric.Rect({
+      left: maskLeft,
+      top: maskTop,
+      width: Math.max(0, maskWidth),
+      height: Math.max(0, maskHeight),
+      fill: mask,
+      selectable: false,
+      evented: false,
+      dataRole: 'crop',
+      excludeFromExport: true
+    })
+    imageCanvas.add(object)
+  })
   imageState.cropRect = new fabric.Rect({
-    left: width * 0.1,
-    top: height * 0.1,
-    width: width * 0.8,
-    height: height * 0.8,
-    fill: 'rgba(105, 120, 230, 0.08)',
+    left,
+    top,
+    width,
+    height,
+    fill: 'transparent',
     stroke: accent,
-    strokeWidth: 1.5,
-    strokeDashArray: [7, 5],
-    cornerColor: '#ffffff',
-    cornerStrokeColor: accent,
-    transparentCorners: false,
-    cornerStyle: 'circle',
-    lockRotation: true,
-    hasRotatingPoint: false,
+    strokeWidth: 2,
+    selectable: false,
+    evented: false,
     dataRole: 'crop',
     erasable: false,
     excludeFromExport: true
   })
   imageCanvas.add(imageState.cropRect)
-  imageCanvas.setActiveObject(imageState.cropRect)
+  imageState.cropBounds = { left, top, width, height }
+  prepareCropBaseImage()
   imageCanvas.requestRenderAll()
+}
+
+function cropCoverageValid() {
+  const image = imageState.baseImage
+  const bounds = imageState.cropBounds
+  if (!image || !bounds) return false
+  const center = image.getCenterPoint()
+  const radians = -(image.angle || 0) * Math.PI / 180
+  const cosine = Math.cos(radians)
+  const sine = Math.sin(radians)
+  const halfWidth = imageState.sourceWidth * Math.abs(image.scaleX) / 2
+  const halfHeight = imageState.sourceHeight * Math.abs(image.scaleY) / 2
+  const corners = [
+    [bounds.left, bounds.top],
+    [bounds.left + bounds.width, bounds.top],
+    [bounds.left, bounds.top + bounds.height],
+    [bounds.left + bounds.width, bounds.top + bounds.height]
+  ]
+  return corners.every(([x, y]) => {
+    const deltaX = x - center.x
+    const deltaY = y - center.y
+    const localX = deltaX * cosine - deltaY * sine
+    const localY = deltaX * sine + deltaY * cosine
+    return Math.abs(localX) <= halfWidth + 0.5 && Math.abs(localY) <= halfHeight + 0.5
+  })
+}
+
+function rememberCropBasePosition() {
+  const image = imageState.baseImage
+  imageState.cropLastValid = image
+    ? {
+        left: image.left,
+        top: image.top,
+        scaleX: image.scaleX,
+        scaleY: image.scaleY,
+        angle: image.angle
+      }
+    : null
+}
+
+function restoreCropBasePosition() {
+  if (!imageState.baseImage || !imageState.cropLastValid) return
+  imageState.baseImage.set(imageState.cropLastValid)
+  imageState.baseImage.setCoords()
+  imageCanvas.requestRenderAll()
+}
+
+function prepareCropBaseImage() {
+  const image = imageState.baseImage
+  const bounds = imageState.cropBounds
+  if (!image || !bounds) return
+  const angle = imageState.cropAngle * Math.PI / 180
+  const requiredScale = Math.max(
+    (bounds.width * Math.abs(Math.cos(angle)) + bounds.height * Math.abs(Math.sin(angle))) /
+      imageState.sourceWidth,
+    (bounds.width * Math.abs(Math.sin(angle)) + bounds.height * Math.abs(Math.cos(angle))) /
+      imageState.sourceHeight
+  )
+  const scale = requiredScale * imageState.cropZoom / 100
+  image.set({
+    originX: 'center',
+    originY: 'center',
+    left: imageCanvas.getWidth() / 2,
+    top: imageCanvas.getHeight() / 2,
+    scaleX: scale,
+    scaleY: scale,
+    angle: imageState.cropAngle,
+    selectable: true,
+    evented: true,
+    hasControls: false,
+    hoverCursor: 'move',
+    moveCursor: 'move'
+  })
+  image.setCoords()
+  rememberCropBasePosition()
+  imageCanvas.setActiveObject(image)
+  imageCanvas.getObjects()
+    .filter((object) => object.dataRole === 'crop')
+    .forEach((object) => imageCanvas.bringToFront(object))
 }
 
 function ensureImageLoaded() {
@@ -4864,11 +4990,16 @@ function transformWholeImage(action) {
   const transformedCanvas = document.createElement('canvas')
   const context = transformedCanvas.getContext('2d')
 
-  if (action === 'rotate') {
+  if (action === 'rotate' || action === 'rotate-left') {
     transformedCanvas.width = oldSourceHeight
     transformedCanvas.height = oldSourceWidth
-    context.translate(oldSourceHeight, 0)
-    context.rotate(Math.PI / 2)
+    if (action === 'rotate') {
+      context.translate(oldSourceHeight, 0)
+      context.rotate(Math.PI / 2)
+    } else {
+      context.translate(0, oldSourceWidth)
+      context.rotate(-Math.PI / 2)
+    }
   } else {
     transformedCanvas.width = oldSourceWidth
     transformedCanvas.height = oldSourceHeight
@@ -4897,10 +5028,16 @@ function transformWholeImage(action) {
     let nextSourceX = sourceX
     let nextSourceY = sourceY
 
-    if (action === 'rotate') {
-      nextSourceX = oldSourceHeight - sourceY
-      nextSourceY = sourceX
-      object.rotate((object.angle + 90) % 360)
+    if (action === 'rotate' || action === 'rotate-left') {
+      if (action === 'rotate') {
+        nextSourceX = oldSourceHeight - sourceY
+        nextSourceY = sourceX
+        object.rotate((object.angle + 90) % 360)
+      } else {
+        nextSourceX = sourceY
+        nextSourceY = oldSourceWidth - sourceX
+        object.rotate((object.angle - 90) % 360)
+      }
     } else if (action === 'flip-horizontal') {
       nextSourceX = oldSourceWidth - sourceX
       object.set({
@@ -4931,6 +5068,7 @@ function transformWholeImage(action) {
   commitImageHistory()
   const label = {
     rotate: '顺时针旋转 90°',
+    'rotate-left': '逆时针旋转 90°',
     'flip-horizontal': '水平翻转',
     'flip-vertical': '垂直翻转'
   }[action]
@@ -4997,17 +5135,72 @@ function renderImagePanel() {
     imagePanelCopy.textContent = '点击“编辑”进入裁切与图像工具。'
   } else if (imageState.mode === 'crop') {
     imagePanelTitle.textContent = '裁切'
-    imagePanelCopy.textContent = '拖动并缩放选框，再裁切原图。'
+    imagePanelCopy.textContent = '裁切框固定居中；拖动图片选择保留区域。'
     imagePanelContent.innerHTML = `
       <div class="image-panel">
+        <label>比例
+          <select id="image-crop-aspect">
+            <option value="original">原图比例</option>
+            <option value="1">1 : 1</option>
+            <option value="1.333333">4 : 3</option>
+            <option value="1.777778">16 : 9</option>
+            <option value="free">窗口比例</option>
+          </select>
+        </label>
+        <label class="inline-value"><span>裁切范围</span><output id="image-crop-size-value">${imageState.cropSize}%</output></label>
+        <input id="image-crop-size" type="range" min="35" max="95" value="${imageState.cropSize}">
+        <label class="inline-value"><span>图片缩放</span><output id="image-crop-zoom-value">${imageState.cropZoom}%</output></label>
+        <input id="image-crop-zoom" type="range" min="100" max="300" value="${imageState.cropZoom}">
+        <label class="inline-value"><span>连续旋转</span><output id="image-crop-angle-value">${imageState.cropAngle}°</output></label>
+        <input id="image-crop-angle" type="range" min="-45" max="45" value="${imageState.cropAngle}">
         <div class="panel-actions">
-          <button class="gbtn" id="reset-image-crop" type="button">重置选框</button>
+          <button class="gbtn" id="crop-rotate-left" type="button">左转 90°</button>
+          <button class="gbtn" id="crop-rotate-right" type="button">右转 90°</button>
+          <button class="gbtn" id="crop-flip-horizontal" type="button">水平翻转</button>
+          <button class="gbtn" id="crop-flip-vertical" type="button">垂直翻转</button>
+          <button class="gbtn ghost" id="cancel-image-crop" type="button">取消</button>
           <button class="primary" id="apply-image-crop" type="button">应用裁切</button>
         </div>
       </div>
     `
-    imagePanelContent.querySelector('#reset-image-crop').addEventListener('click', () => {
-      if (ensureImageLoaded()) createCropSelection()
+    const aspect = imagePanelContent.querySelector('#image-crop-aspect')
+    aspect.value = imageState.cropAspect
+    aspect.addEventListener('change', () => {
+      imageState.cropAspect = aspect.value
+      createCropSelection()
+    })
+    imagePanelContent.querySelector('#image-crop-size').addEventListener('input', (event) => {
+      imageState.cropSize = Number(event.target.value)
+      imagePanelContent.querySelector('#image-crop-size-value').textContent = `${imageState.cropSize}%`
+      createCropSelection()
+    })
+    imagePanelContent.querySelector('#image-crop-zoom').addEventListener('input', (event) => {
+      imageState.cropZoom = Number(event.target.value)
+      imagePanelContent.querySelector('#image-crop-zoom-value').textContent = `${imageState.cropZoom}%`
+      prepareCropBaseImage()
+      imageCanvas.requestRenderAll()
+    })
+    imagePanelContent.querySelector('#image-crop-angle').addEventListener('input', (event) => {
+      imageState.cropAngle = Number(event.target.value)
+      imagePanelContent.querySelector('#image-crop-angle-value').textContent = `${imageState.cropAngle}°`
+      prepareCropBaseImage()
+      imageCanvas.requestRenderAll()
+    })
+    imagePanelContent.querySelector('#crop-rotate-left').addEventListener('click', () => {
+      transformWholeImage('rotate-left')
+      setImageMode('crop')
+    })
+    imagePanelContent.querySelector('#crop-rotate-right').addEventListener('click', () => {
+      transformWholeImage('rotate')
+      setImageMode('crop')
+    })
+    imagePanelContent.querySelector('#crop-flip-horizontal').addEventListener('click', () => transformWholeImage('flip-horizontal'))
+    imagePanelContent.querySelector('#crop-flip-vertical').addEventListener('click', () => transformWholeImage('flip-vertical'))
+    imagePanelContent.querySelector('#cancel-image-crop').addEventListener('click', () => {
+      const overlays = getOverlayObjects()
+      rebuildImageCanvas(overlays)
+      setImageMode('view')
+      setImageStatus('已取消裁切')
     })
     imagePanelContent.querySelector('#apply-image-crop').addEventListener('click', applyImageCrop)
   } else if (imageState.mode === 'transform') {
@@ -5211,6 +5404,10 @@ function renderImagePanel() {
 }
 
 function setImageMode(mode) {
+  const previousMode = imageState.mode
+  if (previousMode === 'crop' && mode !== 'crop' && imageState.cropBounds) {
+    rebuildImageCanvas(getOverlayObjects())
+  }
   imageState.mode = mode
   imageCanvas.isDrawingMode = false
   imageEditor.dataset.mode = mode
@@ -5296,64 +5493,48 @@ async function loadImageFile(file) {
 }
 
 function applyImageCrop() {
-  if (!ensureImageLoaded() || !imageState.cropRect) return
-  const canvasWidth = imageCanvas.getWidth()
-  const canvasHeight = imageCanvas.getHeight()
-  const left = Math.max(0, Math.min(canvasWidth - 1, imageState.cropRect.left))
-  const top = Math.max(0, Math.min(canvasHeight - 1, imageState.cropRect.top))
-  const selectionWidth = imageState.cropRect.width * Math.abs(imageState.cropRect.scaleX)
-  const selectionHeight = imageState.cropRect.height * Math.abs(imageState.cropRect.scaleY)
-  const width = Math.max(1, Math.min(canvasWidth - left, selectionWidth))
-  const height = Math.max(1, Math.min(canvasHeight - top, selectionHeight))
-
+  if (!ensureImageLoaded() || !imageState.cropBounds || !imageState.baseImage) return
+  if (!cropCoverageValid()) {
+    restoreCropBasePosition()
+    setImageStatus('图片未完全覆盖裁切框，请调整位置或缩放', true)
+    return
+  }
+  const { left, top, width, height } = imageState.cropBounds
   if (width < 12 || height < 12) {
     setImageStatus('裁切选区太小', true)
     return
   }
-
-  const sourceX = Math.round(left / canvasWidth * imageState.sourceWidth)
-  const sourceY = Math.round(top / canvasHeight * imageState.sourceHeight)
-  const sourceWidth = Math.max(1, Math.round(width / canvasWidth * imageState.sourceWidth))
-  const sourceHeight = Math.max(1, Math.round(height / canvasHeight * imageState.sourceHeight))
-  const croppedCanvas = document.createElement('canvas')
-  croppedCanvas.width = sourceWidth
-  croppedCanvas.height = sourceHeight
-  croppedCanvas.getContext('2d').drawImage(
-    imageState.sourceCanvas,
-    sourceX,
-    sourceY,
-    sourceWidth,
-    sourceHeight,
-    0,
-    0,
-    sourceWidth,
-    sourceHeight
-  )
-
-  const overlays = getOverlayObjects()
-  imageCanvas.remove(imageState.cropRect)
-  imageState.cropRect = null
-  imageState.sourceCanvas = croppedCanvas
-  imageState.sourceWidth = sourceWidth
-  imageState.sourceHeight = sourceHeight
-  const nextPreview = getImagePreviewSize()
-  const scaleX = nextPreview.width / width
-  const scaleY = nextPreview.height / height
-
-  overlays.forEach((object) => {
-    object.set({
-      left: (object.left - left) * scaleX,
-      top: (object.top - top) * scaleY,
-      scaleX: object.scaleX * scaleX,
-      scaleY: object.scaleY * scaleY
-    })
-    object.setCoords()
+  const cropObjects = imageCanvas.getObjects().filter((object) => object.dataRole === 'crop')
+  cropObjects.forEach((object) => {
+    object.visible = false
   })
-
-  rebuildImageCanvas(overlays)
-  createCropSelection()
+  imageCanvas.discardActiveObject()
+  imageCanvas.requestRenderAll()
+  const multiplier = 1 / Math.max(0.0001, Math.abs(imageState.baseImage.scaleX))
+  const croppedCanvas = imageCanvas.toCanvasElement(multiplier, {
+    left,
+    top,
+    width,
+    height
+  })
+  cropObjects.forEach((object) => {
+    object.visible = true
+  })
+  imageState.sourceCanvas = croppedCanvas
+  imageState.sourceWidth = croppedCanvas.width
+  imageState.sourceHeight = croppedCanvas.height
+  Object.assign(imageState.adjustments, {
+    brightness: 0,
+    contrast: 0,
+    saturation: 0,
+    pixelate: 1
+  })
+  imageState.cropAngle = 0
+  imageState.cropZoom = 100
+  rebuildImageCanvas()
+  setImageMode('view')
   commitImageHistory()
-  setImageStatus(`裁切完成：${sourceWidth} × ${sourceHeight} px`)
+  setImageStatus(`裁切完成：${croppedCanvas.width} × ${croppedCanvas.height} px`)
 }
 
 function canvasToBlob(canvas, type, quality) {
@@ -5636,7 +5817,17 @@ window.addEventListener('paste', (event) => {
 })
 
 imageCanvas.on('object:modified', (event) => {
-  if (event.target?.dataRole === 'overlay') commitImageHistory()
+  if (event.target === imageState.baseImage && imageState.mode === 'crop') {
+    if (cropCoverageValid()) rememberCropBasePosition()
+    else restoreCropBasePosition()
+  } else if (event.target?.dataRole === 'overlay') {
+    commitImageHistory()
+  }
+})
+imageCanvas.on('object:moving', (event) => {
+  if (event.target !== imageState.baseImage || imageState.mode !== 'crop') return
+  if (cropCoverageValid()) rememberCropBasePosition()
+  else restoreCropBasePosition()
 })
 imageCanvas.on('path:created', (event) => {
   if (!event.path || imageState.brushKind === 'eraser') return
