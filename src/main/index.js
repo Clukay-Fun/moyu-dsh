@@ -1943,6 +1943,7 @@ ipcMain.handle('format:run', async (event, payload) => {
       event.sender.send('format:progress', {
         taskId,
         status: 'running',
+        inputId: input.id,
         completed: index,
         total: inputs.length,
         fileProgress: 0,
@@ -1956,6 +1957,7 @@ ipcMain.handle('format:run', async (event, payload) => {
           event.sender.send('format:progress', {
             taskId,
             status: 'running',
+            inputId: input.id,
             completed: index,
             total: inputs.length,
             fileProgress: 1,
@@ -1977,6 +1979,7 @@ ipcMain.handle('format:run', async (event, payload) => {
               event.sender.send('format:progress', {
                 taskId,
                 status: 'running',
+                inputId: input.id,
                 completed: index,
                 total: inputs.length,
                 fileProgress,
@@ -2001,6 +2004,7 @@ ipcMain.handle('format:run', async (event, payload) => {
       event.sender.send('format:progress', {
         taskId,
         status: 'running',
+        inputId: input.id,
         completed: index + 1,
         total: inputs.length,
         fileProgress: 1,

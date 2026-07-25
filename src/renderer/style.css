@@ -2662,7 +2662,7 @@ input:focus-visible {
 .format-file-head,
 .format-file-item {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr) 80px 80px;
+  grid-template-columns: 42px minmax(0, 1fr) 72px minmax(90px, auto) 28px;
   gap: 8px;
   align-items: center;
 }
@@ -2722,13 +2722,49 @@ input:focus-visible {
   font-size: 10px;
 }
 
-.format-file-item .format-kind {
-  color: var(--accent);
-  text-transform: uppercase;
-}
-
 .format-file-item .format-size {
   text-align: right;
+}
+
+.format-file-status {
+  overflow: hidden;
+  color: var(--faint);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.format-file-status.busy {
+  color: var(--accent);
+}
+
+.format-file-status.success {
+  color: #3c9a5e;
+}
+
+.format-file-status.error {
+  color: #d7525b;
+  cursor: help;
+}
+
+.format-remove {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  color: var(--faint);
+  background: transparent;
+  cursor: pointer;
+}
+
+.format-remove:hover {
+  color: #d7525b;
+  background: rgba(215, 82, 91, 0.1);
+}
+
+.format-remove:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .format-file-panel > .empty {
@@ -2746,6 +2782,7 @@ input:focus-visible {
   flex-direction: column;
   gap: 14px;
   padding: 16px;
+  overflow: auto;
 }
 
 .format-action-copy {

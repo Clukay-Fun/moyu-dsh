@@ -781,6 +781,24 @@ async function getQpdfRunner() {
   return qpdfRunnerPromise
 }
 
+function qpdfErrorMessage(error, operation) {
+  const code = error?.code || 'QPDF_UNKNOWN'
+  if (code === 'QPDF_INIT_FAILED') {
+    return `${operation}失败：QPDF 加密组件未能载入（${code}）`
+  }
+  if (code === 'QPDF_TIMEOUT') {
+    return `${operation}失败：QPDF 处理超时（${code}）`
+  }
+  if (code === 'QPDF_OUTPUT_MISSING') {
+    return `${operation}失败：QPDF 未生成输出文件（${code}）`
+  }
+  if (code === 'QPDF_EXEC_FAILED') {
+    const detail = Array.isArray(error?.stderr) ? error.stderr.at(-1) : ''
+    return `${operation}失败：${detail || 'PDF 不受支持或口令不正确'}（${code}）`
+  }
+  return `${operation}失败：${error instanceof Error ? error.message : String(error)}（${code}）`
+}
+
 function validatePdfPassword(password, label) {
   const byteLength = new TextEncoder().encode(password).byteLength
   if (byteLength < 4) throw new Error(`${label}至少需要 4 个 UTF-8 字节`)
@@ -793,22 +811,27 @@ async function encryptPdfFile() {
   validatePdfPassword(password, '打开口令')
   if (password !== confirmation) throw new Error('两次输入的打开口令不一致')
 
-  const runner = await getQpdfRunner()
-  const ownerPassword = `${crypto.randomUUID()}-${crypto.randomUUID()}`
-  const data = await runner.runOne({
-    input: new Uint8Array(await state.pdfFiles[0].arrayBuffer()),
-    inputName: 'input.pdf',
-    outputName: 'encrypted.pdf',
-    args: [
-      '--encrypt',
-      password,
-      ownerPassword,
-      '256',
-      '--',
-      'input.pdf',
-      'encrypted.pdf'
-    ]
-  })
+  let data
+  try {
+    const runner = await getQpdfRunner()
+    const ownerPassword = `${crypto.randomUUID()}-${crypto.randomUUID()}`
+    data = await runner.runOne({
+      input: new Uint8Array(await state.pdfFiles[0].arrayBuffer()),
+      inputName: 'input.pdf',
+      outputName: 'encrypted.pdf',
+      args: [
+        '--encrypt',
+        password,
+        ownerPassword,
+        '256',
+        '--',
+        'input.pdf',
+        'encrypted.pdf'
+      ]
+    })
+  } catch (error) {
+    throw new Error(qpdfErrorMessage(error, '加密'))
+  }
   const result = await saveSinglePdfToolOutput(
     'pdf',
     `${pdfOutputBaseName(state.pdfFiles[0])}-encrypted`,
@@ -824,9 +847,10 @@ async function decryptPdfFile() {
     throw new Error('PDF 口令不能超过 127 个 UTF-8 字节')
   }
 
+  let data
   try {
     const runner = await getQpdfRunner()
-    const data = await runner.runOne({
+    data = await runner.runOne({
       input: new Uint8Array(await state.pdfFiles[0].arrayBuffer()),
       inputName: 'input.pdf',
       outputName: 'decrypted.pdf',
@@ -837,18 +861,15 @@ async function decryptPdfFile() {
         'decrypted.pdf'
       ]
     })
-    const result = await saveSinglePdfToolOutput(
-      'pdf',
-      `${pdfOutputBaseName(state.pdfFiles[0])}-decrypted`,
-      data
-    )
-    return result.status === 'saved' ? 'PDF 口令已移除' : '已取消保存'
   } catch (error) {
-    if (error?.code === 'QPDF_EXEC_FAILED') {
-      throw new Error('口令错误，或该 PDF 的加密方式不受支持')
-    }
-    throw error
+    throw new Error(qpdfErrorMessage(error, '解密'))
   }
+  const result = await saveSinglePdfToolOutput(
+    'pdf',
+    `${pdfOutputBaseName(state.pdfFiles[0])}-decrypted`,
+    data
+  )
+  return result.status === 'saved' ? 'PDF 口令已移除' : '已取消保存'
 }
 
 async function saveSinglePdfToolOutput(type, name, data) {
@@ -3596,6 +3617,8 @@ const formatRuntimeState = document.querySelector('#format-runtime-state')
 const formatState = {
   inputs: [],
   results: [],
+  progressByInput: new Map(),
+  errorsByInput: new Map(),
   busy: false,
   saving: false,
   taskId: '',
@@ -3624,22 +3647,45 @@ function renderFormatFiles() {
     const nameNode = document.createElement('span')
     const name = document.createElement('b')
     const detail = document.createElement('small')
-    const kind = document.createElement('span')
     const size = document.createElement('span')
+    const status = document.createElement('span')
+    const remove = document.createElement('button')
+    const error = formatState.errorsByInput.get(input.id)
+    const progress = formatState.progressByInput.get(input.id)
     row.className = 'format-file-item'
     indexNode.className = 'format-index'
     nameNode.className = 'format-name'
-    kind.className = 'format-kind'
     size.className = 'format-size'
+    status.className = 'format-file-status'
+    remove.className = 'format-remove'
+    remove.type = 'button'
+    remove.dataset.inputId = input.id
+    remove.setAttribute('aria-label', `移除 ${input.name}`)
+    remove.textContent = '×'
+    remove.disabled = formatState.busy
     indexNode.textContent = String(index + 1)
     name.textContent = input.name
-    detail.textContent = input.dimensions?.width
-      ? `${input.dimensions.width} × ${input.dimensions.height}${resultInputIds.has(input.id) ? ' · 已完成' : ''}`
-      : resultInputIds.has(input.id) ? '已完成' : '等待处理'
-    kind.textContent = input.name.split('.').at(-1) || input.kind
+    const inputDetail = input.dimensions?.width
+      ? `${input.dimensions.width} × ${input.dimensions.height}`
+      : (input.name.split('.').at(-1) || input.kind).toUpperCase()
+    detail.textContent = error || inputDetail
+    detail.title = error || ''
     size.textContent = formatSize(input.size)
+    if (error) {
+      status.textContent = '导出失败'
+      status.classList.add('error')
+      status.title = error
+    } else if (resultInputIds.has(input.id)) {
+      status.textContent = '已导出'
+      status.classList.add('success')
+    } else if (Number.isFinite(progress)) {
+      status.textContent = `转换中 ${Math.round(progress * 100)}%`
+      status.classList.add('busy')
+    } else {
+      status.textContent = '等待处理'
+    }
     nameNode.append(name, detail)
-    row.append(indexNode, nameNode, kind, size)
+    row.append(indexNode, nameNode, size, status, remove)
     fragment.append(row)
   })
   formatFileList.append(fragment)
@@ -3728,6 +3774,8 @@ function setFormatAction(action) {
   formatRunButton.textContent = config.runLabel
   if (previousKind !== config.kind && formatState.inputs.length) clearFormatInputs()
   formatState.results = []
+  formatState.progressByInput.clear()
+  formatState.errorsByInput.clear()
   formatProgressFill.style.width = '0'
   formatStatusText.textContent = formatState.inputs.length ? '准备就绪' : '添加文件后可开始'
   renderFormatOptions()
@@ -3751,6 +3799,8 @@ function addFormatInputs(files, replace = false) {
   }
   formatState.inputs.push(...accepted)
   formatState.results = []
+  formatState.progressByInput.clear()
+  formatState.errorsByInput.clear()
   formatStatusText.textContent = `已添加 ${formatState.inputs.length} 个文件`
   formatProgressFill.style.width = '0'
   renderFormatFiles()
@@ -3783,6 +3833,8 @@ async function clearFormatInputs() {
   const ids = formatState.inputs.map((input) => input.id)
   formatState.inputs = []
   formatState.results = []
+  formatState.progressByInput.clear()
+  formatState.errorsByInput.clear()
   formatState.taskId = ''
   formatProgressFill.style.width = '0'
   formatStatusText.textContent = '添加文件后可开始'
@@ -3804,6 +3856,8 @@ async function runFormatTask() {
   if (formatState.busy || !formatState.inputs.length) return
   formatState.busy = true
   formatState.results = []
+  formatState.progressByInput.clear()
+  formatState.errorsByInput.clear()
   formatState.taskId = crypto.randomUUID()
   formatRunButton.textContent = '处理中…'
   formatCancelButton.hidden = false
@@ -3821,6 +3875,9 @@ async function runFormatTask() {
       showToast('格式转换任务已取消')
     } else {
       formatState.results = response.results
+      response.errors.forEach((error) => {
+        formatState.errorsByInput.set(error.inputId, error.message)
+      })
       formatProgressFill.style.width = '100%'
       formatStatusText.textContent = response.errors.length
         ? `完成 ${response.results.length} 个，失败 ${response.errors.length} 个`
@@ -3893,12 +3950,27 @@ async function loadFormatRuntimeStatus() {
 document.querySelector('#format-pick-files').addEventListener('click', pickFormatFiles)
 document.querySelector('#format-pick-folder').addEventListener('click', pickFormatFolder)
 document.querySelector('#format-clear-inputs').addEventListener('click', clearFormatInputs)
+formatFileList.addEventListener('click', async (event) => {
+  const button = event.target.closest('.format-remove')
+  if (!button || formatState.busy) return
+  const inputId = button.dataset.inputId
+  formatState.inputs = formatState.inputs.filter((input) => input.id !== inputId)
+  formatState.results = formatState.results.filter((result) => result.inputId !== inputId)
+  formatState.progressByInput.delete(inputId)
+  formatState.errorsByInput.delete(inputId)
+  renderFormatFiles()
+  await window.api.removeFormatInputs([inputId]).catch(() => {})
+})
 formatRunButton.addEventListener('click', runFormatTask)
 formatCancelButton.addEventListener('click', cancelFormatTask)
 formatSaveButton.addEventListener('click', saveFormatResults)
 window.api.onFormatProgress((progress) => {
   if (progress.status === 'running' && progress.taskId === formatState.taskId) {
     const overall = (progress.completed + (progress.fileProgress || 0)) / Math.max(1, progress.total)
+    if (progress.inputId) {
+      formatState.progressByInput.set(progress.inputId, Math.min(1, progress.fileProgress || 0))
+      renderFormatFiles()
+    }
     formatProgressFill.style.width = `${Math.min(100, overall * 100)}%`
     formatStatusText.textContent = `正在处理 ${Math.min(progress.completed + 1, progress.total)} / ${progress.total}${progress.name ? ` · ${progress.name}` : ''}`
   } else if (progress.status === 'saving' && formatState.saving) {
@@ -4838,9 +4910,29 @@ window.addEventListener('resize', () => {
 
 function renderSearchResults(query) {
   const normalized = query.trim().toLowerCase()
-  state.searchMatches = normalized
-    ? searchFeatures.filter((feature) => feature.searchable.includes(normalized)).slice(0, 12)
-    : searchFeatures.slice(0, 8)
+  if (normalized) {
+    state.searchMatches = searchFeatures
+      .filter((feature) => feature.searchable.includes(normalized))
+      .sort((left, right) => {
+        const score = (feature) => {
+          const name = feature.name.toLowerCase()
+          const group = feature.group.toLowerCase()
+          if (name.startsWith(normalized)) return 0
+          if (name.includes(normalized)) return 1
+          if (group.includes(normalized)) return 2
+          return 3
+        }
+        return score(left) - score(right)
+      })
+      .slice(0, 24)
+  } else {
+    const seenGroups = new Set()
+    state.searchMatches = searchFeatures.filter((feature) => {
+      if (seenGroups.has(feature.group)) return false
+      seenGroups.add(feature.group)
+      return true
+    })
+  }
   state.activeSearchIndex = 0
 
   if (!state.searchMatches.length) {
@@ -4896,10 +4988,6 @@ function runSearchResult(index) {
   activateModule(feature.module, feature.action)
   searchInput.value = ''
   closeSearch()
-
-  if (['ai', 'video'].includes(feature.module)) {
-    showToast(`已定位“${feature.name}”，功能将在对应里程碑接入`)
-  }
 }
 
 function refreshActiveSearchResult() {
