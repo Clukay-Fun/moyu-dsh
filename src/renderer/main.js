@@ -1055,7 +1055,10 @@ function qpdfErrorMessage(error, operation) {
   }
   if (code === 'QPDF_EXEC_FAILED') {
     const detail = Array.isArray(error?.stderr) ? error.stderr.at(-1) : ''
-    return `${operation}失败：${detail || 'PDF 不受支持或口令不正确'}（${code}）`
+    const fallback = operation === '解密'
+      ? '口令错误，或该加密 PDF 不受支持'
+      : 'PDF 不受支持或内容已损坏'
+    return `${operation}失败：${detail || fallback}（${code}）`
   }
   return `${operation}失败：${error instanceof Error ? error.message : String(error)}（${code}）`
 }
