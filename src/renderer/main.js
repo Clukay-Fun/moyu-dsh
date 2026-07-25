@@ -4538,10 +4538,14 @@ async function loadFormatRuntimeStatus() {
     formatRuntimeState.classList.toggle('ready', ready)
     formatRuntimeState.classList.toggle('error', !ready)
     formatRuntimeState.lastChild.textContent = ready
-      ? formatConfig().kind === 'image' ? `sharp ${status.sharp.sharp}` : 'FFmpeg 6.1.1 就绪'
+      ? formatConfig().kind === 'image'
+        ? `sharp ${status.sharp.sharp}`
+        : `${status.ffmpegVersion || 'FFmpeg'} · 编码器就绪`
       : formatConfig().kind === 'image' ? 'sharp 未能加载' : status.ffmpegMessage
     document.querySelector('#format-engine-name').textContent =
-      formatConfig().kind === 'image' ? `sharp ${status.sharp?.sharp || ''}` : 'FFmpeg 6.1.1'
+      formatConfig().kind === 'image'
+        ? `sharp ${status.sharp?.sharp || ''}`
+        : (status.ffmpegVersion || 'FFmpeg')
     document.querySelector('#format-engine-status').textContent =
       ready ? '本地引擎可用' : '当前环境不可用'
     updateFormatControls()

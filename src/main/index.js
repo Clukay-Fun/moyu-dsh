@@ -528,6 +528,27 @@ function sanitizeProcessError(error, paths = []) {
   paths.filter(Boolean).forEach((filePath) => {
     message = message.replaceAll(filePath, basename(filePath))
   })
+  const normalized = message.toLowerCase()
+  if (normalized.includes('no space left on device') || normalized.includes('disk full')) {
+    return '磁盘空间不足，请清理输出磁盘后重试'
+  }
+  if (normalized.includes('permission denied') || normalized.includes('read-only file system')) {
+    return '没有写入权限，请更换输出位置'
+  }
+  if (normalized.includes('invalid data found') || normalized.includes('moov atom not found') ||
+      normalized.includes('error while decoding')) {
+    return '输入文件已损坏或编码格式无法读取'
+  }
+  if (normalized.includes('unknown encoder') || normalized.includes('encoder not found')) {
+    return '发布包缺少所需编码器，请重新安装完整版本'
+  }
+  if (normalized.includes('does not contain any stream') || normalized.includes('matches no streams') ||
+      normalized.includes('output file does not contain any stream')) {
+    return '输入文件没有可用的音轨'
+  }
+  if (normalized.includes('timed out') || normalized.includes('执行超时')) {
+    return '转换超时，请检查文件是否损坏或尝试较小文件'
+  }
   return message.slice(-2000)
 }
 
@@ -1816,6 +1837,8 @@ ipcMain.handle('format:get-status', async (event) => {
   assertMainWindowSender(event)
   let ffmpegReady = false
   let ffmpegMessage = ''
+  let ffmpegVersion = ''
+  let missingEncoders = []
   try {
     const [ffmpegPath, ffprobePath] = [
       getFormatToolPath('ffmpeg'),
@@ -1826,13 +1849,31 @@ ipcMain.handle('format:get-status', async (event) => {
       stat(ffprobePath).catch(() => null)
     ])
     ffmpegReady = Boolean(ffmpegInfo?.isFile() && ffprobeInfo?.isFile())
-    if (!ffmpegReady) ffmpegMessage = '请先执行 npm run build:tools:win'
+    if (!ffmpegReady) {
+      ffmpegMessage = '请先执行 npm run build:tools:win'
+    } else {
+      const [versionResult, encodersResult] = await Promise.all([
+        runFormatProcess(ffmpegPath, ['-version'], { timeoutMs: 5000 }),
+        runFormatProcess(ffmpegPath, ['-hide_banner', '-encoders'], { timeoutMs: 8000 })
+      ])
+      ffmpegVersion = versionResult.stdout.split(/\r?\n/, 1)[0].trim()
+      const requiredEncoders = ['libx264', 'libvpx-vp9', 'libopus', 'libmp3lame']
+      missingEncoders = requiredEncoders.filter((encoder) =>
+        !encodersResult.stdout.includes(encoder)
+      )
+      if (missingEncoders.length) {
+        ffmpegReady = false
+        ffmpegMessage = `FFmpeg 缺少编码器：${missingEncoders.join('、')}`
+      }
+    }
   } catch (error) {
     ffmpegMessage = error.message
   }
   return {
     ffmpegReady,
     ffmpegMessage,
+    ffmpegVersion,
+    missingEncoders,
     sharp: sharp.versions,
     platform: process.platform
   }
@@ -1975,6 +2016,9 @@ ipcMain.handle('format:run', async (event, payload) => {
           })
         } else {
           const sourceMetadata = await probeFormatMedia(input)
+          if (action === 'extract-audio' && !sourceMetadata.audioCodec) {
+            throw new Error('输入文件没有可用的音轨')
+          }
           let stderrBuffer = ''
           const args = buildFfmpegArgs(action, input, outputPath, payload?.options)
           await runFormatProcess(getFormatToolPath('ffmpeg'), args, {

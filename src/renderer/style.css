@@ -3256,9 +3256,21 @@ input:focus-visible {
   font-size: 10px;
 }
 
+.format-control-actions {
+  position: sticky;
+  bottom: -16px;
+  z-index: 2;
+  display: grid;
+  gap: 8px;
+  margin: auto -16px -16px;
+  padding: 12px 16px 16px;
+  border-top: 1px solid var(--hairline);
+  background: var(--card-thick);
+  backdrop-filter: blur(18px);
+}
+
 .format-run {
   width: 100%;
-  margin-top: auto;
 }
 
 .format-cancel {
@@ -3672,12 +3684,21 @@ input:focus-visible {
   }
 
   .format-control-panel {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
+    max-height: min(42vh, 360px);
   }
 
   .format-run {
     margin-top: 0;
+  }
+
+  .format-file-head,
+  .format-file-item {
+    grid-template-columns: 34px minmax(0, 1fr) minmax(84px, auto) 28px;
+  }
+
+  .format-file-head .cell-meta,
+  .format-file-item .format-size {
+    display: none;
   }
 
   .format-result-bar {
