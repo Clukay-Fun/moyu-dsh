@@ -83,9 +83,109 @@
                     <small>点击上传，或将文件拖到这里</small>
                   </div>
                 </div>
+                <div class="pdf-watermark-workbench" id="pdf-watermark-workbench" hidden>
+                  <aside class="glass-card pdf-watermark-controls">
+                    <section>
+                      <h3>来源</h3>
+                      <div class="pdf-watermark-file-list" id="pdf-watermark-file-list"></div>
+                    </section>
+                    <section id="pdf-watermark-source-controls">
+                      <label>水印文本
+                        <input id="pdf-watermark-text" type="text" value="摸鱼工具箱" maxlength="80" />
+                      </label>
+                      <label>字体
+                        <select id="pdf-watermark-font">
+                          <option value="Microsoft YaHei UI">微软雅黑</option>
+                          <option value="SimSun">宋体</option>
+                          <option value="Segoe UI">Segoe UI</option>
+                        </select>
+                      </label>
+                      <label>字号
+                        <input id="pdf-watermark-font-size" type="number" min="12" max="160" value="42" />
+                      </label>
+                      <button class="gbtn" id="pdf-watermark-image-button" type="button" hidden>选择水印图片</button>
+                      <input id="pdf-watermark-image-input" type="file" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" hidden />
+                      <span class="pdf-option-status" id="pdf-watermark-image-name" hidden>尚未选择图片</span>
+                    </section>
+                    <section>
+                      <h3>外观</h3>
+                      <label>旋转
+                        <select id="pdf-watermark-rotation">
+                          <option value="45">45°</option>
+                          <option value="0">水平</option>
+                          <option value="-45">-45°</option>
+                          <option value="custom">自定义</option>
+                        </select>
+                      </label>
+                      <label id="pdf-watermark-custom-rotation-wrap" hidden>自定义角度
+                        <input id="pdf-watermark-custom-rotation" type="number" min="-180" max="180" value="30" />
+                      </label>
+                      <label class="pdf-watermark-range">透明度 <output id="pdf-watermark-opacity-value">28%</output>
+                        <input id="pdf-watermark-opacity" type="range" min="5" max="100" value="28" />
+                        <input id="pdf-watermark-opacity-number" type="number" min="5" max="100" value="28" />
+                      </label>
+                      <label>多行水印
+                        <select id="pdf-watermark-density">
+                          <option value="2">一页两行</option>
+                          <option value="3">一页三行</option>
+                          <option value="6" selected>一页六行</option>
+                          <option value="8">一页八行</option>
+                          <option value="12">一页十二行</option>
+                        </select>
+                      </label>
+                    </section>
+                    <section>
+                      <h3>位置</h3>
+                      <label>垂直对齐
+                        <select id="pdf-watermark-vertical">
+                          <option value="top">顶部</option>
+                          <option value="center" selected>居中</option>
+                          <option value="bottom">底部</option>
+                        </select>
+                      </label>
+                      <label>垂直偏移
+                        <input id="pdf-watermark-offset-y" type="number" min="-500" max="500" value="0" />
+                      </label>
+                      <label>水平对齐
+                        <select id="pdf-watermark-horizontal">
+                          <option value="left">左侧</option>
+                          <option value="center" selected>居中</option>
+                          <option value="right">右侧</option>
+                        </select>
+                      </label>
+                      <label>水平偏移
+                        <input id="pdf-watermark-offset-x" type="number" min="-500" max="500" value="0" />
+                      </label>
+                      <label>应用于
+                        <select id="pdf-watermark-pages">
+                          <option value="all">全部页面</option>
+                          <option value="odd">奇数页</option>
+                          <option value="even">偶数页</option>
+                        </select>
+                      </label>
+                    </section>
+                  </aside>
+                  <section class="glass-card pdf-watermark-preview-card">
+                    <header>
+                      <b>水印预览</b>
+                      <span id="pdf-watermark-preview-label">添加 PDF 后显示第一页</span>
+                    </header>
+                    <div class="pdf-watermark-preview-stage">
+                      <canvas id="pdf-watermark-preview"></canvas>
+                      <div class="empty" id="pdf-watermark-preview-empty">添加 PDF 后显示预览</div>
+                    </div>
+                    <footer class="pdf-watermark-preview-nav">
+                      <button class="gbtn" id="pdf-watermark-previous-page" type="button">上一页</button>
+                      <span id="pdf-watermark-page-status">第 0 / 0 页</span>
+                      <button class="gbtn" id="pdf-watermark-next-page" type="button">下一页</button>
+                    </footer>
+                  </section>
+                </div>
                 <div class="glass-card result">
                   <span class="result-dot" id="pdf-result-dot"></span>
                   <span id="pdf-result-text">添加文件后即可处理</span>
+                  <button class="gbtn pdf-output-picker" id="choose-pdf-output" type="button">选择输出位置</button>
+                  <span class="pdf-output-path" id="pdf-output-path">尚未选择</span>
                   <button class="primary" id="run-pdf-action" type="button" disabled>开始转 PNG</button>
                   <button class="gbtn open" id="open-pdf-output" type="button" disabled>打开所在位置</button>
                 </div>
@@ -509,10 +609,22 @@
             </div>
             <div class="pdf-page-dialog-actions">
               <button class="gbtn" id="pdf-insert-pages" type="button">＋ 插入 PDF</button>
-              <button class="gbtn" id="pdf-close-page-organizer" type="button">完成</button>
+              <button class="gbtn" id="pdf-select-all-pages" type="button">全选</button>
+              <button class="gbtn" id="pdf-delete-selected-pages" type="button">删除所选</button>
+              <button class="gbtn" id="pdf-reset-pages" type="button">恢复</button>
             </div>
           </header>
           <div class="pdf-page-grid" id="pdf-page-grid"></div>
+          <footer class="pdf-page-dialog-footer">
+            <div class="pdf-page-output">
+              <button class="gbtn" id="pdf-page-choose-output" type="button">选择保存位置</button>
+              <span id="pdf-page-output-path">尚未选择</span>
+            </div>
+            <div class="pdf-page-dialog-actions">
+              <button class="gbtn ghost" id="pdf-cancel-page-organizer" type="button">取消</button>
+              <button class="primary-btn" id="pdf-save-page-organizer" type="button">保存新 PDF</button>
+            </div>
+          </footer>
         </section>
       </div>
 

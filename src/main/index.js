@@ -93,6 +93,7 @@ const formatResultSessions = new Map()
 const formatTasks = new Map()
 const illustratorInputSessions = new Map()
 const officeInputSessions = new Map()
+const pdfOutputSessions = new Map()
 const comResultSessions = new Map()
 const activeIllustratorTasks = new Map()
 const comPendingRequests = new Map()
@@ -354,6 +355,14 @@ function registerComResult(ownerId, filePath) {
     name: basename(filePath)
   })
   return { id, name: basename(filePath) }
+}
+
+function getPdfOutputSession(event, sessionId, mode) {
+  const session = pdfOutputSessions.get(sessionId)
+  if (!session || session.ownerId !== event.sender.id || session.mode !== mode) {
+    throw new Error('PDF 输出位置会话不存在、已失效或类型不匹配')
+  }
+  return session
 }
 
 function illustratorSession(event, inputId) {
@@ -1293,14 +1302,15 @@ ipcMain.handle('office:pick-file', async (event, kind) => {
   return { id, name: basename(filePath), size: info.size, kind }
 })
 
-ipcMain.handle('office:to-pdf', async (event, inputId) => {
+ipcMain.handle('office:to-pdf', async (event, payload) => {
   assertMainWindowSender(event)
+  const inputId = payload?.inputId
   const input = officeInputSessions.get(inputId)
   if (!input || input.ownerId !== event.sender.id) {
     throw new Error('Office 文件会话不存在或无权访问')
   }
-  const baseName = basename(input.path, extname(input.path))
-  const outputPath = await availableOutputPath(dirname(input.path), baseName, 'pdf')
+  const destination = getPdfOutputSession(event, payload?.destinationId, 'file')
+  const outputPath = destination.path
   await runComCommand(event, 'office-to-pdf', {
     kind: input.kind,
     inputPath: input.path,
@@ -2078,7 +2088,44 @@ ipcMain.handle('format:save-results', async (event, resultIds) => {
   return { status: 'saved', saved: results.length, directory }
 })
 
+ipcMain.handle('pdf:choose-output', async (event, payload) => {
+  assertMainWindowSender(event)
+  const mode = payload?.mode === 'directory' ? 'directory' : 'file'
+  const ownerWindow = BrowserWindow.fromWebContents(event.sender)
+  let outputPath
+
+  if (mode === 'directory') {
+    const result = await dialog.showOpenDialog(ownerWindow, {
+      title: '选择 PDF 工具输出文件夹',
+      properties: ['openDirectory', 'createDirectory', 'promptToCreate']
+    })
+    if (result.canceled || !result.filePaths[0]) return { status: 'cancelled' }
+    outputPath = result.filePaths[0]
+  } else {
+    const fileType = PDF_OUTPUT_TYPES[payload?.type]
+    if (!fileType) throw new Error('不支持的 PDF 输出类型')
+    const safeBaseName = sanitizeFileBaseName(payload?.name, 'pdf-output')
+    const result = await dialog.showSaveDialog(ownerWindow, {
+      title: `选择 ${fileType.filterName} 输出位置`,
+      defaultPath: `${safeBaseName}.${fileType.extension}`,
+      filters: [{ name: fileType.filterName, extensions: [fileType.extension] }]
+    })
+    if (result.canceled || !result.filePath) return { status: 'cancelled' }
+    outputPath = result.filePath
+  }
+
+  const id = randomUUID()
+  pdfOutputSessions.set(id, {
+    id,
+    ownerId: event.sender.id,
+    mode,
+    path: outputPath
+  })
+  return { status: 'selected', id, mode, path: outputPath }
+})
+
 ipcMain.handle('pdf:save-file', async (event, payload) => {
+  assertMainWindowSender(event)
   const fileType = PDF_OUTPUT_TYPES[payload?.type]
   const data = payload?.data instanceof Uint8Array
     ? Buffer.from(payload.data)
@@ -2092,28 +2139,13 @@ ipcMain.handle('pdf:save-file', async (event, payload) => {
     throw new Error('输出文件超过 500 MB，已拒绝保存')
   }
 
-  const safeBaseName = sanitizeFileBaseName(payload.name, 'pdf-output')
-  const ownerWindow = BrowserWindow.fromWebContents(event.sender)
-  const result = await dialog.showSaveDialog(ownerWindow, {
-    title: `保存 ${fileType.filterName}`,
-    defaultPath: `${safeBaseName}.${fileType.extension}`,
-    filters: [
-      {
-        name: fileType.filterName,
-        extensions: [fileType.extension]
-      }
-    ]
-  })
-
-  if (result.canceled || !result.filePath) {
-    return { status: 'cancelled' }
-  }
-
-  await writeFile(result.filePath, data)
-  return { status: 'saved', path: result.filePath }
+  const destination = getPdfOutputSession(event, payload?.destinationId, 'file')
+  await writeFile(destination.path, data)
+  return { status: 'saved', path: destination.path }
 })
 
 ipcMain.handle('pdf:save-files', async (event, payload) => {
+  assertMainWindowSender(event)
   const fileType = PDF_OUTPUT_TYPES[payload?.type]
 
   if (
@@ -2141,17 +2173,8 @@ ipcMain.handle('pdf:save-files', async (event, payload) => {
     throw new Error('PDF 批量输出总大小超过 500 MB，已拒绝保存')
   }
 
-  const ownerWindow = BrowserWindow.fromWebContents(event.sender)
-  const result = await dialog.showOpenDialog(ownerWindow, {
-    title: '选择 PDF 工具输出文件夹',
-    properties: ['openDirectory', 'createDirectory', 'promptToCreate']
-  })
-
-  if (result.canceled || !result.filePaths[0]) {
-    return { status: 'cancelled', saved: 0 }
-  }
-
-  const directory = result.filePaths[0]
+  const destination = getPdfOutputSession(event, payload?.destinationId, 'directory')
+  const directory = destination.path
   const usedNames = new Map()
 
   for (const [index, file] of normalizedFiles.entries()) {
@@ -2159,7 +2182,8 @@ ipcMain.handle('pdf:save-files', async (event, payload) => {
     const occurrence = (usedNames.get(nameKey) || 0) + 1
     usedNames.set(nameKey, occurrence)
     const uniqueName = occurrence === 1 ? file.name : `${file.name}-${occurrence}`
-    await writeFile(join(directory, `${uniqueName}.${fileType.extension}`), file.data)
+    const outputPath = await availableOutputPath(directory, uniqueName, fileType.extension)
+    await writeFile(outputPath, file.data)
     event.sender.send('pdf:save-progress', {
       completed: index + 1,
       total: normalizedFiles.length,
