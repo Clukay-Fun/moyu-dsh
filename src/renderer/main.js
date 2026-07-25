@@ -4860,6 +4860,74 @@ function createAdjustedImageCanvas(source, width = source.width, height = source
   return canvas
 }
 
+function createPixelatedPreviewCanvas(blockSize) {
+  const width = imageCanvas.getWidth()
+  const height = imageCanvas.getHeight()
+  const adjusted = createAdjustedImageCanvas(imageState.sourceCanvas, width, height)
+  const small = document.createElement('canvas')
+  small.width = Math.max(1, Math.ceil(width / blockSize))
+  small.height = Math.max(1, Math.ceil(height / blockSize))
+  small.getContext('2d').drawImage(adjusted, 0, 0, small.width, small.height)
+  const pixelated = document.createElement('canvas')
+  pixelated.width = width
+  pixelated.height = height
+  const context = pixelated.getContext('2d')
+  context.imageSmoothingEnabled = false
+  context.drawImage(small, 0, 0, width, height)
+  return pixelated
+}
+
+function replacePathWithMosaic(path) {
+  const bounds = path.getBoundingRect(true, true)
+  const left = Math.max(0, Math.floor(bounds.left))
+  const top = Math.max(0, Math.floor(bounds.top))
+  const right = Math.min(imageCanvas.getWidth(), Math.ceil(bounds.left + bounds.width))
+  const bottom = Math.min(imageCanvas.getHeight(), Math.ceil(bounds.top + bounds.height))
+  if (right <= left || bottom <= top) {
+    imageCanvas.remove(path)
+    return
+  }
+  const full = createPixelatedPreviewCanvas(Math.max(4, Math.round(imageState.brushSize / 2)))
+  const mask = document.createElement('canvas')
+  mask.width = imageCanvas.getWidth()
+  mask.height = imageCanvas.getHeight()
+  const maskContext = mask.getContext('2d')
+  maskContext.drawImage(full, 0, 0)
+  maskContext.globalCompositeOperation = 'destination-in'
+  const pathCanvas = path.toCanvasElement()
+  maskContext.drawImage(pathCanvas, bounds.left, bounds.top, bounds.width, bounds.height)
+  const cropped = document.createElement('canvas')
+  cropped.width = right - left
+  cropped.height = bottom - top
+  cropped.getContext('2d').drawImage(
+    mask,
+    left,
+    top,
+    cropped.width,
+    cropped.height,
+    0,
+    0,
+    cropped.width,
+    cropped.height
+  )
+  const mosaic = new fabric.Image(cropped, {
+    left,
+    top,
+    padding: 4,
+    cornerColor: '#ffffff',
+    cornerStrokeColor: '#6978e6',
+    transparentCorners: false,
+    dataRole: 'overlay',
+    overlayType: 'mosaic',
+    erasable: true
+  })
+  imageCanvas.remove(path)
+  imageCanvas.add(mosaic)
+  imageCanvas.setActiveObject(mosaic)
+  imageCanvas.requestRenderAll()
+  setImageStatus('局部马赛克已生成，可移动、缩放或删除')
+}
+
 function rebuildImageCanvas(overlays = []) {
   if (!imageState.sourceCanvas) return
 
@@ -5183,7 +5251,9 @@ async function configureImageBrush(kind = imageState.brushKind) {
     brush.width = kind === 'highlight' ? imageState.brushSize * 2 : imageState.brushSize
     brush.color = kind === 'highlight'
       ? 'rgba(255, 218, 72, 0.38)'
-      : '#20242f'
+      : kind === 'mosaic'
+        ? 'rgba(105, 120, 230, 0.38)'
+        : '#20242f'
     imageCanvas.freeDrawingBrush = brush
   }
 
@@ -5366,37 +5436,14 @@ function renderImagePanel() {
     })
   } else if (imageState.mode === 'draw') {
     imagePanelTitle.textContent = '涂鸦'
-    imagePanelCopy.textContent = '黑笔与荧光笔绘制编辑层；橡皮擦只擦编辑对象，不擦底图。'
+    imagePanelCopy.textContent = '画笔位于底部；退出绘制后可选择、移动、缩放或删除笔迹。'
     imagePanelContent.innerHTML = `
       <div class="image-panel">
-        <div class="brush-choice" id="image-brush-choice">
-          <button type="button" data-brush="pen">黑笔</button>
-          <button type="button" data-brush="highlight">荧光笔</button>
-          <button type="button" data-brush="eraser">橡皮擦</button>
-        </div>
         <label class="inline-value"><span>画笔大小</span><output id="image-brush-size-value">${imageState.brushSize}</output></label>
         <input id="image-brush-size" type="range" min="2" max="60" value="${imageState.brushSize}">
       </div>
     `
-    const brushChoice = imagePanelContent.querySelector('#image-brush-choice')
     const brushSize = imagePanelContent.querySelector('#image-brush-size')
-    brushChoice.querySelectorAll('[data-brush]').forEach((button) => {
-      button.classList.toggle('on', button.dataset.brush === imageState.brushKind)
-    })
-    brushChoice.addEventListener('click', async (event) => {
-      const button = event.target.closest('[data-brush]')
-      if (!button) return
-      brushChoice.querySelectorAll('[data-brush]').forEach((option) => {
-        option.classList.toggle('on', option === button)
-      })
-
-      try {
-        await configureImageBrush(button.dataset.brush)
-        setImageStatus(`${button.textContent}已启用`)
-      } catch {
-        setImageStatus('橡皮擦组件载入失败', true)
-      }
-    })
     brushSize.addEventListener('input', () => {
       imageState.brushSize = Number(brushSize.value)
       imagePanelContent.querySelector('#image-brush-size-value').textContent = brushSize.value
@@ -5505,6 +5552,11 @@ function setImageMode(mode) {
   }[mode] || '图片编辑'
   document.querySelectorAll('.image-tool').forEach((button) => {
     button.classList.toggle('on', button.dataset.imageMode === mode)
+  })
+  const drawTools = document.querySelector('#image-draw-tools')
+  drawTools.hidden = mode !== 'draw'
+  drawTools.querySelectorAll('[data-brush]').forEach((button) => {
+    button.classList.toggle('on', button.dataset.brush === imageState.brushKind)
   })
 
   imageStage.style.transform = mode === 'view' ? `scale(${imageState.viewZoom})` : 'scale(1)'
@@ -5939,6 +5991,16 @@ window.addEventListener('paste', (event) => {
   const file = Array.from(event.clipboardData?.files || []).find((item) => item.type.startsWith('image/'))
   if (file) loadImageFile(file)
 })
+window.addEventListener('keydown', (event) => {
+  if (state.module !== 'image' || !['Delete', 'Backspace'].includes(event.key)) return
+  const active = imageCanvas.getActiveObject()
+  if (!active || active.dataRole !== 'overlay') return
+  event.preventDefault()
+  imageCanvas.remove(active)
+  imageCanvas.requestRenderAll()
+  commitImageHistory()
+  setImageStatus('已删除选中的编辑对象')
+})
 
 imageCanvas.on('object:modified', (event) => {
   if (event.target === imageState.baseImage && imageState.mode === 'crop') {
@@ -5955,6 +6017,11 @@ imageCanvas.on('object:moving', (event) => {
 })
 imageCanvas.on('path:created', (event) => {
   if (!event.path || imageState.brushKind === 'eraser') return
+  if (imageState.brushKind === 'mosaic') {
+    replacePathWithMosaic(event.path)
+    commitImageHistory()
+    return
+  }
   event.path.set({
     dataRole: 'overlay',
     overlayType: imageState.brushKind,
@@ -5965,6 +6032,19 @@ imageCanvas.on('path:created', (event) => {
 })
 imageCanvas.on('erasing:end', () => {
   window.setTimeout(commitImageHistory, 0)
+})
+document.querySelector('#image-draw-tools').addEventListener('click', async (event) => {
+  const button = event.target.closest('[data-brush]')
+  if (!button) return
+  document.querySelectorAll('#image-draw-tools [data-brush]').forEach((option) => {
+    option.classList.toggle('on', option === button)
+  })
+  try {
+    await configureImageBrush(button.dataset.brush)
+    setImageStatus(`${button.getAttribute('aria-label')}已启用`)
+  } catch {
+    setImageStatus('画笔组件载入失败', true)
+  }
 })
 
 let imageResizeTimer

@@ -2000,6 +2000,35 @@ input:focus-visible {
   gap: 9px;
 }
 
+.image-draw-tools {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.image-draw-tools[hidden] {
+  display: none;
+}
+
+.image-draw-tools button {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  color: var(--muted);
+  background: var(--card-thin);
+  cursor: pointer;
+}
+
+.image-draw-tools button:hover,
+.image-draw-tools button.on {
+  border-color: var(--accent-28);
+  color: var(--accent);
+  background: var(--accent-10);
+}
+
 .image-view-zoom output {
   min-width: 42px;
   color: var(--muted);
