@@ -293,11 +293,13 @@
 
               <section class="page" id="page-image">
                 <div class="crumb">图片 › <b id="image-crumb">裁切</b></div>
-                <div class="image-editor" id="image-editor" data-mode="crop">
+                <div class="image-editor" id="image-editor" data-mode="view">
                   <div class="image-topbar">
                     <button class="image-back" id="clear-image" type="button" aria-label="关闭当前图片">‹</button>
                     <span class="image-filename" id="image-filename">尚未添加图片</span>
-                    <div class="image-zoom">预览 <span id="image-zoom">100%</span></div>
+                    <button class="gbtn compact" id="edit-image" type="button">编辑</button>
+                    <button class="gbtn compact" id="rotate-view-image" type="button">旋转</button>
+                    <button class="gbtn compact" id="delete-image" type="button">删除</button>
                     <div class="image-history" aria-label="图片编辑历史">
                       <button id="undo-image" type="button" aria-label="撤销" data-name="撤销">↶</button>
                       <button id="redo-image" type="button" aria-label="重做" data-name="重做">↷</button>
@@ -310,7 +312,14 @@
                       <button class="image-tool" type="button" data-image-mode="adjust" data-name="调色与马赛克">☼</button>
                       <button class="image-tool" type="button" data-image-mode="export" data-name="导出">⇩</button>
                     </div>
-                    <button class="image-save" id="quick-save-image" type="button">保存 PNG</button>
+                    <div class="image-more-wrap">
+                      <button class="image-save" id="image-more" type="button">其他</button>
+                      <div class="image-more-menu" id="image-more-menu" hidden>
+                        <button id="quick-save-image" type="button">另存为 PNG</button>
+                        <button id="copy-image" type="button">复制图片</button>
+                        <button id="resize-image" type="button">调整图像大小</button>
+                      </div>
+                    </div>
                     <button class="image-cancel" id="open-image" type="button">打开图片</button>
                   </div>
                   <div class="image-body">
@@ -331,10 +340,36 @@
                     </aside>
                   </div>
                   <div class="image-bottom">
-                    <span id="image-dimensions">尚未载入图片</span><b id="image-status">支持拖拽与剪贴板粘贴</b>
+                    <span id="image-dimensions">尚未载入图片</span>
+                    <b id="image-status">支持拖拽与剪贴板粘贴</b>
+                    <div class="image-view-zoom">
+                      <output id="image-zoom">100%</output>
+                      <input id="image-zoom-range" type="range" min="25" max="300" value="100" />
+                    </div>
                   </div>
                 </div>
                 <input id="image-file-input" type="file" accept="image/png,image/jpeg,image/webp" hidden />
+                <div class="modal-layer" id="image-resize-dialog" hidden>
+                  <section class="glass-card image-resize-dialog" role="dialog" aria-modal="true" aria-labelledby="image-resize-title">
+                    <header><b id="image-resize-title">调整图像大小</b></header>
+                    <div class="image-resize-fields">
+                      <label>宽度（px）<input id="image-resize-width" type="number" min="1" max="30000" /></label>
+                      <label>高度（px）<input id="image-resize-height" type="number" min="1" max="30000" /></label>
+                      <label class="toggle-wrap"><input id="image-resize-ratio" type="checkbox" checked /><span class="toggle"></span>保持比例</label>
+                      <label>文件类型
+                        <select id="image-resize-format"><option value="png">PNG</option><option value="jpeg">JPG</option><option value="tiff">TIFF</option></select>
+                      </label>
+                      <label>质量 <output id="image-resize-quality-value">90%</output>
+                        <input id="image-resize-quality" type="range" min="30" max="100" value="90" />
+                      </label>
+                      <p id="image-resize-summary">尚未载入图片</p>
+                    </div>
+                    <footer>
+                      <button class="gbtn ghost" id="cancel-image-resize" type="button">取消</button>
+                      <button class="primary-btn" id="save-image-resize" type="button">保存</button>
+                    </footer>
+                  </section>
+                </div>
               </section>
 
               <section class="page" id="page-aimg">

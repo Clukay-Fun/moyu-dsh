@@ -4591,6 +4591,7 @@ const imageFileName = document.querySelector('#image-filename')
 const imageDimensions = document.querySelector('#image-dimensions')
 const imageStatus = document.querySelector('#image-status')
 const imageZoom = document.querySelector('#image-zoom')
+const imageZoomRange = document.querySelector('#image-zoom-range')
 const imagePanelTitle = document.querySelector('#image-panel-title')
 const imagePanelCopy = document.querySelector('#image-panel-copy')
 const imagePanelContent = document.querySelector('#image-panel-content')
@@ -4608,7 +4609,8 @@ const imageState = {
   sourceHeight: 0,
   baseImage: null,
   cropRect: null,
-  mode: 'crop',
+  mode: 'view',
+  viewZoom: 1,
   format: 'png',
   quality: 0.9,
   exporting: false,
@@ -4738,6 +4740,15 @@ function getImagePreviewSize(width = imageState.sourceWidth, height = imageState
   }
 }
 
+function updateImageViewZoom() {
+  const percent = Math.round(imageState.viewZoom * 100)
+  imageZoom.textContent = `${percent}%`
+  imageZoomRange.value = String(percent)
+  if (imageState.mode === 'view') {
+    imageStage.style.transform = `scale(${imageState.viewZoom})`
+  }
+}
+
 function removeCropSelection() {
   if (!imageState.cropRect) return
   imageCanvas.remove(imageState.cropRect)
@@ -4773,7 +4784,7 @@ function rebuildImageCanvas(overlays = []) {
   imageCanvas.requestRenderAll()
   imageStage.classList.add('ready')
   imageEmpty.classList.add('hidden')
-  imageZoom.textContent = `${Math.round(preview.scale * 100)}%`
+  updateImageViewZoom()
   imageDimensions.textContent = `${imageState.sourceWidth} × ${imageState.sourceHeight} px`
   quickSaveImageButton.disabled = false
 }
@@ -4981,7 +4992,10 @@ function applyImageAdjustments(render = true) {
 function renderImagePanel() {
   imagePanelContent.replaceChildren()
 
-  if (imageState.mode === 'crop') {
+  if (imageState.mode === 'view') {
+    imagePanelTitle.textContent = '图片查看'
+    imagePanelCopy.textContent = '点击“编辑”进入裁切与图像工具。'
+  } else if (imageState.mode === 'crop') {
     imagePanelTitle.textContent = '裁切'
     imagePanelCopy.textContent = '拖动并缩放选框，再裁切原图。'
     imagePanelContent.innerHTML = `
@@ -5201,6 +5215,7 @@ function setImageMode(mode) {
   imageCanvas.isDrawingMode = false
   imageEditor.dataset.mode = mode
   document.querySelector('#image-crumb').textContent = {
+    view: '查看',
     crop: '裁切',
     transform: '旋转与翻转',
     watermark: '文字水印',
@@ -5212,6 +5227,8 @@ function setImageMode(mode) {
     button.classList.toggle('on', button.dataset.imageMode === mode)
   })
 
+  imageStage.style.transform = mode === 'view' ? `scale(${imageState.viewZoom})` : 'scale(1)'
+  imageStage.style.transformOrigin = 'center'
   if (mode === 'crop') {
     if (imageState.sourceCanvas) createCropSelection()
   } else {
@@ -5265,10 +5282,12 @@ async function loadImageFile(file) {
     imageState.fileName = file.name || 'pasted-image.png'
     imageFileName.textContent = imageState.fileName
     rebuildImageCanvas()
-    setImageMode('crop')
+    imageState.viewZoom = 1
+    imageZoomRange.value = '100'
+    setImageMode('view')
     resetImageHistory()
     commitImageHistory()
-    setImageStatus('图片已载入；支持拖拽、缩放选框')
+    setImageStatus('图片已载入；点击“编辑”进入图片工具')
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error)
     setImageStatus(`图片载入失败：${reason}`, true)
@@ -5346,6 +5365,21 @@ function canvasToBlob(canvas, type, quality) {
   })
 }
 
+function renderEditedImageCanvas(format = 'png') {
+  const multiplier = imageState.sourceWidth / imageCanvas.getWidth()
+  const rendered = imageCanvas.toCanvasElement(multiplier)
+  const output = document.createElement('canvas')
+  output.width = imageState.sourceWidth
+  output.height = imageState.sourceHeight
+  const context = output.getContext('2d')
+  if (format === 'jpeg') {
+    context.fillStyle = '#ffffff'
+    context.fillRect(0, 0, output.width, output.height)
+  }
+  context.drawImage(rendered, 0, 0, output.width, output.height)
+  return output
+}
+
 async function exportEditedImage(format = 'png', triggerButton = null) {
   if (!ensureImageLoaded() || imageState.exporting) return
   imageState.exporting = true
@@ -5358,19 +5392,7 @@ async function exportEditedImage(format = 'png', triggerButton = null) {
   setImageStatus('正在生成导出图片…')
 
   try {
-    const multiplier = imageState.sourceWidth / imageCanvas.getWidth()
-    const rendered = imageCanvas.toCanvasElement(multiplier)
-    const output = document.createElement('canvas')
-    output.width = imageState.sourceWidth
-    output.height = imageState.sourceHeight
-    const context = output.getContext('2d')
-
-    if (format === 'jpeg') {
-      context.fillStyle = '#ffffff'
-      context.fillRect(0, 0, output.width, output.height)
-    }
-    context.drawImage(rendered, 0, 0, output.width, output.height)
-
+    const output = renderEditedImageCanvas(format)
     const encodedFormat = format === 'tiff' ? 'png' : format
     const mimeType = {
       png: 'image/png',
@@ -5415,6 +5437,8 @@ function clearImageEditor() {
     sourceHeight: 0,
     baseImage: null,
     cropRect: null,
+    mode: 'view',
+    viewZoom: 1,
     exporting: false,
     fileName: 'edited-image.png'
   })
@@ -5427,11 +5451,15 @@ function clearImageEditor() {
   })
   resetImageHistory()
   imageStage.classList.remove('ready')
+  imageStage.style.transform = 'scale(1)'
   imageEmpty.classList.remove('hidden')
   imageFileName.textContent = '尚未添加图片'
   imageDimensions.textContent = '尚未载入图片'
   setImageStatus('支持拖拽与剪贴板粘贴')
   quickSaveImageButton.disabled = true
+  imageZoomRange.value = '100'
+  imageZoom.textContent = '100%'
+  setImageMode('view')
 }
 
 function openImagePicker() {
@@ -5442,6 +5470,24 @@ function openImagePicker() {
 document.querySelector('#open-image').addEventListener('click', openImagePicker)
 document.querySelector('#open-image-empty').addEventListener('click', openImagePicker)
 document.querySelector('#clear-image').addEventListener('click', clearImageEditor)
+document.querySelector('#delete-image').addEventListener('click', clearImageEditor)
+document.querySelector('#edit-image').addEventListener('click', () => {
+  if (ensureImageLoaded()) setImageMode('crop')
+})
+document.querySelector('#rotate-view-image').addEventListener('click', () => {
+  if (ensureImageLoaded()) {
+    transformWholeImage('rotate')
+    setImageMode('view')
+  }
+})
+const imageMoreButton = document.querySelector('#image-more')
+const imageMoreMenu = document.querySelector('#image-more-menu')
+imageMoreButton.addEventListener('click', () => {
+  imageMoreMenu.hidden = !imageMoreMenu.hidden
+})
+document.addEventListener('click', (event) => {
+  if (!event.target.closest('.image-more-wrap')) imageMoreMenu.hidden = true
+})
 undoImageButton.addEventListener('click', () => {
   if (imageState.historyIndex > 0) restoreImageHistory(imageState.historyIndex - 1)
 })
@@ -5451,6 +5497,126 @@ redoImageButton.addEventListener('click', () => {
   }
 })
 quickSaveImageButton.addEventListener('click', () => exportEditedImage('png', quickSaveImageButton))
+document.querySelector('#copy-image').addEventListener('click', async () => {
+  if (!ensureImageLoaded()) return
+  try {
+    const output = renderEditedImageCanvas('png')
+    const blob = await canvasToBlob(output, 'image/png')
+    await window.api.copyScreenshot(new Uint8Array(await blob.arrayBuffer()))
+    setImageStatus('图片已复制到剪贴板')
+    imageMoreMenu.hidden = true
+  } catch (error) {
+    setImageStatus(`复制失败：${error instanceof Error ? error.message : String(error)}`, true)
+  }
+})
+const imageResizeDialog = document.querySelector('#image-resize-dialog')
+const imageResizeWidth = document.querySelector('#image-resize-width')
+const imageResizeHeight = document.querySelector('#image-resize-height')
+const imageResizeRatio = document.querySelector('#image-resize-ratio')
+const imageResizeFormat = document.querySelector('#image-resize-format')
+const imageResizeQuality = document.querySelector('#image-resize-quality')
+const imageResizeSummary = document.querySelector('#image-resize-summary')
+let updatingImageResize = false
+function updateImageResizeSummary() {
+  imageResizeSummary.textContent =
+    `当前 ${imageState.sourceWidth} × ${imageState.sourceHeight} → ` +
+    `${imageResizeWidth.value} × ${imageResizeHeight.value} · ${imageResizeFormat.value.toUpperCase()}`
+}
+document.querySelector('#resize-image').addEventListener('click', () => {
+  if (!ensureImageLoaded()) return
+  imageResizeWidth.value = String(imageState.sourceWidth)
+  imageResizeHeight.value = String(imageState.sourceHeight)
+  updateImageResizeSummary()
+  imageResizeDialog.hidden = false
+  imageMoreMenu.hidden = true
+})
+imageResizeWidth.addEventListener('input', () => {
+  if (updatingImageResize) return
+  if (imageResizeRatio.checked && imageState.sourceWidth) {
+    updatingImageResize = true
+    imageResizeHeight.value = String(Math.max(
+      1,
+      Math.round(Number(imageResizeWidth.value) / imageState.sourceWidth * imageState.sourceHeight)
+    ))
+    updatingImageResize = false
+  }
+  updateImageResizeSummary()
+})
+imageResizeHeight.addEventListener('input', () => {
+  if (updatingImageResize) return
+  if (imageResizeRatio.checked && imageState.sourceHeight) {
+    updatingImageResize = true
+    imageResizeWidth.value = String(Math.max(
+      1,
+      Math.round(Number(imageResizeHeight.value) / imageState.sourceHeight * imageState.sourceWidth)
+    ))
+    updatingImageResize = false
+  }
+  updateImageResizeSummary()
+})
+imageResizeFormat.addEventListener('change', updateImageResizeSummary)
+imageResizeQuality.addEventListener('input', () => {
+  document.querySelector('#image-resize-quality-value').textContent = `${imageResizeQuality.value}%`
+})
+document.querySelector('#cancel-image-resize').addEventListener('click', () => {
+  imageResizeDialog.hidden = true
+})
+document.querySelector('#save-image-resize').addEventListener('click', async () => {
+  const width = Number(imageResizeWidth.value)
+  const height = Number(imageResizeHeight.value)
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1 ||
+      width > 30000 || height > 30000 || width * height > 80_000_000) {
+    setImageStatus('新尺寸无效或超过 8000 万像素', true)
+    return
+  }
+  const format = imageResizeFormat.value
+  const source = renderEditedImageCanvas(format)
+  const resized = document.createElement('canvas')
+  resized.width = width
+  resized.height = height
+  const context = resized.getContext('2d')
+  if (format === 'jpeg') {
+    context.fillStyle = '#ffffff'
+    context.fillRect(0, 0, width, height)
+  }
+  context.imageSmoothingEnabled = true
+  context.imageSmoothingQuality = 'high'
+  context.drawImage(source, 0, 0, width, height)
+  try {
+    const encodedFormat = format === 'tiff' ? 'png' : format
+    const mimeType = encodedFormat === 'jpeg' ? 'image/jpeg' : 'image/png'
+    const blob = await canvasToBlob(
+      resized,
+      mimeType,
+      Number(imageResizeQuality.value) / 100
+    )
+    const result = await window.api.saveImageFile({
+      type: format,
+      name: `${imageState.fileName.replace(/\.[^.]+$/, '') || 'image'}-${width}x${height}`,
+      data: new Uint8Array(await blob.arrayBuffer())
+    })
+    if (result.status === 'saved') {
+      imageResizeDialog.hidden = true
+      setImageStatus(`已保存 ${width} × ${height} ${format.toUpperCase()}`)
+    }
+  } catch (error) {
+    setImageStatus(`调整尺寸失败：${error instanceof Error ? error.message : String(error)}`, true)
+  }
+})
+imageResizeDialog.addEventListener('click', (event) => {
+  if (event.target === imageResizeDialog) imageResizeDialog.hidden = true
+})
+imageZoomRange.addEventListener('input', () => {
+  imageState.viewZoom = Number(imageZoomRange.value) / 100
+  updateImageViewZoom()
+})
+imageDropZone.addEventListener('wheel', (event) => {
+  if (!event.ctrlKey || imageState.mode !== 'view' || !imageState.sourceCanvas) return
+  event.preventDefault()
+  const next = Math.max(0.25, Math.min(3, imageState.viewZoom + (event.deltaY < 0 ? 0.1 : -0.1)))
+  imageState.viewZoom = Math.round(next * 10) / 10
+  updateImageViewZoom()
+}, { passive: false })
 imageFileInput.addEventListener('change', () => loadImageFile(imageFileInput.files[0]))
 imageDropZone.addEventListener('dragover', (event) => {
   event.preventDefault()
