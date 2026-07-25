@@ -128,7 +128,7 @@ const AI_MAX_FILE_BYTES = 50 * 1024 * 1024
 const AI_MAX_FILES = 100
 const AI_COMMAND_TIMEOUT_MS = 10 * 60 * 1000
 const AI_MODEL_DOWNLOAD_ATTEMPTS = 3
-const AI_MODEL_DOWNLOAD_TIMEOUT_MS = 90 * 1000
+const AI_MODEL_DOWNLOAD_IDLE_TIMEOUT_MS = 90 * 1000
 let aiSidecar = null
 let aiSidecarBuffer = ''
 let aiSidecarStarting = null
@@ -800,11 +800,17 @@ async function downloadAiModel(key, sender) {
     })
 
     let lastError = null
+    let received = 0
     for (let attempt = 1; attempt <= AI_MODEL_DOWNLOAD_ATTEMPTS; attempt += 1) {
       const controller = new AbortController()
-      const timeout = setTimeout(() => controller.abort(), AI_MODEL_DOWNLOAD_TIMEOUT_MS)
+      let idleTimeout = null
+      const resetIdleTimeout = () => {
+        clearTimeout(idleTimeout)
+        idleTimeout = setTimeout(() => controller.abort(), AI_MODEL_DOWNLOAD_IDLE_TIMEOUT_MS)
+      }
       try {
         // Chromium's network stack follows Windows proxy settings. Node's built-in fetch does not.
+        resetIdleTimeout()
         const response = await net.fetch(model.url, {
           redirect: 'follow',
           signal: controller.signal,
@@ -817,11 +823,12 @@ async function downloadAiModel(key, sender) {
         const handle = await open(temporaryPath, 'w')
         const reader = response.body.getReader()
         const digest = createHash('sha256')
-        let received = 0
+        received = 0
         try {
           while (true) {
             const { done, value } = await reader.read()
             if (done) break
+            resetIdleTimeout()
             const chunk = Buffer.from(value)
             await handle.write(chunk)
             digest.update(chunk)
@@ -857,13 +864,13 @@ async function downloadAiModel(key, sender) {
           await new Promise((resolve) => setTimeout(resolve, attempt * 1000))
         }
       } finally {
-        clearTimeout(timeout)
+        clearTimeout(idleTimeout)
       }
     }
 
     if (lastError) {
       const detail = lastError.name === 'AbortError'
-        ? `连接在 ${AI_MODEL_DOWNLOAD_TIMEOUT_MS / 1000} 秒内未完成`
+        ? `连接连续 ${AI_MODEL_DOWNLOAD_IDLE_TIMEOUT_MS / 1000} 秒未收到数据`
         : String(lastError.message || lastError)
       throw new Error(`${model.name} 下载失败，已重试 ${AI_MODEL_DOWNLOAD_ATTEMPTS} 次：${detail}。请检查网络或 Windows 系统代理后重试`)
     }
