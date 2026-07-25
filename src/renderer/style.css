@@ -3709,6 +3709,43 @@ input:focus-visible {
 }
 
 @media (max-height: 560px) {
+  .pages {
+    padding-bottom: 22px;
+  }
+
+  .ai-workspace {
+    grid-template-columns: minmax(105px, 140px) minmax(150px, 1fr) minmax(150px, 180px);
+    gap: 8px;
+  }
+
+  .ai-input-panel {
+    min-height: 0;
+  }
+
+  .ai-preview-stage {
+    min-height: 0;
+  }
+
+  .ai-control-panel {
+    grid-column: auto;
+    display: flex;
+    gap: 8px;
+    padding: 10px;
+  }
+
+  .ai-control-copy,
+  .ai-license-note {
+    display: none;
+  }
+
+  .ai-model-card {
+    padding: 8px;
+  }
+
+  .ai-task-status {
+    min-height: 0;
+  }
+
   .format-file-panel {
     min-height: 0;
   }
