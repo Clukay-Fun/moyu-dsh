@@ -469,17 +469,18 @@
                 <div class="screenshot-editor">
                   <div class="screenshot-toolbar">
                     <button class="primary" id="start-screenshot" type="button">区域截图</button>
-                    <span class="screenshot-divider"></span>
-                    <button class="gbtn screenshot-annotation" type="button" data-screen-tool="rectangle" disabled>矩形</button>
-                    <button class="gbtn screenshot-annotation" type="button" data-screen-tool="arrow" disabled>箭头</button>
-                    <button class="gbtn screenshot-annotation" type="button" data-screen-tool="brush" disabled>画笔</button>
-                    <button class="gbtn screenshot-annotation" type="button" data-screen-tool="text" disabled>文字</button>
                     <span class="toolbar-space"></span>
-                    <button class="gbtn" id="start-scroll-screenshot" type="button">滚动截图</button>
-                    <button class="gbtn" id="ocr-screenshot" type="button" disabled>OCR</button>
-                    <button class="gbtn" id="pin-screenshot" type="button" disabled>钉住</button>
-                    <button class="gbtn" id="copy-screenshot" type="button" disabled>复制</button>
                     <button class="primary" id="save-screenshot" type="button" disabled>保存 PNG</button>
+                    <div hidden>
+                      <button class="screenshot-annotation" data-screen-tool="rectangle" disabled></button>
+                      <button class="screenshot-annotation" data-screen-tool="arrow" disabled></button>
+                      <button class="screenshot-annotation" data-screen-tool="brush" disabled></button>
+                      <button class="screenshot-annotation" data-screen-tool="text" disabled></button>
+                      <button id="start-scroll-screenshot" type="button"></button>
+                      <button id="ocr-screenshot" type="button" disabled></button>
+                      <button id="pin-screenshot" type="button" disabled></button>
+                      <button id="copy-screenshot" type="button" disabled></button>
+                    </div>
                   </div>
                   <div class="glass-card screenshot-work">
                     <div class="screenshot-stage" id="screenshot-stage">

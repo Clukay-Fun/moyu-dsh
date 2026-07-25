@@ -13,11 +13,22 @@
   <body>
     <canvas id="capture-canvas"></canvas>
     <div class="selection-size" id="selection-size" hidden></div>
-    <div class="capture-actions" id="capture-actions" hidden>
-      <button id="cancel-capture" type="button">取消 Esc</button>
-      <button class="primary" id="confirm-capture" type="button">完成 Enter</button>
+    <div class="capture-toolbar" id="capture-toolbar" hidden>
+      <button data-tool="rectangle" title="矩形">▭</button>
+      <button data-tool="ellipse" title="圆形">○</button>
+      <button data-tool="line" title="横线">／</button>
+      <button data-tool="arrow" title="箭头">➜</button>
+      <button data-tool="brush" title="涂鸦">✎</button>
+      <button data-tool="text" title="文字">T</button>
+      <button data-tool="mosaic" title="马赛克">▦</button>
+      <i></i>
+      <button id="pin-capture" title="钉住">⌖</button>
+      <button id="ocr-capture" title="提取文本">OCR</button>
+      <button id="save-capture" title="另存为">⇩</button>
+      <button id="cancel-capture" title="取消">×</button>
+      <button class="primary" id="confirm-capture" title="完成">✓</button>
     </div>
-    <div class="capture-tip" id="capture-tip">拖动选择截图区域 · Esc 取消</div>
+    <div class="capture-tip" id="capture-tip">拖动选择截图区域 · 单击不触发未验证的窗口选取 · Esc 取消</div>
     <script type="module" src="./screenshot.js"></script>
   </body>
 </html>

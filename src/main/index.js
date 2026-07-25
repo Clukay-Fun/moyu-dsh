@@ -2330,21 +2330,31 @@ ipcMain.handle('screenshot:get-session', (_event, sessionId) => {
 ipcMain.handle('screenshot:complete', (_event, payload) => {
   const session = screenshotSessions.get(payload?.sessionId)
   if (!session) throw new Error('截图会话已失效')
-  const rect = payload.rect || {}
-  const scaleX = session.imageSize.width / session.displayBounds.width
-  const scaleY = session.imageSize.height / session.displayBounds.height
-  const x = Math.max(0, Math.min(session.imageSize.width - 1, Math.round(Number(rect.x) * scaleX)))
-  const y = Math.max(0, Math.min(session.imageSize.height - 1, Math.round(Number(rect.y) * scaleY)))
-  const width = Math.max(
-    1,
-    Math.min(session.imageSize.width - x, Math.round(Number(rect.width) * scaleX))
-  )
-  const height = Math.max(
-    1,
-    Math.min(session.imageSize.height - y, Math.round(Number(rect.height) * scaleY))
-  )
-  const cropped = nativeImage.createFromBuffer(session.data).crop({ x, y, width, height })
-  const data = cropped.toPNG()
+  let data
+  let width
+  let height
+  if (payload?.data instanceof Uint8Array) {
+    if (payload.data.byteLength > 100 * 1024 * 1024) throw new Error('截图数据超过 100 MB')
+    const finalImage = nativeImage.createFromBuffer(Buffer.from(payload.data))
+    if (finalImage.isEmpty()) throw new Error('最终截图数据无效')
+    data = finalImage.toPNG()
+    ;({ width, height } = finalImage.getSize())
+  } else {
+    const rect = payload.rect || {}
+    const scaleX = session.imageSize.width / session.displayBounds.width
+    const scaleY = session.imageSize.height / session.displayBounds.height
+    const x = Math.max(0, Math.min(session.imageSize.width - 1, Math.round(Number(rect.x) * scaleX)))
+    const y = Math.max(0, Math.min(session.imageSize.height - 1, Math.round(Number(rect.y) * scaleY)))
+    width = Math.max(
+      1,
+      Math.min(session.imageSize.width - x, Math.round(Number(rect.width) * scaleX))
+    )
+    height = Math.max(
+      1,
+      Math.min(session.imageSize.height - y, Math.round(Number(rect.height) * scaleY))
+    )
+    data = nativeImage.createFromBuffer(session.data).crop({ x, y, width, height }).toPNG()
+  }
   screenshotSessions.delete(payload.sessionId)
   session.overlay.close()
   session.owner.send('screenshot:captured', {
