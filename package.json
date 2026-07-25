@@ -86,6 +86,7 @@
     "ag-psd": "31.0.2",
     "fabric": "5.5.2-browser",
     "jsbarcode": "3.12.3",
+    "opentype.js": "2.0.0",
     "pdf-lib": "1.17.1",
     "pdfjs-dist": "5.4.624",
     "qpdf-run": "0.2.1",

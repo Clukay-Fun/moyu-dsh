@@ -3,6 +3,7 @@ import { fabric } from 'fabric'
 import { PDFDocument, StandardFonts, degrees, rgb } from 'pdf-lib'
 import { getDocument, GlobalWorkerOptions, ImageKind, OPS } from 'pdfjs-dist'
 import { createQpdfRunner } from 'qpdf-run'
+import { parse as parseOpenType } from 'opentype.js'
 import ocrbFontData from '../../assets/fonts/OCR-B.ttf?inline'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import qpdfWorkerUrl from 'qpdf-run/worker?url'
@@ -310,6 +311,7 @@ let barcodeRenderedValue = ''
 let barcodeRenderedType = ''
 let qpdfRunnerPromise = null
 let pdfWatermarkPreviewToken = 0
+let ocrbFont
 
 function renderSubmenu(module) {
   const groups = submenuData[module]
@@ -3165,6 +3167,7 @@ function renderBarcodeSvg(svgElement, value, typeName = state.selections.bc) {
   svgElement.replaceChildren()
   JsBarcode(svgElement, value, options)
   svgElement.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+  outlineBarcodeText(svgElement)
 }
 
 function friendlyBarcodeError(typeName) {
@@ -3236,6 +3239,49 @@ function updateBarcodePixelSize() {
   }
 }
 
+function getOcrbFont() {
+  if (ocrbFont) return ocrbFont
+  const encoded = ocrbFontData.split(',')[1]
+  if (!encoded) throw new Error('OCR-B 字体资源无效')
+  const binary = atob(encoded)
+  const bytes = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index)
+  }
+  ocrbFont = parseOpenType(bytes.buffer)
+  return ocrbFont
+}
+
+function outlineBarcodeText(svgElement) {
+  const font = getOcrbFont()
+  svgElement.querySelectorAll('text').forEach((textNode) => {
+    const value = textNode.textContent || ''
+    const fontSize = Number.parseFloat(
+      textNode.getAttribute('font-size') || textNode.style.fontSize || '20'
+    )
+    const originX = Number.parseFloat(textNode.getAttribute('x') || '0')
+    const originY = Number.parseFloat(textNode.getAttribute('y') || '0')
+    const anchor = textNode.getAttribute('text-anchor') || textNode.style.textAnchor || 'start'
+    const advance = font.getAdvanceWidth(value, fontSize, { kerning: true })
+    const x = anchor === 'middle'
+      ? originX - advance / 2
+      : anchor === 'end'
+        ? originX - advance
+        : originX
+    const path = font.getPath(value, x, originY, fontSize, { kerning: true })
+    const pathNode = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+    pathNode.setAttribute('d', path.toPathData(3))
+    pathNode.setAttribute(
+      'fill',
+      textNode.getAttribute('fill') || textNode.style.fill || '#171820'
+    )
+    pathNode.setAttribute('data-ocrb-text', value)
+    const transform = textNode.getAttribute('transform')
+    if (transform) pathNode.setAttribute('transform', transform)
+    textNode.replaceWith(pathNode)
+  })
+}
+
 function serializeBarcodeSvg(svgElement = barcodeSvg) {
   const settings = getPrintSettings()
   const clone = svgElement.cloneNode(true)
@@ -3243,9 +3289,7 @@ function serializeBarcodeSvg(svgElement = barcodeSvg) {
   clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
   clone.setAttribute('width', `${settings.widthMm}mm`)
   clone.setAttribute('height', `${settings.heightMm}mm`)
-  const fontStyle = document.createElementNS('http://www.w3.org/2000/svg', 'style')
-  fontStyle.textContent = `@font-face{font-family:"Moyu OCR-B";src:url(${ocrbFontData}) format("truetype");}`
-  clone.prepend(fontStyle)
+  outlineBarcodeText(clone)
   return `<?xml version="1.0" encoding="UTF-8"?>\n${new XMLSerializer().serializeToString(clone)}`
 }
 

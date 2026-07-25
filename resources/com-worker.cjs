@@ -226,7 +226,6 @@ function runIllustratorSvg(payload) {
   const application = createComObject('Illustrator.Application', true)
   try {
     application.DoJavaScript(illustratorSvgScript(payload.inputPath, payload.outputPath))
-    application.Visible = true
   } finally {
     release(application)
   }

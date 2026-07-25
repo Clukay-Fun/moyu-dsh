@@ -10,6 +10,13 @@
 - 文件 SHA-256：`367d876cca948ecd4900851f6e85687cbb6e71de9d0d2f36348edec5655526af`。
 - 许可证文件：`licenses/OCR-B-OFL-1.1.txt`。
 
+## opentype.js
+
+- 用途：将随包 OCR-B 字体的人眼可读字符转换为 SVG 路径，避免 Adobe 联动时发生字体替换。
+- 版本：2.0.0。
+- 许可证：MIT。
+- 许可证文件：`licenses/opentype.js-MIT.txt`。
+
 ## qpdf-run 0.2.1
 
 - 用途：在 Electron 渲染进程的 Web Worker 中运行 QPDF WebAssembly，为 PDF 提供加密与解密能力。
