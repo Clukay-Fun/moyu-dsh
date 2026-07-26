@@ -27,6 +27,15 @@
 
 未能执行的验证必须在交付中说明原因与残余风险。
 
+## Windows 打包与交付
+
+- 唯一正式流程见 [`docs/windows-release.md`](docs/windows-release.md)，打包前必须完整读取。
+- 有 Windows x64 环境时执行 `npm ci` 和 `npm run build:win`。
+- 当前机器不是 Windows、但用户要求直接提供 EXE 时，使用临时 `codex/windows-repackage` 分支和 `windows-2022` runner；不得使用 Docker。
+- 临时 Artifact 只用于传输，下载并完成 SHA-256 校验后必须立即删除 Artifact、远程临时分支、worktree 和本地临时分支。
+- 不得推送 `dev` 或 `main` 来完成临时打包，除非用户明确要求。
+- 最终 EXE 与 SHA-256 文件直接放到用户桌面根目录，不交付空目录或旧包改名文件。
+
 ## Git
 
 - 开发主线：`dev`；`main` 保留为稳定基线。
