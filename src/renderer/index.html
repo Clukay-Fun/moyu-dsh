@@ -73,8 +73,9 @@
                 </div>
                 <div class="glass-card file-list pdf-drop-zone" id="pdf-drop-zone">
                   <div class="file-head">
-                    <span class="cell-index">#</span><span class="cell-name">文件名</span>
-                    <span class="cell-meta">类型</span><span class="cell-status">大小</span>
+                    <span class="cell-index">序号</span><span class="cell-name">文件名</span>
+                    <span class="cell-size">大小</span><span class="cell-progress">进度</span>
+                    <span class="cell-action" aria-label="操作"></span>
                   </div>
                   <div class="pdf-file-body" id="pdf-file-body"></div>
                   <div class="empty" id="pdf-empty">
@@ -84,12 +85,36 @@
                   </div>
                 </div>
                 <div class="pdf-watermark-workbench" id="pdf-watermark-workbench" hidden>
-                  <aside class="glass-card pdf-watermark-controls">
-                    <section>
-                      <h3>来源</h3>
+                  <div class="pdf-watermark-left">
+                    <section class="glass-card pdf-watermark-upload">
+                      <header>
+                        <div>
+                          <b>上传文件</b>
+                          <span>选择文件后可在下方预览</span>
+                        </div>
+                        <button class="gbtn" id="pdf-watermark-add-files" type="button">＋ 上传 PDF</button>
+                      </header>
                       <div class="pdf-watermark-file-list" id="pdf-watermark-file-list"></div>
                     </section>
+                    <section class="glass-card pdf-watermark-preview-card">
+                      <header>
+                        <b>水印预览</b>
+                        <span id="pdf-watermark-preview-label">添加 PDF 后显示第一页</span>
+                      </header>
+                      <div class="pdf-watermark-preview-stage">
+                        <canvas id="pdf-watermark-preview"></canvas>
+                        <div class="empty" id="pdf-watermark-preview-empty">添加 PDF 后显示预览</div>
+                      </div>
+                      <footer class="pdf-watermark-preview-nav">
+                        <button class="gbtn" id="pdf-watermark-previous-page" type="button">上一页</button>
+                        <span id="pdf-watermark-page-status">第 0 / 0 页</span>
+                        <button class="gbtn" id="pdf-watermark-next-page" type="button">下一页</button>
+                      </footer>
+                    </section>
+                  </div>
+                  <aside class="glass-card pdf-watermark-controls">
                     <section id="pdf-watermark-source-controls">
+                      <h3>水印内容</h3>
                       <label>水印文本
                         <input id="pdf-watermark-text" type="text" value="摸鱼工具箱" maxlength="80" />
                       </label>
@@ -165,21 +190,6 @@
                       </label>
                     </section>
                   </aside>
-                  <section class="glass-card pdf-watermark-preview-card">
-                    <header>
-                      <b>水印预览</b>
-                      <span id="pdf-watermark-preview-label">添加 PDF 后显示第一页</span>
-                    </header>
-                    <div class="pdf-watermark-preview-stage">
-                      <canvas id="pdf-watermark-preview"></canvas>
-                      <div class="empty" id="pdf-watermark-preview-empty">添加 PDF 后显示预览</div>
-                    </div>
-                    <footer class="pdf-watermark-preview-nav">
-                      <button class="gbtn" id="pdf-watermark-previous-page" type="button">上一页</button>
-                      <span id="pdf-watermark-page-status">第 0 / 0 页</span>
-                      <button class="gbtn" id="pdf-watermark-next-page" type="button">下一页</button>
-                    </footer>
-                  </section>
                 </div>
                 <div class="glass-card result">
                   <span class="result-dot" id="pdf-result-dot"></span>

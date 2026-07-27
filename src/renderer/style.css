@@ -711,12 +711,46 @@ input:focus-visible {
   display: grid;
   min-height: 0;
   flex: 1;
-  grid-template-columns: minmax(260px, 320px) minmax(360px, 1fr);
+  grid-template-columns: minmax(360px, 1fr) minmax(260px, 320px);
   gap: 12px;
 }
 
 .pdf-watermark-workbench[hidden] {
   display: none;
+}
+
+.pdf-watermark-left {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: auto minmax(260px, 1fr);
+  gap: 12px;
+}
+
+.pdf-watermark-upload {
+  display: grid;
+  min-width: 0;
+  gap: 10px;
+  padding: 12px 14px;
+}
+
+.pdf-watermark-upload > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pdf-watermark-upload > header b {
+  color: var(--foreground);
+  font-size: 12px;
+}
+
+.pdf-watermark-upload > header span {
+  display: block;
+  margin-top: 3px;
+  color: var(--faint);
+  font-size: 10px;
 }
 
 .pdf-watermark-controls {
@@ -788,7 +822,7 @@ input:focus-visible {
 
 .pdf-watermark-file-list {
   display: grid;
-  max-height: 106px;
+  max-height: 118px;
   gap: 5px;
   overflow: auto;
 }
@@ -1160,6 +1194,32 @@ input:focus-visible {
 .cell-status {
   width: 80px;
   text-align: right;
+}
+
+.cell-size {
+  width: 90px;
+  text-align: right;
+}
+
+.cell-progress {
+  width: 96px;
+  text-align: center;
+}
+
+.cell-progress.success {
+  color: #4a9a6a;
+}
+
+.cell-progress.busy {
+  color: #d49119;
+}
+
+.cell-progress.error {
+  color: #d54f50;
+}
+
+.cell-action {
+  width: 33px;
 }
 
 .empty {
@@ -3677,6 +3737,10 @@ input:focus-visible {
 
   .pdf-watermark-workbench {
     grid-template-columns: 1fr;
+  }
+
+  .pdf-watermark-left {
+    min-height: 460px;
   }
 
   .pdf-watermark-controls {

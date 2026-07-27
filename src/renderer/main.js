@@ -286,6 +286,7 @@ const state = {
   barcodeDpi: 300,
   barcodeBatchItems: [],
   pdfFiles: [],
+  pdfFileStatuses: [],
   pdfBusy: false,
   pdfLastOutput: null,
   pdfComResult: null,
@@ -442,6 +443,7 @@ const pdfAddFilesButton = document.querySelector('#pdf-add-files')
 const pdfClearFilesButton = document.querySelector('#pdf-clear-files')
 const pdfDropZone = document.querySelector('#pdf-drop-zone')
 const pdfWatermarkWorkbench = document.querySelector('#pdf-watermark-workbench')
+const pdfWatermarkAddFilesButton = document.querySelector('#pdf-watermark-add-files')
 const pdfWatermarkFileList = document.querySelector('#pdf-watermark-file-list')
 const pdfWatermarkPreview = document.querySelector('#pdf-watermark-preview')
 const pdfWatermarkPreviewEmpty = document.querySelector('#pdf-watermark-preview-empty')
@@ -620,30 +622,33 @@ function renderPdfFiles() {
     const row = document.createElement('div')
     const order = document.createElement('span')
     const name = document.createElement('span')
-    const type = document.createElement('span')
     const size = document.createElement('span')
+    const progress = document.createElement('span')
     const remove = document.createElement('button')
 
     row.className = 'pdf-file-row'
     order.className = 'cell-index'
     name.className = 'cell-name'
-    type.className = 'cell-meta'
-    size.className = 'cell-status'
+    size.className = 'cell-size'
+    progress.className = 'cell-progress'
     order.textContent = String(index + 1)
     name.textContent = file.name
     name.title = file.name
-    type.textContent = config.kind === 'pdf'
-      ? 'PDF'
-      : config.kind === 'office'
-        ? config.inputLabel
-        : (file.type.split('/')[1] || '图片').toUpperCase()
     size.textContent = `${(file.size / 1024 / 1024).toFixed(2)} MB`
+    const fileStatus = isPdfWatermarkAction()
+      ? state.pdfWatermarkStatuses[index]
+      : state.pdfFileStatuses[index]
+    progress.textContent = fileStatus?.error || fileStatus?.status || '待处理'
+    progress.title = fileStatus?.error || ''
+    progress.classList.toggle('success', ['已导出', '完成'].includes(fileStatus?.status))
+    progress.classList.toggle('busy', ['处理中', '等待保存'].includes(fileStatus?.status))
+    progress.classList.toggle('error', Boolean(fileStatus?.error) || fileStatus?.status === '导出失败')
     remove.type = 'button'
     remove.className = 'pdf-remove-file'
     remove.dataset.index = String(index)
     remove.setAttribute('aria-label', `移除 ${file.name}`)
     remove.textContent = '×'
-    row.append(order, name, type, size, remove)
+    row.append(order, name, size, progress, remove)
     pdfFileBody.append(row)
   })
 
@@ -1009,6 +1014,9 @@ function addPdfToolFiles(fileList) {
     )
   } else {
     state.pdfFiles = nextFiles
+    state.pdfFileStatuses = nextFiles.map((_, index) =>
+      state.pdfFileStatuses[index] || { status: '待处理', error: '' }
+    )
   }
   state.pdfLastOutput = null
   resetPdfDestination()
@@ -1972,6 +1980,10 @@ async function runPdfAction() {
   state.pdfComResult = null
   pdfOpenOutputButton.disabled = true
   updatePdfRunState()
+  if (!isPdfWatermarkAction()) {
+    state.pdfFileStatuses = currentPdfFiles().map(() => ({ status: '处理中', error: '' }))
+    renderPdfFiles()
+  }
   setPdfResult('正在准备文件…', 'busy')
 
   try {
@@ -2007,10 +2019,24 @@ async function runPdfAction() {
     else throw new Error('该 PDF 功能尚未接入')
 
     const hasOutput = Boolean(state.pdfLastOutput || state.pdfComResult)
+    if (!isPdfWatermarkAction()) {
+      state.pdfFileStatuses = currentPdfFiles().map(() => ({
+        status: hasOutput ? '已导出' : '待处理',
+        error: ''
+      }))
+      renderPdfFiles()
+    }
     setPdfResult(message, hasOutput ? 'success' : '')
     if (hasOutput) showToast(message)
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error)
+    if (!isPdfWatermarkAction()) {
+      state.pdfFileStatuses = currentPdfFiles().map(() => ({
+        status: '导出失败',
+        error: reason
+      }))
+      renderPdfFiles()
+    }
     setPdfResult(`处理失败：${reason}`, 'error')
     showToast('PDF 处理失败')
   } finally {
@@ -2030,6 +2056,7 @@ pdfAddFilesButton.addEventListener('click', async () => {
     const input = await window.api.pickOfficeFile(config.officeKind)
     if (!input) return
     state.pdfNativeInput = input
+    state.pdfFileStatuses = [{ status: '待处理', error: '' }]
     state.pdfComResult = null
     state.pdfLastOutput = null
     resetPdfDestination()
@@ -2039,6 +2066,10 @@ pdfAddFilesButton.addEventListener('click', async () => {
   } catch (error) {
     setPdfResult(`无法选择文件：${error instanceof Error ? error.message : String(error)}`, 'error')
   }
+})
+pdfWatermarkAddFilesButton.addEventListener('click', () => {
+  pdfFileInput.value = ''
+  pdfFileInput.click()
 })
 pdfChooseOutputButton.addEventListener('click', async () => {
   if (state.pdfBusy || pdfChooseOutputButton.disabled) return
@@ -2061,6 +2092,7 @@ pdfClearFilesButton.addEventListener('click', () => {
     state.pdfWatermarkStatuses = []
   } else {
     state.pdfFiles = []
+    state.pdfFileStatuses = []
   }
   state.pdfNativeInput = null
   state.pdfComResult = null
@@ -2078,8 +2110,11 @@ pdfFileBody.addEventListener('click', (event) => {
   if (!button || state.pdfBusy) return
   if (currentPdfConfig().kind === 'office') {
     state.pdfNativeInput = null
+    state.pdfFileStatuses = []
   } else {
-    currentPdfFiles().splice(Number(button.dataset.index), 1)
+    const index = Number(button.dataset.index)
+    currentPdfFiles().splice(index, 1)
+    state.pdfFileStatuses.splice(index, 1)
   }
   resetPdfDestination()
   resetPdfPageOrganizer()
@@ -3154,13 +3189,14 @@ function renderBarcodeSvg(svgElement, value, typeName = state.selections.bc) {
   const type = barcodeTypes[typeName]
   if (!type) throw new Error('不支持的条码类型')
 
+  const retailLayout = ['EAN-13', 'UPC-A', 'EAN-8'].includes(typeName)
   const options = {
-    width: 2.4,
-    height: 110,
-    margin: 18,
-    textMargin: 8,
+    width: retailLayout ? 2 : 2.4,
+    height: retailLayout ? 138 : 110,
+    margin: retailLayout ? 12 : 18,
+    textMargin: retailLayout ? -12 : 8,
     font: 'Moyu OCR-B, OCRB, "OCR-B", "OCR B Std", Consolas, monospace',
-    fontSize: 20,
+    fontSize: retailLayout ? 27 : 20,
     lineColor: '#171820',
     background: '#ffffff',
     displayValue: true
@@ -6096,14 +6132,8 @@ function renderSearchResults(query) {
         }
         return score(left) - score(right)
       })
-      .slice(0, 24)
   } else {
-    const seenGroups = new Set()
-    state.searchMatches = searchFeatures.filter((feature) => {
-      if (seenGroups.has(feature.group)) return false
-      seenGroups.add(feature.group)
-      return true
-    })
+    state.searchMatches = [...searchFeatures]
   }
   state.activeSearchIndex = 0
 
