@@ -247,8 +247,7 @@
 
                     <div class="barcode-pane active" id="barcode-single-pane">
                       <div class="barcode-input">
-                        <input id="barcode-value" value="036000291458" inputmode="numeric" maxlength="13" aria-label="条码内容" />
-                        <button class="primary" id="generate-barcode" type="button">生成条码</button>
+                        <input id="barcode-value" value="038861781561" inputmode="numeric" maxlength="13" aria-label="条码内容" />
                       </div>
                       <div class="artboard">
                         <svg id="barcode-svg" role="img" aria-label="条码预览"></svg>
@@ -271,6 +270,15 @@
                   </div>
                   <div class="control-column">
                     <div class="glass-card control-card">
+                      <span class="label">条码样式</span>
+                      <label class="barcode-font-picker">数字字体
+                        <select id="barcode-font">
+                          <option value="ocrb">OCRB</option>
+                          <option value="ocrb-i">OCRB I</option>
+                          <option value="ocrb-iii">OCRB III</option>
+                          <option value="ocrb-iv">OCRB IV</option>
+                        </select>
+                      </label>
                       <span class="label">DPI 分辨率</span>
                       <div class="segments" id="barcode-dpi">
                         <button class="on" type="button" data-dpi="300">300</button>
@@ -288,6 +296,7 @@
                         <button id="save-barcode-svg" type="button">保存 SVG</button>
                         <button id="save-barcode-png" type="button">保存 PNG</button>
                         <button id="save-barcode-eps" type="button">保存 EPS</button>
+                        <button id="copy-barcode-image" type="button">复制图片</button>
                       </div>
                     </div>
                     <div class="glass-card control-card">

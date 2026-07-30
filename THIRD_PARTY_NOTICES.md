@@ -2,13 +2,12 @@
 
 摸鱼工具箱包含以下第三方组件。对应许可证全文随应用一起发布在 `licenses/` 目录。
 
-## OCR-B Regular
+## OCRB 字体组（用户提供）
 
-- 用途：条码人眼可读数字的默认字体；随渲染层一起交付，不依赖用户系统安装字体。
-- 来源：`jaycee723/ocr-b` commit `fedeba81519770109925b5bec70e940be5948d8f`，`dist/OCR-B.ttf`。
-- 许可证：SIL Open Font License 1.1。
-- 文件 SHA-256：`367d876cca948ecd4900851f6e85687cbb6e71de9d0d2f36348edec5655526af`。
-- 许可证文件：`licenses/OCR-B-OFL-1.1.txt`。
+- 用途：条码人眼可读数字的可选字体；随渲染层一起交付，不依赖用户系统安装字体。
+- 来源：用户本地提供的 `~/Downloads/ocra-ocrb-fonts/`，包含 OCRB、OCRB I、OCRB III、OCRB IV。
+- 许可证：字体元数据未提供版权、许可证名称或许可证 URL；仅限用户声明的个人学习用途，确认授权前不得分发。
+- 说明文件：`licenses/OCRB-USER-PROVIDED-NOTICE.txt`。
 
 ## opentype.js
 

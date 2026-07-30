@@ -5,6 +5,9 @@ import { getDocument, GlobalWorkerOptions, ImageKind, OPS } from 'pdfjs-dist'
 import { createQpdfRunner } from 'qpdf-run'
 import { parse as parseOpenType } from 'opentype.js'
 import ocrbFontData from '../../assets/fonts/OCR-B.ttf?inline'
+import ocrbIFontData from '../../assets/fonts/OCRBI.ttf?inline'
+import ocrbIIIFontData from '../../assets/fonts/OCRBIII.ttf?inline'
+import ocrbIVFontData from '../../assets/fonts/OCRBIV.ttf?inline'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import qpdfWorkerUrl from 'qpdf-run/worker?url'
 import qpdfJsUrl from 'qpdf-run/qpdf.js?url'
@@ -35,7 +38,7 @@ const barcodeTypes = {
     format: 'UPC',
     icon: 'U',
     color: '#e75551',
-    example: '03600029145',
+    example: '038861781561',
     inputMode: 'numeric',
     maxLength: 12,
     hint: '需要 11 位数字，或带正确校验位的 12 位数字'
@@ -103,6 +106,13 @@ const barcodeTypes = {
     maxLength: 80,
     hint: '由 JsBarcode 自动选择可编码的一维格式'
   }
+}
+
+const barcodeFonts = {
+  ocrb: { label: 'OCRB', data: ocrbFontData },
+  'ocrb-i': { label: 'OCRB I', data: ocrbIFontData },
+  'ocrb-iii': { label: 'OCRB III', data: ocrbIIIFontData },
+  'ocrb-iv': { label: 'OCRB IV', data: ocrbIVFontData }
 }
 
 const submenuData = {
@@ -277,6 +287,14 @@ const searchFeatures = [
   searchable: `${name} ${group} ${keywords}`.toLowerCase()
 }))
 
+const savedBarcodeStyle = (() => {
+  try {
+    return JSON.parse(localStorage.getItem('barcode-style') || '{}')
+  } catch {
+    return {}
+  }
+})()
+
 const state = {
   module: 'pdf',
   selections: { ...defaultSelections },
@@ -284,6 +302,7 @@ const state = {
   searchMatches: [],
   barcodeMode: 'single',
   barcodeDpi: 300,
+  barcodeFont: barcodeFonts[savedBarcodeStyle.font] ? savedBarcodeStyle.font : 'ocrb',
   barcodeBatchItems: [],
   pdfFiles: [],
   pdfFileStatuses: [],
@@ -312,7 +331,7 @@ let barcodeRenderedValue = ''
 let barcodeRenderedType = ''
 let qpdfRunnerPromise = null
 let pdfWatermarkPreviewToken = 0
-let ocrbFont
+const parsedBarcodeFonts = new Map()
 
 function renderSubmenu(module) {
   const groups = submenuData[module]
@@ -3142,10 +3161,10 @@ renderIllustratorFiles()
 const barcodeInput = document.querySelector('#barcode-value')
 const barcodeSvg = document.querySelector('#barcode-svg')
 const barcodeMessage = document.querySelector('#barcode-message')
-const generateBarcodeButton = document.querySelector('#generate-barcode')
 const saveBarcodeSvgButton = document.querySelector('#save-barcode-svg')
 const saveBarcodePngButton = document.querySelector('#save-barcode-png')
 const saveBarcodeEpsButton = document.querySelector('#save-barcode-eps')
+const copyBarcodeImageButton = document.querySelector('#copy-barcode-image')
 const openBarcodeIllustratorButton = document.querySelector('#open-barcode-illustrator')
 const openBarcodePhotoshopButton = document.querySelector('#open-barcode-photoshop')
 const barcodeSingleTab = document.querySelector('#barcode-single-tab')
@@ -3161,11 +3180,21 @@ const saveBarcodeBatchPngButton = document.querySelector('#save-barcode-batch-pn
 const barcodeWidthInput = document.querySelector('#barcode-width-mm')
 const barcodeHeightInput = document.querySelector('#barcode-height-mm')
 const barcodePixelSize = document.querySelector('#barcode-pixel-size')
+const barcodeFontSelect = document.querySelector('#barcode-font')
+
+barcodeFontSelect.value = state.barcodeFont
+
+function saveBarcodeFont() {
+  localStorage.setItem('barcode-style', JSON.stringify({
+    font: state.barcodeFont
+  }))
+}
 
 function setBarcodeExportEnabled(enabled) {
   saveBarcodeSvgButton.disabled = !enabled
   saveBarcodePngButton.disabled = !enabled
   saveBarcodeEpsButton.disabled = !enabled
+  copyBarcodeImageButton.disabled = !enabled
   openBarcodeIllustratorButton.disabled = !enabled
   openBarcodePhotoshopButton.disabled = !enabled
 }
@@ -3189,14 +3218,9 @@ function renderBarcodeSvg(svgElement, value, typeName = state.selections.bc) {
   const type = barcodeTypes[typeName]
   if (!type) throw new Error('不支持的条码类型')
 
-  const retailLayout = ['EAN-13', 'UPC-A', 'EAN-8'].includes(typeName)
+  const selectedFont = barcodeFonts[state.barcodeFont] || barcodeFonts.ocrb
   const options = {
-    width: retailLayout ? 2 : 2.4,
-    height: retailLayout ? 138 : 110,
-    margin: retailLayout ? 12 : 18,
-    textMargin: retailLayout ? -12 : 8,
-    font: 'Moyu OCR-B, OCRB, "OCR-B", "OCR B Std", Consolas, monospace',
-    fontSize: retailLayout ? 27 : 20,
+    font: `"${selectedFont.label}", "Moyu OCR-B", OCRB, monospace`,
     lineColor: '#171820',
     background: '#ffffff',
     displayValue: true
@@ -3214,7 +3238,7 @@ function friendlyBarcodeError(typeName) {
   return `${typeName} 输入无效：${type?.hint || '请检查长度与字符'}。`
 }
 
-function generateBarcode() {
+function generateBarcode(notifyError = true) {
   const value = barcodeInput.value.trim()
   barcodeSvg.replaceChildren()
   barcodeRenderedValue = ''
@@ -3231,7 +3255,7 @@ function generateBarcode() {
   } catch {
     const message = friendlyBarcodeError(state.selections.bc)
     setBarcodeMessage(message, 'error')
-    showToast(message)
+    if (notifyError) showToast(message)
     return false
   }
 }
@@ -3278,21 +3302,23 @@ function updateBarcodePixelSize() {
   }
 }
 
-function getOcrbFont() {
-  if (ocrbFont) return ocrbFont
-  const encoded = ocrbFontData.split(',')[1]
+function getBarcodeFont() {
+  const fontKey = barcodeFonts[state.barcodeFont] ? state.barcodeFont : 'ocrb'
+  if (parsedBarcodeFonts.has(fontKey)) return parsedBarcodeFonts.get(fontKey)
+  const encoded = barcodeFonts[fontKey].data.split(',')[1]
   if (!encoded) throw new Error('OCR-B 字体资源无效')
   const binary = atob(encoded)
   const bytes = new Uint8Array(binary.length)
   for (let index = 0; index < binary.length; index += 1) {
     bytes[index] = binary.charCodeAt(index)
   }
-  ocrbFont = parseOpenType(bytes.buffer)
-  return ocrbFont
+  const font = parseOpenType(bytes.buffer)
+  parsedBarcodeFonts.set(fontKey, font)
+  return font
 }
 
 function outlineBarcodeText(svgElement) {
-  const font = getOcrbFont()
+  const font = getBarcodeFont()
   svgElement.querySelectorAll('text').forEach((textNode) => {
     const value = textNode.textContent || ''
     const fontSize = Number.parseFloat(
@@ -3410,6 +3436,30 @@ async function saveBarcode(type) {
   } finally {
     button.textContent = originalLabel
     setBarcodeExportEnabled(true)
+  }
+}
+
+async function copyBarcodeImage() {
+  if (!hasCurrentBarcode()) {
+    setBarcodeMessage('当前内容还不能生成有效条码。', 'error')
+    return
+  }
+
+  copyBarcodeImageButton.disabled = true
+  copyBarcodeImageButton.textContent = '复制中…'
+
+  try {
+    const png = await svgToPngBytes(serializeBarcodeSvg())
+    await window.api.copyBarcodeImage(png)
+    setBarcodeMessage('条码图片已复制到剪贴板。', 'success')
+    showToast('条码图片已复制')
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    setBarcodeMessage(`复制失败：${reason}`, 'error')
+    showToast('条码图片复制失败')
+  } finally {
+    copyBarcodeImageButton.textContent = '复制图片'
+    setBarcodeExportEnabled(hasCurrentBarcode())
   }
 }
 
@@ -3660,19 +3710,13 @@ async function saveBarcodeBatch(type) {
   }
 }
 
-generateBarcodeButton.addEventListener('click', generateBarcode)
-barcodeInput.addEventListener('keydown', (event) => {
-  if (event.key === 'Enter') generateBarcode()
-})
 barcodeInput.addEventListener('input', () => {
-  barcodeRenderedValue = ''
-  barcodeRenderedType = ''
-  setBarcodeExportEnabled(false)
-  setBarcodeMessage('内容已修改，请重新生成。')
+  generateBarcode(false)
 })
 saveBarcodeSvgButton.addEventListener('click', () => saveBarcode('svg'))
 saveBarcodePngButton.addEventListener('click', () => saveBarcode('png'))
 saveBarcodeEpsButton.addEventListener('click', () => runBarcodeCom('eps', saveBarcodeEpsButton))
+copyBarcodeImageButton.addEventListener('click', copyBarcodeImage)
 openBarcodeIllustratorButton.addEventListener('click', () => runBarcodeCom('illustrator', openBarcodeIllustratorButton))
 openBarcodePhotoshopButton.addEventListener('click', () => runBarcodeCom('photoshop', openBarcodePhotoshopButton))
 barcodeSingleTab.addEventListener('click', () => setBarcodeMode('single'))
@@ -3686,6 +3730,19 @@ barcodeBatchInput.addEventListener('input', () => {
   barcodeBatchSummary.textContent = '内容已修改，请重新批量生成。'
   setBarcodeBatchExportEnabled(false)
 })
+
+function refreshBarcodeFont() {
+  if (barcodeInput.value.trim()) generateBarcode()
+  if (!state.barcodeBatchItems.length) return
+  void generateBarcodeBatch()
+}
+
+barcodeFontSelect.addEventListener('change', () => {
+  state.barcodeFont = barcodeFontSelect.value
+  saveBarcodeFont()
+  refreshBarcodeFont()
+})
+
 document.querySelector('#barcode-dpi').addEventListener('click', (event) => {
   const button = event.target.closest('[data-dpi]')
   if (!button) return

@@ -1423,6 +1423,15 @@ ipcMain.handle('barcode:open-photoshop', async (event, payload) => {
   }
 })
 
+ipcMain.handle('barcode:copy-image', (event, data) => {
+  assertMainWindowSender(event)
+  const normalized = normalizeBarcodeData('png', data)
+  const image = nativeImage.createFromBuffer(normalized.data)
+  if (image.isEmpty()) throw new Error('无法解析条码图片')
+  clipboard.writeImage(image)
+  return { status: 'copied', size: image.getSize() }
+})
+
 ipcMain.handle('barcode:save-file', async (event, payload) => {
   const { data, fileType } = normalizeBarcodeData(payload?.type, payload?.data)
 

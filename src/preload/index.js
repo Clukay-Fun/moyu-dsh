@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld(
     probeCom: () => ipcRenderer.invoke('com:probe'),
     saveBarcodeFile: (payload) => ipcRenderer.invoke('barcode:save-file', payload),
     saveBarcodeFiles: (payload) => ipcRenderer.invoke('barcode:save-files', payload),
+    copyBarcodeImage: (data) => ipcRenderer.invoke('barcode:copy-image', data),
     exportBarcodeEps: (payload) => ipcRenderer.invoke('barcode:export-eps', payload),
     openBarcodeInIllustrator: (payload) => ipcRenderer.invoke('barcode:open-illustrator', payload),
     openBarcodeInPhotoshop: (payload) => ipcRenderer.invoke('barcode:open-photoshop', payload),

@@ -125,7 +125,7 @@ jobs:
           npx electron-builder --win portable --x64
           foreach ($asset in @(
             "release/win-unpacked/resources/workers/com-worker.cjs",
-            "release/win-unpacked/resources/licenses/OCR-B-OFL-1.1.txt",
+            "release/win-unpacked/resources/licenses/OCRB-USER-PROVIDED-NOTICE.txt",
             "release/win-unpacked/resources/THIRD_PARTY_NOTICES.md"
           )) {
             if (-not (Test-Path $asset)) {
