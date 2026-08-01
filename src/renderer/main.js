@@ -4,6 +4,7 @@ import { PDFDocument, StandardFonts, degrees, rgb } from 'pdf-lib'
 import { getDocument, GlobalWorkerOptions, ImageKind, OPS } from 'pdfjs-dist'
 import { createQpdfRunner } from 'qpdf-run'
 import { parse as parseOpenType } from 'opentype.js'
+import { isRetailType, renderRetailBarcode, computeRetailGeometry } from './retailBarcode.js'
 import ocrbFontData from '../../assets/fonts/OCR-B.ttf?inline'
 import ocrbIFontData from '../../assets/fonts/OCRBI.ttf?inline'
 import ocrbIIIFontData from '../../assets/fonts/OCRBIII.ttf?inline'
@@ -23,6 +24,9 @@ const appLogoUrl = new URL('../../assets/logo_128.png', import.meta.url).href
 document.querySelectorAll('[data-app-logo]').forEach((image) => {
   image.src = appLogoUrl
 })
+
+// 零售合规码 HRI 固定字体（GS1 §5.2.5 禁止粗/斜/细/窄体，不随用户选择变化）
+const RETAIL_HRI_FONT_KEY = 'ocrb'
 
 const barcodeTypes = {
   'EAN-13': {
@@ -301,7 +305,6 @@ const state = {
   activeSearchIndex: 0,
   searchMatches: [],
   barcodeMode: 'single',
-  barcodeDpi: 300,
   barcodeFont: barcodeFonts[savedBarcodeStyle.font] ? savedBarcodeStyle.font : 'ocrb',
   barcodeBatchItems: [],
   pdfFiles: [],
@@ -3161,10 +3164,11 @@ renderIllustratorFiles()
 const barcodeInput = document.querySelector('#barcode-value')
 const barcodeSvg = document.querySelector('#barcode-svg')
 const barcodeMessage = document.querySelector('#barcode-message')
+const barcodeSpecReport = document.querySelector('#barcode-spec-report')
 const saveBarcodeSvgButton = document.querySelector('#save-barcode-svg')
 const saveBarcodePngButton = document.querySelector('#save-barcode-png')
 const saveBarcodeEpsButton = document.querySelector('#save-barcode-eps')
-const copyBarcodeImageButton = document.querySelector('#copy-barcode-image')
+const copyBarcodeVectorButton = document.querySelector('#copy-barcode-vector')
 const openBarcodeIllustratorButton = document.querySelector('#open-barcode-illustrator')
 const openBarcodePhotoshopButton = document.querySelector('#open-barcode-photoshop')
 const barcodeSingleTab = document.querySelector('#barcode-single-tab')
@@ -3177,9 +3181,6 @@ const barcodeBatchSummary = document.querySelector('#barcode-batch-summary')
 const generateBarcodeBatchButton = document.querySelector('#generate-barcode-batch')
 const saveBarcodeBatchSvgButton = document.querySelector('#save-barcode-batch-svg')
 const saveBarcodeBatchPngButton = document.querySelector('#save-barcode-batch-png')
-const barcodeWidthInput = document.querySelector('#barcode-width-mm')
-const barcodeHeightInput = document.querySelector('#barcode-height-mm')
-const barcodePixelSize = document.querySelector('#barcode-pixel-size')
 const barcodeFontSelect = document.querySelector('#barcode-font')
 
 barcodeFontSelect.value = state.barcodeFont
@@ -3194,7 +3195,7 @@ function setBarcodeExportEnabled(enabled) {
   saveBarcodeSvgButton.disabled = !enabled
   saveBarcodePngButton.disabled = !enabled
   saveBarcodeEpsButton.disabled = !enabled
-  copyBarcodeImageButton.disabled = !enabled
+  copyBarcodeVectorButton.disabled = !enabled
   openBarcodeIllustratorButton.disabled = !enabled
   openBarcodePhotoshopButton.disabled = !enabled
 }
@@ -3218,6 +3219,15 @@ function renderBarcodeSvg(svgElement, value, typeName = state.selections.bc) {
   const type = barcodeTypes[typeName]
   if (!type) throw new Error('不支持的条码类型')
 
+  // 零售合规码制走 GS1 几何引擎；其余六种维持 JsBarcode 通用渲染。
+  if (isRetailType(typeName)) {
+    renderRetailBarcode(svgElement, typeName, value)
+    // 零售合规码固定常规 OCR-B：GS1 §5.2.5 禁止粗/斜/细/窄体，
+    // 不受用户字体下拉框（OCRB I/III/IV）影响。
+    outlineBarcodeText(svgElement, RETAIL_HRI_FONT_KEY)
+    return
+  }
+
   const selectedFont = barcodeFonts[state.barcodeFont] || barcodeFonts.ocrb
   const options = {
     font: `"${selectedFont.label}", "Moyu OCR-B", OCRB, monospace`,
@@ -3238,6 +3248,37 @@ function friendlyBarcodeError(typeName) {
   return `${typeName} 输入无效：${type?.hint || '请检查长度与字符'}。`
 }
 
+// 生产合规参数报告：SVG/EPS 为精确标称值，PNG 为整数像素量化后的实际值，
+// 二者必须分别标注，不得混称（GS1 尺寸口径）。
+function renderBarcodeSpecReport(typeName) {
+  if (!isRetailType(typeName)) {
+    barcodeSpecReport.hidden = true
+    barcodeSpecReport.replaceChildren()
+    return
+  }
+
+  const geometry = computeRetailGeometry(typeName)
+  const raster = retailRasterSize(typeName)
+  const rows = [
+    ['规范', 'GS1 GenSpecs 26.0.0 · Table 5-44 · 零售 POS'],
+    ['放大系数', '标准 100%'],
+    ['SVG / EPS', `${geometry.widthMm.toFixed(2)} × ${geometry.heightMm.toFixed(2)} mm · X=${geometry.x.toFixed(3)} mm`],
+    ['PNG', `${raster.actualWidthMm.toFixed(2)} mm · ${raster.pixelWidth} × ${raster.pixelHeight} px · ${raster.dpi} DPI · X=${raster.actualXMm.toFixed(4)} mm`],
+    ['条高 / 静区', `${geometry.spec.barHeightMm.toFixed(2)} mm · 左右各 ${(geometry.spec.quietLeftX * geometry.x).toFixed(2)} mm`],
+    ['HRI 字体', '常规 OCR-B（固定）']
+  ]
+
+  barcodeSpecReport.replaceChildren()
+  for (const [term, detail] of rows) {
+    const dt = document.createElement('dt')
+    dt.textContent = term
+    const dd = document.createElement('dd')
+    dd.textContent = detail
+    barcodeSpecReport.append(dt, dd)
+  }
+  barcodeSpecReport.hidden = false
+}
+
 function generateBarcode(notifyError = true) {
   const value = barcodeInput.value.trim()
   barcodeSvg.replaceChildren()
@@ -3250,60 +3291,21 @@ function generateBarcode(notifyError = true) {
     barcodeRenderedValue = value
     barcodeRenderedType = state.selections.bc
     setBarcodeExportEnabled(true)
+    renderBarcodeSpecReport(state.selections.bc)
     setBarcodeMessage(`${state.selections.bc} 已生成，可保存为 SVG 或 PNG。`, 'success')
     return true
   } catch {
     const message = friendlyBarcodeError(state.selections.bc)
+    barcodeSpecReport.hidden = true
     setBarcodeMessage(message, 'error')
     if (notifyError) showToast(message)
     return false
   }
 }
 
-function getPrintSettings() {
-  const widthMm = Number(barcodeWidthInput.value)
-  const heightMm = Number(barcodeHeightInput.value)
-
-  if (
-    !Number.isFinite(widthMm) ||
-    !Number.isFinite(heightMm) ||
-    widthMm < 10 ||
-    widthMm > 300 ||
-    heightMm < 10 ||
-    heightMm > 300
-  ) {
-    throw new Error('打印宽高必须在 10–300 mm 之间')
-  }
-
-  const widthPx = Math.round(widthMm / 25.4 * state.barcodeDpi)
-  const heightPx = Math.round(heightMm / 25.4 * state.barcodeDpi)
-
-  if (widthPx * heightPx > 40_000_000) {
-    throw new Error('当前尺寸与 DPI 组合超过 4000 万像素，请降低尺寸或 DPI')
-  }
-
-  return {
-    widthMm,
-    heightMm,
-    widthPx,
-    heightPx,
-    dpi: state.barcodeDpi
-  }
-}
-
-function updateBarcodePixelSize() {
-  try {
-    const settings = getPrintSettings()
-    barcodePixelSize.textContent = `${settings.widthPx} × ${settings.heightPx} px`
-    barcodePixelSize.classList.remove('error')
-  } catch (error) {
-    barcodePixelSize.textContent = error.message
-    barcodePixelSize.classList.add('error')
-  }
-}
-
-function getBarcodeFont() {
-  const fontKey = barcodeFonts[state.barcodeFont] ? state.barcodeFont : 'ocrb'
+function getBarcodeFont(preferredKey) {
+  const requested = preferredKey || state.barcodeFont
+  const fontKey = barcodeFonts[requested] ? requested : 'ocrb'
   if (parsedBarcodeFonts.has(fontKey)) return parsedBarcodeFonts.get(fontKey)
   const encoded = barcodeFonts[fontKey].data.split(',')[1]
   if (!encoded) throw new Error('OCR-B 字体资源无效')
@@ -3317,22 +3319,80 @@ function getBarcodeFont() {
   return font
 }
 
-function outlineBarcodeText(svgElement) {
-  const font = getBarcodeFont()
+// 数字字形高度 / em 的比值（按字体实测，结果缓存）。
+// opentype 的 fontSize 是 em size，不是字形高度：OCR-B 数字仅约 0.573em。
+const digitHeightRatioCache = new WeakMap()
+
+function digitHeightPerEm(font) {
+  if (digitHeightRatioCache.has(font)) return digitHeightRatioCache.get(font)
+  const box = font.getPath('0', 0, 0, 1, {}).getBoundingBox()
+  const ratio = box.y2 - box.y1
+  const safe = ratio > 0 ? ratio : 0.573242
+  digitHeightRatioCache.set(font, safe)
+  return safe
+}
+
+// 0–9 在 em=1 时的最大墨宽（按字体实测，结果缓存）。
+// 首尾数字用**统一**缩放比，避免不同数据得到不同字号。
+const maxDigitInkCache = new WeakMap()
+
+function maxDigitInkPerEm(font) {
+  if (maxDigitInkCache.has(font)) return maxDigitInkCache.get(font)
+  let widest = 0
+  for (const digit of '0123456789') {
+    const box = font.getPath(digit, 0, 0, 1, { kerning: true }).getBoundingBox()
+    widest = Math.max(widest, box.x2 - box.x1)
+  }
+  const safe = widest > 0 ? widest : 0.6
+  maxDigitInkCache.set(font, safe)
+  return safe
+}
+
+function outlineBarcodeText(svgElement, preferredFontKey) {
+  const font = getBarcodeFont(preferredFontKey)
   svgElement.querySelectorAll('text').forEach((textNode) => {
     const value = textNode.textContent || ''
-    const fontSize = Number.parseFloat(
-      textNode.getAttribute('font-size') || textNode.style.fontSize || '20'
-    )
+    // 零售码写的是目标**字形高度**，按字体 metrics 反算 em；其余仍按 font-size。
+    const capHeight = Number.parseFloat(textNode.getAttribute('data-cap-height') || '')
+    let fontSize = Number.isFinite(capHeight) && capHeight > 0
+      ? capHeight / digitHeightPerEm(font)
+      : Number.parseFloat(textNode.getAttribute('font-size') || textNode.style.fontSize || '20')
     const originX = Number.parseFloat(textNode.getAttribute('x') || '0')
     const originY = Number.parseFloat(textNode.getAttribute('y') || '0')
     const anchor = textNode.getAttribute('text-anchor') || textNode.style.textAnchor || 'start'
-    const advance = font.getAdvanceWidth(value, fontSize, { kerning: true })
-    const x = anchor === 'middle'
-      ? originX - advance / 2
-      : anchor === 'end'
-        ? originX - advance
-        : originX
+
+    // GS1 §5.2.5 的宽度与定位约束针对**印刷后可见墨迹边缘**，
+    // 不是含 side bearing 的 advance width。因此一律以最终 outline 的 bbox 度量。
+    const inkBox = (size) => font.getPath(value, 0, 0, size, { kerning: true }).getBoundingBox()
+
+    // 首尾数字最大墨宽（UPC-A 为 4X）：超出则**整体等比缩放**，不做横向压缩。
+    // 缩放比按 0–9 中**最宽**的数字统一计算，使首尾数字恒等高；
+    // 窄数字只是自然更窄，不会因逐字缩放而出现高低不一。
+    const maxInkWidth = Number.parseFloat(textNode.getAttribute('data-max-ink-width') || '')
+    if (Number.isFinite(maxInkWidth) && maxInkWidth > 0) {
+      const widestInk = maxDigitInkPerEm(font) * fontSize
+      if (widestInk > maxInkWidth) fontSize *= maxInkWidth / widestInk
+    }
+
+    // 定位：零售码按可见边缘锚定（首位右边缘 / 末位左边缘），其余按 advance。
+    const anchorEdge = textNode.getAttribute('data-anchor-edge')
+    let x
+    if (anchorEdge) {
+      const box = inkBox(fontSize)
+      x = anchorEdge === 'right'
+        ? originX - box.x2
+        : anchorEdge === 'left'
+          ? originX - box.x1
+          : originX - (box.x1 + box.x2) / 2
+    } else {
+      const advance = font.getAdvanceWidth(value, fontSize, { kerning: true })
+      x = anchor === 'middle'
+        ? originX - advance / 2
+        : anchor === 'end'
+          ? originX - advance
+          : originX
+    }
+
     const path = font.getPath(value, x, originY, fontSize, { kerning: true })
     const pathNode = document.createElementNS('http://www.w3.org/2000/svg', 'path')
     pathNode.setAttribute('d', path.toPathData(3))
@@ -3348,17 +3408,41 @@ function outlineBarcodeText(svgElement) {
 }
 
 function serializeBarcodeSvg(svgElement = barcodeSvg) {
-  const settings = getPrintSettings()
   const clone = svgElement.cloneNode(true)
   clone.removeAttribute('id')
   clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
-  clone.setAttribute('width', `${settings.widthMm}mm`)
-  clone.setAttribute('height', `${settings.heightMm}mm`)
   outlineBarcodeText(clone)
   return `<?xml version="1.0" encoding="UTF-8"?>\n${new XMLSerializer().serializeToString(clone)}`
 }
 
-function svgToPngBytes(svgText, settings = getPrintSettings()) {
+// 零售合规码的 PNG 栅格化 DPI（内定，不暴露参数）。
+const RETAIL_PNG_DPI = 300
+
+/**
+ * 计算零售码 PNG 的目标像素尺寸。
+ * 模块宽量化为整数像素以保证边缘锐利，再按同一比例等比缩放整幅，
+ * 因此 PNG 的实际 X 与总宽会略大于标称值（须按量化后的实际值报告）。
+ */
+function retailRasterSize(typeName) {
+  const { x, widthMm, heightMm, totalModules } = computeRetailGeometry(typeName)
+  const modulePx = Math.max(1, Math.round((x / 25.4) * RETAIL_PNG_DPI))
+  const pxPerMm = modulePx / x
+  return {
+    pixelWidth: totalModules * modulePx,
+    pixelHeight: Math.round(heightMm * pxPerMm),
+    modulePx,
+    actualXMm: (modulePx * 25.4) / RETAIL_PNG_DPI,
+    actualWidthMm: (totalModules * modulePx * 25.4) / RETAIL_PNG_DPI,
+    nominalWidthMm: widthMm,
+    dpi: RETAIL_PNG_DPI
+  }
+}
+
+function retailTargetFor(typeName) {
+  return isRetailType(typeName) ? retailRasterSize(typeName) : null
+}
+
+function svgToPngBytes(svgText, target = null) {
   return new Promise((resolve, reject) => {
     const blob = new Blob([svgText], { type: 'image/svg+xml;charset=utf-8' })
     const objectUrl = URL.createObjectURL(blob)
@@ -3368,12 +3452,19 @@ function svgToPngBytes(svgText, settings = getPrintSettings()) {
       try {
         const canvas = document.createElement('canvas')
         const context = canvas.getContext('2d')
+        // 有目标尺寸时按其等比栅格化（零售码 @300DPI）；否则用 SVG 固有尺寸。
+        const width = Math.round(target?.pixelWidth || image.naturalWidth || image.width)
+        const height = Math.round(target?.pixelHeight || image.naturalHeight || image.height)
 
-        canvas.width = settings.widthPx
-        canvas.height = settings.heightPx
+        if (width <= 0 || height <= 0) {
+          throw new Error('SVG 固有尺寸无效')
+        }
+
+        canvas.width = width
+        canvas.height = height
         context.fillStyle = '#ffffff'
-        context.fillRect(0, 0, settings.widthPx, settings.heightPx)
-        context.drawImage(image, 0, 0, settings.widthPx, settings.heightPx)
+        context.fillRect(0, 0, width, height)
+        context.drawImage(image, 0, 0, width, height)
         URL.revokeObjectURL(objectUrl)
 
         canvas.toBlob(async (pngBlob) => {
@@ -3416,11 +3507,14 @@ async function saveBarcode(type) {
 
   try {
     const svgText = serializeBarcodeSvg()
-    const data = type === 'svg' ? svgText : await svgToPngBytes(svgText)
+    const data = type === 'svg'
+      ? svgText
+      : await svgToPngBytes(svgText, retailTargetFor(state.selections.bc))
     const result = await window.api.saveBarcodeFile({
       type,
       name: `${state.selections.bc}-${barcodeRenderedValue}`,
-      data
+      data,
+      density: retailTargetFor(state.selections.bc)?.dpi
     })
 
     if (result.status === 'saved') {
@@ -3439,26 +3533,25 @@ async function saveBarcode(type) {
   }
 }
 
-async function copyBarcodeImage() {
+async function copyBarcodeVector() {
   if (!hasCurrentBarcode()) {
     setBarcodeMessage('当前内容还不能生成有效条码。', 'error')
     return
   }
 
-  copyBarcodeImageButton.disabled = true
-  copyBarcodeImageButton.textContent = '复制中…'
+  copyBarcodeVectorButton.disabled = true
+  copyBarcodeVectorButton.textContent = '复制中…'
 
   try {
-    const png = await svgToPngBytes(serializeBarcodeSvg())
-    await window.api.copyBarcodeImage(png)
-    setBarcodeMessage('条码图片已复制到剪贴板。', 'success')
-    showToast('条码图片已复制')
+    await window.api.copyBarcodeVector(serializeBarcodeSvg())
+    setBarcodeMessage('条码矢量图已复制到剪贴板。', 'success')
+    showToast('条码矢量图已复制')
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error)
     setBarcodeMessage(`复制失败：${reason}`, 'error')
-    showToast('条码图片复制失败')
+    showToast('条码矢量图复制失败')
   } finally {
-    copyBarcodeImageButton.textContent = '复制图片'
+    copyBarcodeVectorButton.textContent = '复制矢量图'
     setBarcodeExportEnabled(hasCurrentBarcode())
   }
 }
@@ -3491,8 +3584,11 @@ async function runBarcodeCom(action, button) {
     } else if (action === 'illustrator') {
       result = await window.api.openBarcodeInIllustrator({ data: svgText })
     } else {
-      const png = await svgToPngBytes(svgText)
-      result = await window.api.openBarcodeInPhotoshop({ data: png })
+      const png = await svgToPngBytes(svgText, retailTargetFor(state.selections.bc))
+      result = await window.api.openBarcodeInPhotoshop({
+        data: png,
+        density: retailTargetFor(state.selections.bc)?.dpi
+      })
     }
 
     if (result.status === 'cancelled') {
@@ -3512,6 +3608,14 @@ async function runBarcodeCom(action, button) {
   }
 }
 
+// 零售合规码固定常规 OCR-B，隐藏字体下拉框（避免用户选到禁止的粗/斜/细/窄体）。
+function updateBarcodeFontPickerVisibility(typeName) {
+  const picker = barcodeFontSelect.closest('.barcode-font-picker') || barcodeFontSelect
+  const retail = isRetailType(typeName)
+  picker.hidden = retail
+  barcodeFontSelect.disabled = retail
+}
+
 function selectBarcodeType(typeName, replaceValue = false) {
   const type = barcodeTypes[typeName]
   if (!type) return
@@ -3521,6 +3625,7 @@ function selectBarcodeType(typeName, replaceValue = false) {
   barcodeInput.inputMode = type.inputMode
   barcodeInput.maxLength = type.maxLength
   barcodeInput.placeholder = type.hint
+  updateBarcodeFontPickerVisibility(typeName)
 
   if (replaceValue) {
     barcodeInput.value = type.example
@@ -3667,7 +3772,6 @@ async function saveBarcodeBatch(type) {
 
   const button = type === 'svg' ? saveBarcodeBatchSvgButton : saveBarcodeBatchPngButton
   const originalLabel = button.textContent
-  const settings = getPrintSettings()
   setBarcodeBatchExportEnabled(false)
   generateBarcodeBatchButton.disabled = true
   button.textContent = '正在准备…'
@@ -3678,7 +3782,9 @@ async function saveBarcodeBatch(type) {
       const svgText = serializeBarcodeSvg(item.svg)
       files.push({
         name: safeBarcodeFileName(item.type, item.value, index),
-        data: type === 'svg' ? svgText : await svgToPngBytes(svgText, settings)
+        data: type === 'svg'
+          ? svgText
+          : await svgToPngBytes(svgText, retailTargetFor(item.type))
       })
       barcodeBatchSummary.textContent = `正在准备 ${index + 1} / ${validItems.length}…`
       if ((index + 1) % 10 === 0) await nextFrame()
@@ -3689,7 +3795,15 @@ async function saveBarcodeBatch(type) {
     })
 
     try {
-      const result = await window.api.saveBarcodeFiles({ type, files })
+      const batchDensities = new Set(
+        validItems.map((item) => retailTargetFor(item.type)?.dpi ?? 0)
+      )
+      const result = await window.api.saveBarcodeFiles({
+        type,
+        files,
+        // 仅当整批同为一种零售码时写入 density；混合批次不标记，避免误标通用码。
+        density: batchDensities.size === 1 ? [...batchDensities][0] || undefined : undefined
+      })
       if (result.status === 'saved') {
         barcodeBatchSummary.textContent = `已保存 ${result.saved} 个 ${type.toUpperCase()} 文件。`
         showToast(`批量条码已保存：${result.saved} 个文件`)
@@ -3716,7 +3830,7 @@ barcodeInput.addEventListener('input', () => {
 saveBarcodeSvgButton.addEventListener('click', () => saveBarcode('svg'))
 saveBarcodePngButton.addEventListener('click', () => saveBarcode('png'))
 saveBarcodeEpsButton.addEventListener('click', () => runBarcodeCom('eps', saveBarcodeEpsButton))
-copyBarcodeImageButton.addEventListener('click', copyBarcodeImage)
+copyBarcodeVectorButton.addEventListener('click', copyBarcodeVector)
 openBarcodeIllustratorButton.addEventListener('click', () => runBarcodeCom('illustrator', openBarcodeIllustratorButton))
 openBarcodePhotoshopButton.addEventListener('click', () => runBarcodeCom('photoshop', openBarcodePhotoshopButton))
 barcodeSingleTab.addEventListener('click', () => setBarcodeMode('single'))
@@ -3741,25 +3855,6 @@ barcodeFontSelect.addEventListener('change', () => {
   state.barcodeFont = barcodeFontSelect.value
   saveBarcodeFont()
   refreshBarcodeFont()
-})
-
-document.querySelector('#barcode-dpi').addEventListener('click', (event) => {
-  const button = event.target.closest('[data-dpi]')
-  if (!button) return
-
-  state.barcodeDpi = Number(button.dataset.dpi)
-  document.querySelectorAll('#barcode-dpi button').forEach((option) => {
-    option.classList.toggle('on', option === button)
-  })
-  updateBarcodePixelSize()
-})
-;[barcodeWidthInput, barcodeHeightInput].forEach((input) => {
-  input.addEventListener('input', updateBarcodePixelSize)
-  input.addEventListener('change', () => {
-    const value = Number(input.value)
-    input.value = String(Math.min(300, Math.max(10, Number.isFinite(value) ? value : 10)))
-    updateBarcodePixelSize()
-  })
 })
 
 const aiInputList = document.querySelector('#ai-input-list')
@@ -6504,7 +6599,6 @@ drawColorWheel()
 rgbToHsl(colorState.r, colorState.g, colorState.b)
 updateColorControls()
 applyAccent()
-updateBarcodePixelSize()
 setBarcodeMode('single')
 generateBarcode()
 setImageMode('crop')

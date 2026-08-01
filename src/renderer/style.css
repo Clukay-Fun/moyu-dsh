@@ -1502,7 +1502,8 @@ input:focus-visible {
 .artboard svg {
   display: block;
   width: 80%;
-  height: 80%;
+  height: auto;
+  max-height: 80%;
   overflow: visible;
   filter: drop-shadow(0 7px 14px rgba(35, 39, 65, 0.08));
 }
@@ -1667,46 +1668,6 @@ input:focus-visible {
   outline: 0;
   color: var(--foreground);
   background: var(--card-thin);
-}
-
-.print-size {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 7px;
-}
-
-.print-size label {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 5px;
-  color: var(--faint);
-  font-size: 10px;
-}
-
-.print-size input {
-  min-width: 0;
-  width: 100%;
-  height: 31px;
-  padding: 0 6px;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  outline: 0;
-  color: var(--foreground);
-  background: var(--card-thin);
-  font-size: 11px;
-  user-select: text;
-}
-
-.pixel-size {
-  margin-top: -5px;
-  color: var(--faint);
-  font-size: 10px;
-  font-variant-numeric: tabular-nums;
-}
-
-.pixel-size.error {
-  color: #d54f50;
 }
 
 .label {
@@ -3859,3 +3820,19 @@ input:focus-visible {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* 零售条码生产合规参数报告（SVG/EPS 与 PNG 双口径） */
+.barcode-spec-report {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  background: var(--card-thin);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.barcode-spec-report dt { color: var(--faint); white-space: nowrap; }
+.barcode-spec-report dd { margin: 0; color: var(--fg); word-break: break-word; }

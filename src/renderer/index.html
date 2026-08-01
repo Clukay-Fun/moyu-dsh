@@ -253,6 +253,7 @@
                         <svg id="barcode-svg" role="img" aria-label="条码预览"></svg>
                       </div>
                       <p class="barcode-message" id="barcode-message" role="status" aria-live="polite"></p>
+                      <dl class="barcode-spec-report" id="barcode-spec-report" hidden></dl>
                     </div>
 
                     <div class="barcode-pane" id="barcode-batch-pane">
@@ -279,24 +280,12 @@
                           <option value="ocrb-iv">OCRB IV</option>
                         </select>
                       </label>
-                      <span class="label">DPI 分辨率</span>
-                      <div class="segments" id="barcode-dpi">
-                        <button class="on" type="button" data-dpi="300">300</button>
-                        <button type="button" data-dpi="600">600</button>
-                        <button type="button" data-dpi="1200">1200</button>
-                      </div>
-                      <span class="label">打印尺寸</span>
-                      <div class="print-size">
-                        <label>宽 <input id="barcode-width-mm" type="number" min="10" max="300" step="1" value="50" /> mm</label>
-                        <label>高 <input id="barcode-height-mm" type="number" min="10" max="300" step="1" value="30" /> mm</label>
-                      </div>
-                      <small class="pixel-size" id="barcode-pixel-size">591 × 354 px</small>
                       <span class="label">导出文件</span>
                       <div class="format-grid">
                         <button id="save-barcode-svg" type="button">保存 SVG</button>
                         <button id="save-barcode-png" type="button">保存 PNG</button>
                         <button id="save-barcode-eps" type="button">保存 EPS</button>
-                        <button id="copy-barcode-image" type="button">复制图片</button>
+                        <button id="copy-barcode-vector" type="button">复制矢量图</button>
                       </div>
                     </div>
                     <div class="glass-card control-card">

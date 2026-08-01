@@ -170,6 +170,31 @@ const OCR_MODELS = [
   }
 ]
 
+// 零售合规条码 PNG 的物理分辨率（pHYs）。canvas.toBlob() 不写 pHYs，
+// Photoshop/Illustrator 会按 72/96 DPI 解释，物理尺寸就错了。
+// 单个保存 / 批量保存 / 转入 Photoshop 三条落盘链路统一经过本函数；
+// 剪贴板直接写入 SVG 矢量数据，不经过 PNG，因此不涉及 DPI 元数据。
+const BARCODE_PNG_DPI = 300
+
+// 仅在渲染层显式声明 density 时写入（零售合规码），通用六码不受影响。
+// 写入失败必须抛错：若静默降级，保存会报成功但文件仍是 96 DPI，
+// 与"PNG 元数据 density=300"的验收标准直接冲突。
+async function withBarcodePngDensity(data, fileType, density) {
+  if (fileType?.extension !== 'png' || !density) return data
+
+  const value = Number(density)
+  if (!Number.isFinite(value) || value <= 0 || value > 4800) {
+    throw new Error(`条码 PNG 分辨率无效：${density}`)
+  }
+
+  try {
+    return await sharp(data).withMetadata({ density: value }).png().toBuffer()
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    throw new Error(`条码 PNG 写入 ${value} DPI 元数据失败：${reason}`)
+  }
+}
+
 function normalizeBarcodeData(type, rawData) {
   const fileType = BARCODE_FILE_TYPES[type]
 
@@ -1414,7 +1439,7 @@ ipcMain.handle('barcode:open-photoshop', async (event, payload) => {
   const temporaryDirectory = join(app.getPath('temp'), 'moyu-tools-com')
   await mkdir(temporaryDirectory, { recursive: true })
   const inputPath = join(temporaryDirectory, `${randomUUID()}.png`)
-  await writeFile(inputPath, normalized.data)
+  await writeFile(inputPath, await withBarcodePngDensity(normalized.data, normalized.fileType, payload?.density))
   try {
     await runComCommand(event, 'photoshop-open', { inputPath }, { timeoutMs: 10 * 60 * 1000 })
     return { status: 'opened' }
@@ -1423,13 +1448,20 @@ ipcMain.handle('barcode:open-photoshop', async (event, payload) => {
   }
 })
 
-ipcMain.handle('barcode:copy-image', (event, data) => {
+ipcMain.handle('barcode:copy-vector', (event, data) => {
   assertMainWindowSender(event)
-  const normalized = normalizeBarcodeData('png', data)
-  const image = nativeImage.createFromBuffer(normalized.data)
-  if (image.isEmpty()) throw new Error('无法解析条码图片')
-  clipboard.writeImage(image)
-  return { status: 'copied', size: image.getSize() }
+  const normalized = normalizeBarcodeData('svg', data)
+  const buffer = Buffer.from(normalized.data, 'utf8')
+  if (buffer.byteLength > 20 * 1024 * 1024) {
+    throw new Error('条码 SVG 超过 20 MB，已拒绝复制')
+  }
+
+  const format = process.platform === 'darwin' ? 'public.svg-image' : 'image/svg+xml'
+  clipboard.writeBuffer(format, buffer)
+  const copied = clipboard.readBuffer(format)
+  if (!copied.equals(buffer)) throw new Error('条码 SVG 写入剪贴板失败')
+
+  return { status: 'copied', format, bytes: buffer.byteLength }
 })
 
 ipcMain.handle('barcode:save-file', async (event, payload) => {
@@ -1457,7 +1489,7 @@ ipcMain.handle('barcode:save-file', async (event, payload) => {
     return { status: 'cancelled' }
   }
 
-  await writeFile(result.filePath, data, fileType.encoding || undefined)
+  await writeFile(result.filePath, await withBarcodePngDensity(data, fileType, payload?.density), fileType.encoding || undefined)
   return { status: 'saved', path: result.filePath }
 })
 
@@ -1498,7 +1530,7 @@ ipcMain.handle('barcode:save-files', async (event, payload) => {
     usedNames.set(nameKey, occurrence)
     const uniqueName = occurrence === 1 ? file.name : `${file.name}-${occurrence}`
     const filePath = join(directory, `${uniqueName}.${file.fileType.extension}`)
-    await writeFile(filePath, file.data, file.fileType.encoding || undefined)
+    await writeFile(filePath, await withBarcodePngDensity(file.data, file.fileType, payload?.density), file.fileType.encoding || undefined)
     event.sender.send('barcode:save-progress', {
       completed: index + 1,
       total: normalizedFiles.length,
