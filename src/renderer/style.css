@@ -1650,7 +1650,8 @@ input:focus-visible {
   padding: 14px;
 }
 
-.barcode-font-picker {
+.barcode-font-picker,
+.barcode-preset-picker {
   display: grid;
   grid-template-columns: 1fr auto;
   align-items: center;
@@ -1659,7 +1660,8 @@ input:focus-visible {
   font-size: 10px;
 }
 
-.barcode-font-picker select {
+.barcode-font-picker select,
+.barcode-preset-picker select {
   width: 124px;
   height: 34px;
   padding: 0 8px;

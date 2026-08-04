@@ -85,6 +85,7 @@
     "@tesseract.js-data/eng": "1.0.0",
     "ag-psd": "31.0.2",
     "fabric": "5.5.2-browser",
+    "gs1encoder": "1.4.1",
     "jsbarcode": "3.12.3",
     "opentype.js": "2.0.0",
     "pdf-lib": "1.17.1",

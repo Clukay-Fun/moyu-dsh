@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' ws:; img-src 'self' data: blob:"
+      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; connect-src 'self' ws:; img-src 'self' data: blob:"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>摸鱼工具箱</title>
@@ -272,6 +272,12 @@
                   <div class="control-column">
                     <div class="glass-card control-card">
                       <span class="label">条码样式</span>
+                      <label class="barcode-preset-picker" id="itf14-preset-picker" hidden>ITF-14 印刷预设
+                        <select id="itf14-preset">
+                          <option value="label">标签 / 数字打印</option>
+                          <option value="plate">印版直印</option>
+                        </select>
+                      </label>
                       <label class="barcode-font-picker">数字字体
                         <select id="barcode-font">
                           <option value="ocrb">OCRB</option>

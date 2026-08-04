@@ -14,8 +14,16 @@
 //   文件末尾为 `exports.default = UPC`（CommonJS + __esModule），
 //   直接默认导入在 Vite ESM interop 下会拿到命名空间对象，必须解包。
 import UPCModule from 'jsbarcode/bin/barcodes/EAN_UPC/UPC.js'
+import EAN13Module from 'jsbarcode/bin/barcodes/EAN_UPC/EAN13.js'
+import EAN8Module from 'jsbarcode/bin/barcodes/EAN_UPC/EAN8.js'
+import * as eanConstants from 'jsbarcode/bin/barcodes/EAN_UPC/constants.js'
 
 const UPC = UPCModule.default || UPCModule
+const EAN13 = EAN13Module.default || EAN13Module
+const EAN8 = EAN8Module.default || EAN8Module
+// 首位数字决定 EAN-13 左侧 6 位用 L(Number Set A) 还是 G(Number Set B)，
+// 直接影响 Table 5-10 的补偿方向，必须按位取用。
+const EAN13_STRUCTURE = eanConstants.EAN13_STRUCTURE || eanConstants.default?.EAN13_STRUCTURE
 
 
 // GS1 GenSpecs 26.0.0 §5.2.3.1 / Table 5-10：字符 1/2/7/8 的条空补偿。
@@ -29,6 +37,42 @@ const TABLE_5_10_BAR_SIGN = {
   BC: { 1: 1, 2: 1, 7: -1, 8: -1 }
 }
 
+
+// 通用分段构造：起始护栏 + 左区字符 + 中间护栏 + 右区字符 + 结束护栏。
+// numberSetOf(k) 返回该左区字符的 Number Set（'A' 或 'BC'）。
+function buildSegments({ charCount, numberSetOf, extendFirstLastChar }) {
+  return (text) => {
+    // 进入条空编码的永远是 text 的后 charCount×2 位：
+    // UPC-A 12/12、EAN-8 8/8 全部编码；EAN-13 首位不编码（由左侧奇偶模式承载）。
+    const encoded = text.slice(text.length - charCount * 2)
+    const leftDigits = encoded.slice(0, charCount)
+    const rightDigits = encoded.slice(charCount)
+    const leftStart = 3
+    const rightStart = 3 + charCount * 7 + 5
+    return [
+      { start: 0, count: 3, kind: 'guard', extended: true },
+      ...Array.from({ length: charCount }, (_, k) => ({
+        start: leftStart + k * 7,
+        count: 7,
+        kind: 'char',
+        digit: leftDigits[k],
+        numberSet: numberSetOf(k, text),
+        extended: Boolean(extendFirstLastChar) && k === 0
+      })),
+      { start: leftStart + charCount * 7, count: 5, kind: 'guard', extended: true },
+      ...Array.from({ length: charCount }, (_, k) => ({
+        start: rightStart + k * 7,
+        count: 7,
+        kind: 'char',
+        digit: rightDigits[k],
+        numberSet: 'BC',
+        extended: Boolean(extendFirstLastChar) && k === charCount - 1
+      })),
+      { start: rightStart + charCount * 7, count: 3, kind: 'guard', extended: true }
+    ]
+  }
+}
+
 // Table 5-44：一般零售 POS。Factor 固定 100%，取标称 X。
 const RETAIL_SPECS = {
   'UPC-A': {
@@ -39,40 +83,85 @@ const RETAIL_SPECS = {
     quietRightX: 9,
     barHeightMm: 22.85,
     guardExtendX: 5,
-    // 分段：护栏不补偿；编码字符按 Table 5-10 补偿。
-    // 延伸下沿者：三处护栏 + UPC-A 首尾符号字符（§5.2.3.2）。
-    segments: (text) => [
-      { start: 0, count: 3, kind: 'guard', extended: true },
-      ...Array.from({ length: 6 }, (_, k) => ({
-        start: 3 + k * 7,
-        count: 7,
-        kind: 'char',
-        digit: text[k],
-        numberSet: 'A',
-        extended: k === 0
-      })),
-      { start: 45, count: 5, kind: 'guard', extended: true },
-      ...Array.from({ length: 6 }, (_, k) => ({
-        start: 50 + k * 7,
-        count: 7,
-        kind: 'char',
-        digit: text[6 + k],
-        numberSet: 'BC',
-        extended: k === 5
-      })),
-      { start: 92, count: 3, kind: 'guard', extended: true }
-    ],
+    charCount: 6,
+    // UPC-A：首尾符号字符的条同样下延（因其 HRI 数字在符号外）
+    segments: buildSegments({ charCount: 6, numberSetOf: () => 'A', extendFirstLastChar: true }),
+    // HRI：首位与末位在符号外，中间 5+5 在数据区下方
+    hriLayout: (text) => ({
+      outsideFirst: text[0],
+      outsideLast: text[text.length - 1],
+      left: [1, 2, 3, 4, 5].map((charIndex, i) => ({ digit: text[i + 1], charIndex })),
+      right: [0, 1, 2, 3, 4].map((charIndex, i) => ({ digit: text[i + 6], charIndex }))
+    }),
     hri: {
-      gapX: 1, // 数字顶部与普通条底部间隔（规范下限 0.5X，取 1X）
-      capHeightMm: 2.75, // 数字**实际**字形高度（非 em size）；≥2mm。22.85 + 0.33 + 2.75 = 25.93mm 总高
-      // §5.2.5：首尾数字最大**墨宽** 4X，超出则整体等比缩小；
-      // 首位数字右边缘位于左护栏左侧 5X，末位数字左边缘位于右护栏右侧 5X。
-      // 自洽：4X(数字) + 5X(间隙) = 9X = 静区宽度，恰好填满。
+      gapX: 1,
+      capHeightMm: 2.75,
       outsideMaxInkWidthX: 4,
-      outsideEdgeGapX: 5,
-      // 中间数字：左侧取符号字符 1–5，右侧取符号字符 0–4（首尾数字在外）
-      leftCharIndexes: [1, 2, 3, 4, 5],
-      rightCharIndexes: [0, 1, 2, 3, 4]
+      outsideEdgeGapX: 5
+    }
+  },
+
+  'EAN-13': {
+    encoder: (value) => new EAN13(value, { flat: true }),
+    xDimensionMm: 0.33,
+    dataModules: 95,
+    quietLeftX: 11, // §5.2.3.4：EAN-13 左 11X / 右 7X（与 UPC-A 的 9X/9X 不同）
+    quietRightX: 7,
+    barHeightMm: 22.85,
+    guardExtendX: 5,
+    charCount: 6,
+    // EAN-13 只有护栏下延；符号字符不下延（首尾字符下延是 UPC-A 专有）
+    segments: buildSegments({
+      charCount: 6,
+      // 左侧 6 位按首位决定的奇偶模式取 L(Set A) / G(Set B)
+      numberSetOf: (k, text) => (EAN13_STRUCTURE[Number(text[0])][k] === 'L' ? 'A' : 'BC'),
+      extendFirstLastChar: false
+    }),
+    // HRI：仅首位在符号外，其余 6+6 在数据区下方（1 + 6 + 6）
+    hriLayout: (text) => ({
+      outsideFirst: text[0],
+      outsideLast: null,
+      left: Array.from({ length: 6 }, (_, i) => ({ digit: text[i + 1], charIndex: i })),
+      right: Array.from({ length: 6 }, (_, i) => ({ digit: text[i + 7], charIndex: i }))
+    }),
+    hri: {
+      gapX: 1,
+      capHeightMm: 2.75,
+      // ── EAN-13 符号外首位数字：水平位置**未锁定** ──────────────────
+      // 已确认（GS1 26.0.0 §5.2.5 p337 / Figure 5-11 p326）：
+      //   · 位于起始护栏左侧，与内部数字同一行；
+      //   · **与内部数字同字号、同基线**；
+      //   · **不适用** UPC-A 的「最大墨宽 4X、距护栏 5X」缩小规则。
+      // 未确认：GS1 未见对 EAN-13 规定同类固定水平间距。
+      // 因此**不设 outsideMaxInkWidthX / outsideEdgeGapX**（那是 UPC-A 专有值），
+      // 下面是**版式实现值，不是规范值**；在锁定前 EAN-13 不标生产合规。
+      outsideFirstProvisionalOffsetX: 5,
+      placementPending: true
+    }
+  },
+
+  'EAN-8': {
+    encoder: (value) => new EAN8(value, { flat: true }),
+    xDimensionMm: 0.33,
+    dataModules: 67, // 3 + 4×7 + 5 + 4×7 + 3
+    quietLeftX: 7,
+    quietRightX: 7,
+    barHeightMm: 18.23, // = X × 55.24（EAN-8 自有比值，非 69.24）
+    guardExtendX: 5,
+    charCount: 4,
+    segments: buildSegments({ charCount: 4, numberSetOf: () => 'A', extendFirstLastChar: false }),
+    // HRI：无符号外数字，4 + 4 全部在数据区下方
+    hriLayout: (text) => ({
+      outsideFirst: null,
+      outsideLast: null,
+      left: Array.from({ length: 4 }, (_, i) => ({ digit: text[i], charIndex: i })),
+      right: Array.from({ length: 4 }, (_, i) => ({ digit: text[i + 4], charIndex: i }))
+    }),
+    hri: {
+      gapX: 1,
+      capHeightMm: 2.75
+      // EAN-8 无符号外数字，故不定义 outsideMaxInkWidthX / outsideEdgeGapX，
+      // 避免日后被误调用。
     }
   }
 }
@@ -202,46 +291,46 @@ export function renderRetailBarcode(svgElement, typeName, value) {
   }
 
   // HRI
-  const digits = [...text]
+  const layout = spec.hriLayout(text)
   const addDigit = (content, xMm, edge) => {
+    if (content == null) return
     const node = document.createElementNS(svgNs, 'text')
     node.setAttribute('x', String(xMm))
     node.setAttribute('y', String(hriBaselineMm))
     node.setAttribute('text-anchor', 'middle')
-    // 写入目标**字形高度**而非 em size：opentype 的 fontSize 是 em，
-    // OCR-B 数字高度仅约 0.573em，直接用 2.75 会得到 1.58mm（不合规）。
-    // 由 outlineBarcodeText() 按字体 metrics 反算 em。
+    // 写入目标**字形高度**而非 em size（opentype 的 fontSize 是 em），
+    // 由 outlineBarcodeText() 按字体 metrics 反算。
     node.setAttribute('data-cap-height', String(spec.hri.capHeightMm))
     node.setAttribute('fill', '#000000')
-    // 全部按可见墨迹边缘定位：中间数字居中，首尾数字按左/右边缘锚定。
     node.setAttribute('data-anchor-edge', edge || 'center')
-    if (edge) {
+    // 仅 UPC-A 定义了「符号外数字最大墨宽 4X、超出等比缩小」。
+    // EAN-13 明确**不适用**该规则（同字号同基线），故不写 data-max-ink-width。
+    if (edge && spec.hri.outsideMaxInkWidthX) {
       node.setAttribute('data-max-ink-width', String(spec.hri.outsideMaxInkWidthX * x))
     }
     node.textContent = content
     svgElement.append(node)
   }
 
+  // 数据区起始模块：左区 3，右区 3 + charCount*7 + 5
+  const leftStart = 3
+  const rightStart = 3 + spec.charCount * 7 + 5
   const charCenterMm = (charIndex, dataStartModule) =>
     symbolStartMm + (dataStartModule + charIndex * 7 + 3.5) * x
 
-  // 首位：右边缘位于左护栏左侧 5X
-  addDigit(digits[0], symbolStartMm - spec.hri.outsideEdgeGapX * x, 'right')
+  // 符号外首位。UPC-A 用规范值 outsideEdgeGapX；
+  // EAN-13 水平位置未锁定，用 provisional 值（**非规范值**，见 spec 注释）。
+  const outsideFirstOffsetX =
+    spec.hri.outsideEdgeGapX ?? spec.hri.outsideFirstProvisionalOffsetX ?? 0
+  addDigit(layout.outsideFirst, symbolStartMm - outsideFirstOffsetX * x, 'right')
 
-  // 左半 5 位（符号字符 1–5，数据区起始模块 3）
-  spec.hri.leftCharIndexes.forEach((charIndex, offset) => {
-    addDigit(digits[offset + 1], charCenterMm(charIndex, 3))
-  })
+  for (const item of layout.left) addDigit(item.digit, charCenterMm(item.charIndex, leftStart))
+  for (const item of layout.right) addDigit(item.digit, charCenterMm(item.charIndex, rightStart))
 
-  // 右半 5 位（符号字符 0–4，数据区起始模块 50）
-  spec.hri.rightCharIndexes.forEach((charIndex, offset) => {
-    addDigit(digits[offset + 6], charCenterMm(charIndex, 50))
-  })
-
-  // 末位：左边缘位于右护栏右侧 5X
+  // 符号外末位：左边缘位于右护栏右侧 outsideEdgeGapX
   addDigit(
-    digits[digits.length - 1],
-    symbolStartMm + spec.dataModules * x + spec.hri.outsideEdgeGapX * x,
+    layout.outsideLast,
+    symbolStartMm + spec.dataModules * x + (spec.hri.outsideEdgeGapX ?? 0) * x,
     'left'
   )
 

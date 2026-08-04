@@ -5,6 +5,14 @@ import { getDocument, GlobalWorkerOptions, ImageKind, OPS } from 'pdfjs-dist'
 import { createQpdfRunner } from 'qpdf-run'
 import { parse as parseOpenType } from 'opentype.js'
 import { isRetailType, renderRetailBarcode, computeRetailGeometry } from './retailBarcode.js'
+import {
+  isGs1128Type, prepareGs1128, renderGs1128, computeGs1128Geometry, gs1128RasterSize
+} from './gs1128Barcode.js'
+import {
+  isItf14Type, renderItf14, computeItf14Geometry, itf14RasterSize,
+  ITF14_PRESETS, ITF14_DEFAULT_PRESET
+} from './itf14Barcode.js'
+// GS1-128 语法引擎（懒加载 WASM）。Spike 阶段仅确保打包链路成立，尚未接入 UI。
 import ocrbFontData from '../../assets/fonts/OCR-B.ttf?inline'
 import ocrbIFontData from '../../assets/fonts/OCRBI.ttf?inline'
 import ocrbIIIFontData from '../../assets/fonts/OCRBIII.ttf?inline'
@@ -46,6 +54,24 @@ const barcodeTypes = {
     inputMode: 'numeric',
     maxLength: 12,
     hint: '需要 11 位数字，或带正确校验位的 12 位数字'
+  },
+  'ITF-14': {
+    format: 'ITF14',
+    icon: 'I14',
+    color: '#5b8def',
+    example: '00012345600012',
+    inputMode: 'numeric',
+    maxLength: 14,
+    hint: '需要 13 位数字，或带正确校验位的 14 位数字'
+  },
+  'GS1-128': {
+    format: 'GS1128',
+    icon: 'G1',
+    color: '#7a6ff0',
+    example: '(01)09521234543213(10)ABC123(17)280101',
+    inputMode: 'text',
+    maxLength: 256,
+    hint: '输入 GS1 AI 数据串，如 (01)09521234543213(10)ABC123'
   },
   'EAN-8': {
     format: 'EAN8',
@@ -258,6 +284,8 @@ const searchFeatures = [
   ['文字转曲', 'Illustrator', 'ai', '', 'AI 文字 转曲'],
   ['EAN-13 条码', '条码', 'bc', 'EAN-13', '商品码 一维码'],
   ['UPC-A 条码', '条码', 'bc', 'UPC-A', '商品码 一维码'],
+  ['ITF-14 条码', '条码', 'bc', 'ITF-14', '外箱 物流 一维码'],
+  ['GS1-128 条码', '条码', 'bc', 'GS1-128', 'EAN128 UCC128 物流 应用标识符 AI 一维码'],
   ['EAN-8 条码', '条码', 'bc', 'EAN-8', '商品码 一维码'],
   ['Code128 条码', '条码', 'bc', 'Code128', '物流 一维码'],
   ['Code39 条码', '条码', 'bc', 'Code39', '工业 一维码'],
@@ -306,6 +334,7 @@ const state = {
   searchMatches: [],
   barcodeMode: 'single',
   barcodeFont: barcodeFonts[savedBarcodeStyle.font] ? savedBarcodeStyle.font : 'ocrb',
+  itf14Preset: ITF14_DEFAULT_PRESET,
   barcodeBatchItems: [],
   pdfFiles: [],
   pdfFileStatuses: [],
@@ -3182,6 +3211,8 @@ const generateBarcodeBatchButton = document.querySelector('#generate-barcode-bat
 const saveBarcodeBatchSvgButton = document.querySelector('#save-barcode-batch-svg')
 const saveBarcodeBatchPngButton = document.querySelector('#save-barcode-batch-png')
 const barcodeFontSelect = document.querySelector('#barcode-font')
+const itf14PresetPicker = document.querySelector('#itf14-preset-picker')
+const itf14PresetSelect = document.querySelector('#itf14-preset')
 
 barcodeFontSelect.value = state.barcodeFont
 
@@ -3215,9 +3246,26 @@ function getBarcodeType() {
   return barcodeTypes[state.selections.bc] || barcodeTypes['EAN-13']
 }
 
-function renderBarcodeSvg(svgElement, value, typeName = state.selections.bc) {
+function renderBarcodeSvg(svgElement, value, typeName = state.selections.bc, itf14Preset = null, prepared = null) {
   const type = barcodeTypes[typeName]
   if (!type) throw new Error('不支持的条码类型')
+
+  // GS1-128 走模块网格几何引擎；AI 校验是异步的，必须由调用方先 prepareGs1128()
+  // 并把结果传进来——本函数保持同步，不在渲染期发起校验。
+  if (isGs1128Type(typeName)) {
+    if (!prepared) throw new Error('GS1-128 需要先完成 AI 语法校验')
+    renderGs1128(svgElement, prepared)
+    // HRI 同样固定常规 OCR-B
+    outlineBarcodeText(svgElement, RETAIL_HRI_FONT_KEY)
+    return
+  }
+
+  // ITF-14 走元素级几何引擎（窄/宽 2.5:1，非模块网格）
+  if (isItf14Type(typeName)) {
+    renderItf14(svgElement, value, itf14Preset || state.itf14Preset || ITF14_DEFAULT_PRESET)
+    outlineBarcodeText(svgElement, RETAIL_HRI_FONT_KEY)
+    return
+  }
 
   // 零售合规码制走 GS1 几何引擎；其余六种维持 JsBarcode 通用渲染。
   if (isRetailType(typeName)) {
@@ -3251,6 +3299,85 @@ function friendlyBarcodeError(typeName) {
 // 生产合规参数报告：SVG/EPS 为精确标称值，PNG 为整数像素量化后的实际值，
 // 二者必须分别标注，不得混称（GS1 尺寸口径）。
 function renderBarcodeSpecReport(typeName) {
+  // GS1-128：模块网格 + Syntax Engine 校验，报告口径独立
+  if (isGs1128Type(typeName)) {
+    if (!gs1128Prepared) {
+      barcodeSpecReport.hidden = true
+      return
+    }
+    const geo = computeGs1128Geometry(gs1128Prepared)
+    const raster = gs1128RasterSize(gs1128Prepared)
+    const s = geo.spec
+    const rows = [
+      ['规范', s.source],
+      ['AI 校验', `GS1 Barcode Syntax Engine（gs1encoder 1.4.1，内嵌固定 AI 表，不联网）`],
+      ['数据串', `${geo.dataStr}（^ = FNC1）· ${geo.moduleCount} 模块`],
+      ['X-dimension', `${geo.x.toFixed(3)} mm（允许 ${s.xMinMm}–${s.xMaxMm}）`],
+      ['SVG / EPS', `${geo.widthMm.toFixed(2)} × ${geo.heightMm.toFixed(2)} mm · 符号宽 ${geo.symbolWidthMm.toFixed(2)} mm`],
+      ['PNG', `${raster.actualWidthMm.toFixed(2)} mm · ${raster.pixelWidth} × ${raster.pixelHeight} px · ${raster.dpi} DPI · 模块 ${raster.modulePx}px · X=${raster.actualXMm.toFixed(4)} mm`],
+      ['条高 / 静区', `${s.barHeightMm.toFixed(2)} mm（不含 HRI）· 左右各 ${geo.quietLeftMm.toFixed(2)} mm（10X）`],
+      [
+        '符号长度',
+        `${geo.measuredLengthMm.toFixed(2)} mm / 上限 ${s.maxSymbolLengthMm} mm（含左右静区）`
+      ],
+      [
+        '数据字符',
+        `${geo.dataCharCount} / 上限 ${s.maxDataCharacters} 个（含 AI 与中间分隔 FNC1；不含起始符、开头 FNC1、校验符、停止符）`
+      ],
+      [
+        'HRI',
+        `常规 OCR-B · 内容由 Syntax Engine 生成 · 字形高 ${s.hri.capHeightMm.toFixed(2)} mm（${s.hri.capHeightSource}）`
+      ],
+      [
+        'HRI 版式',
+        `不拆分 element string（每个 AI 单元整体不换行）· 行距 ${s.hri.lineGapMm.toFixed(2)} mm · 距条码 ${s.hri.gapMm.toFixed(2)} mm —— 均为产品版式值，规范未固定`
+      ]
+    ]
+    barcodeSpecReport.replaceChildren()
+    for (const [term, detail] of rows) {
+      const dt = document.createElement('dt')
+      dt.textContent = term
+      const dd = document.createElement('dd')
+      dd.textContent = detail
+      barcodeSpecReport.append(dt, dd)
+    }
+    barcodeSpecReport.hidden = false
+    return
+  }
+
+  // ITF-14：元素级几何 + 双印刷预设，报告口径与零售码不同
+  if (isItf14Type(typeName)) {
+    const presetKey = state.itf14Preset || ITF14_DEFAULT_PRESET
+    const geo = computeItf14Geometry(presetKey, barcodeRenderedValue || null)
+    const raster = itf14RasterSize(presetKey, barcodeRenderedValue || null)
+    const rows = [
+      ['规范', 'GS1 GenSpecs 26.0.0 · §5.12.3.2 · Table 5-47（一般流通）'],
+      ['印刷预设', geo.preset.label],
+      ['X-dimension', `${geo.x.toFixed(3)} mm（允许 0.495–1.016）`],
+      ['宽窄比', `${(geo.wideMm / geo.x).toFixed(2)}:1（目标 2.5，允许 2.25–3）`],
+      ['SVG / EPS', `${geo.widthMm.toFixed(2)} × ${geo.heightMm.toFixed(2)} mm · 符号宽 ${geo.symbolWidthMm.toFixed(2)} mm`],
+      ['PNG', `${raster.actualWidthMm.toFixed(2)} mm · ${raster.pixelWidth} × ${raster.pixelHeight} px · ${raster.dpi} DPI · 窄 ${raster.narrowPx}px / 宽 ${raster.widePx}px · X=${raster.actualXMm.toFixed(4)} mm`],
+      ['条高 / 静区', `${geo.base.barHeightMm.toFixed(2)} mm（不含 HRI 与承载框）· 左右各 ${geo.quietLeftMm.toFixed(2)} mm`],
+      [
+        '承载框',
+        geo.preset.bearer.mode === 'frame'
+          ? `四边完整框 · ${geo.bearerMm.toFixed(2)} mm（PNG ${raster.bearerPx}px = ${raster.bearerActualMm.toFixed(3)} mm）· 左右框在静区外`
+          : `仅上下承载条 · ${geo.bearerMm.toFixed(2)} mm（2X，PNG ${raster.bearerPx}px）`
+      ],
+      ['HRI', `常规 OCR-B · 字形高 ${geo.base.hri.capHeightMm.toFixed(2)} mm · 距承载条 ${geo.base.hri.gapToBearerMm.toFixed(2)} mm（PNG ${raster.hriGapPx}px = ${raster.hriGapActualMm.toFixed(3)} mm）· 水平居中为产品版式`]
+    ]
+    barcodeSpecReport.replaceChildren()
+    for (const [term, detail] of rows) {
+      const dt = document.createElement('dt')
+      dt.textContent = term
+      const dd = document.createElement('dd')
+      dd.textContent = detail
+      barcodeSpecReport.append(dt, dd)
+    }
+    barcodeSpecReport.hidden = false
+    return
+  }
+
   if (!isRetailType(typeName)) {
     barcodeSpecReport.hidden = true
     barcodeSpecReport.replaceChildren()
@@ -3259,8 +3386,15 @@ function renderBarcodeSpecReport(typeName) {
 
   const geometry = computeRetailGeometry(typeName)
   const raster = retailRasterSize(typeName)
+  // 版式未锁定的码制：**保留全部已锁定参数**，只把合规结论标为待定。
+  // （早前的提前 return 会把条高/静区/尺寸一并藏掉，反而丢失有效信息。）
+  const pending = geometry.spec.hri.placementPending === true
+
   const rows = [
-    ['规范', 'GS1 GenSpecs 26.0.0 · Table 5-44 · 零售 POS'],
+    pending
+      ? ['合规状态', '待定 · 符号外首位数字水平位置尚待规范确认，当前为版式实现值，暂不标注生产合规']
+      : ['规范', 'GS1 GenSpecs 26.0.0 · Table 5-44 · 零售 POS'],
+    ...(pending ? [['已锁定依据', 'GS1 GenSpecs 26.0.0 · Table 5-44（条空、静区、条高、Table 5-10 补偿）']] : []),
     ['放大系数', '标准 100%'],
     ['SVG / EPS', `${geometry.widthMm.toFixed(2)} × ${geometry.heightMm.toFixed(2)} mm · X=${geometry.x.toFixed(3)} mm`],
     ['PNG', `${raster.actualWidthMm.toFixed(2)} mm · ${raster.pixelWidth} × ${raster.pixelHeight} px · ${raster.dpi} DPI · X=${raster.actualXMm.toFixed(4)} mm`],
@@ -3279,23 +3413,58 @@ function renderBarcodeSpecReport(typeName) {
   barcodeSpecReport.hidden = false
 }
 
-function generateBarcode(notifyError = true) {
+// GS1-128 的 AI 校验走 WASM，是**异步**的。用户连续输入时，先发出的请求可能后返回，
+// 若不设防会用旧数据覆盖新输入。这里用单调递增序号：只有序号仍等于当前值的
+// 回调才允许写入 DOM 与状态，落后的请求一律丢弃。
+let barcodeRequestSeq = 0
+// 当前预览所依据的 GS1-128 校验结果，是参数报告与全部导出路径的唯一数据源。
+let gs1128Prepared = null
+
+async function generateBarcode(notifyError = true) {
   const value = barcodeInput.value.trim()
+  const typeName = state.selections.bc
+  // 任何一次生成（含切换类型、非 GS1-128 类型）都推进序号，
+  // 以作废仍在飞行中的旧 GS1-128 校验请求。
+  const token = ++barcodeRequestSeq
+
   barcodeSvg.replaceChildren()
   barcodeRenderedValue = ''
   barcodeRenderedType = ''
+  gs1128Prepared = null
   setBarcodeExportEnabled(false)
 
+  let prepared = null
+  if (isGs1128Type(typeName)) {
+    setBarcodeMessage('正在校验 GS1 应用标识符…', '')
+    try {
+      prepared = await prepareGs1128(value)
+    } catch (error) {
+      if (token !== barcodeRequestSeq) return false // 已被更新的输入取代
+      const message = error instanceof Error ? error.message : friendlyBarcodeError(typeName)
+      barcodeSpecReport.hidden = true
+      setBarcodeMessage(message, 'error')
+      if (notifyError) showToast('GS1-128 数据无效')
+      return false
+    }
+    if (token !== barcodeRequestSeq) return false
+  }
+
   try {
-    renderBarcodeSvg(barcodeSvg, value)
+    renderBarcodeSvg(barcodeSvg, value, typeName, null, prepared)
+    if (token !== barcodeRequestSeq) return false
+    gs1128Prepared = prepared
     barcodeRenderedValue = value
-    barcodeRenderedType = state.selections.bc
+    barcodeRenderedType = typeName
     setBarcodeExportEnabled(true)
-    renderBarcodeSpecReport(state.selections.bc)
-    setBarcodeMessage(`${state.selections.bc} 已生成，可保存为 SVG 或 PNG。`, 'success')
+    renderBarcodeSpecReport(typeName)
+    setBarcodeMessage(`${typeName} 已生成，可保存为 SVG 或 PNG。`, 'success')
     return true
-  } catch {
-    const message = friendlyBarcodeError(state.selections.bc)
+  } catch (error) {
+    if (token !== barcodeRequestSeq) return false
+    // GS1-128 的几何层错误（如超过 165.10mm）自带可执行信息，不应被通用提示盖掉
+    const message = isGs1128Type(typeName) && error instanceof Error
+      ? error.message
+      : friendlyBarcodeError(typeName)
     barcodeSpecReport.hidden = true
     setBarcodeMessage(message, 'error')
     if (notifyError) showToast(message)
@@ -3438,7 +3607,14 @@ function retailRasterSize(typeName) {
   }
 }
 
-function retailTargetFor(typeName) {
+function retailTargetFor(typeName, value = barcodeRenderedValue, itf14Preset = null, prepared = null) {
+  if (isGs1128Type(typeName)) {
+    const source = prepared || gs1128Prepared
+    return source ? gs1128RasterSize(source) : null
+  }
+  if (isItf14Type(typeName)) {
+    return itf14RasterSize(itf14Preset || state.itf14Preset || ITF14_DEFAULT_PRESET, value || null)
+  }
   return isRetailType(typeName) ? retailRasterSize(typeName) : null
 }
 
@@ -3611,9 +3787,15 @@ async function runBarcodeCom(action, button) {
 // 零售合规码固定常规 OCR-B，隐藏字体下拉框（避免用户选到禁止的粗/斜/细/窄体）。
 function updateBarcodeFontPickerVisibility(typeName) {
   const picker = barcodeFontSelect.closest('.barcode-font-picker') || barcodeFontSelect
-  const retail = isRetailType(typeName)
-  picker.hidden = retail
-  barcodeFontSelect.disabled = retail
+  // ITF-14 同样固定常规 OCR-B，不能显示一个实际不生效的控件
+  const fixedFont = isRetailType(typeName) || isItf14Type(typeName) || isGs1128Type(typeName)
+  picker.hidden = fixedFont
+  barcodeFontSelect.disabled = fixedFont
+  // 印刷预设仅 ITF-14 提供，且只有两个规范预设（不开放任意数值）
+  const itf14 = isItf14Type(typeName)
+  itf14PresetPicker.hidden = !itf14
+  itf14PresetSelect.disabled = !itf14
+  if (itf14) itf14PresetSelect.value = state.itf14Preset || ITF14_DEFAULT_PRESET
 }
 
 function selectBarcodeType(typeName, replaceValue = false) {
@@ -3723,21 +3905,34 @@ async function generateBarcodeBatch() {
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
     let item
 
+    // 冻结生成时的 ITF-14 预设：生成后若切换预设，
+    // 已有 SVG 与导出像素尺寸必须仍属同一模式。
+    const itf14Preset = isItf14Type(state.selections.bc) ? state.itf14Preset : null
+
     try {
-      renderBarcodeSvg(svg, value)
+      // GS1-128 每条独立做一次 AI 校验，校验结果随条目冻结，
+      // 后续导出只用这份结果，不重新校验、不共用上一条的数据。
+      const prepared = isGs1128Type(state.selections.bc) ? await prepareGs1128(value) : null
+      renderBarcodeSvg(svg, value, state.selections.bc, itf14Preset, prepared)
       item = {
         value,
         type: state.selections.bc,
+        itf14Preset,
+        prepared,
         valid: true,
         svg
       }
       validCount += 1
-    } catch {
+    } catch (error) {
       item = {
         value,
         type: state.selections.bc,
+        itf14Preset,
+        prepared: null,
         valid: false,
-        error: friendlyBarcodeError(state.selections.bc)
+        error: isGs1128Type(state.selections.bc) && error instanceof Error
+          ? error.message
+          : friendlyBarcodeError(state.selections.bc)
       }
     }
 
@@ -3784,7 +3979,7 @@ async function saveBarcodeBatch(type) {
         name: safeBarcodeFileName(item.type, item.value, index),
         data: type === 'svg'
           ? svgText
-          : await svgToPngBytes(svgText, retailTargetFor(item.type))
+          : await svgToPngBytes(svgText, retailTargetFor(item.type, item.value, item.itf14Preset, item.prepared))
       })
       barcodeBatchSummary.textContent = `正在准备 ${index + 1} / ${validItems.length}…`
       if ((index + 1) % 10 === 0) await nextFrame()
@@ -3796,7 +3991,7 @@ async function saveBarcodeBatch(type) {
 
     try {
       const batchDensities = new Set(
-        validItems.map((item) => retailTargetFor(item.type)?.dpi ?? 0)
+        validItems.map((item) => retailTargetFor(item.type, item.value, item.itf14Preset, item.prepared)?.dpi ?? 0)
       )
       const result = await window.api.saveBarcodeFiles({
         type,
@@ -3825,7 +4020,8 @@ async function saveBarcodeBatch(type) {
 }
 
 barcodeInput.addEventListener('input', () => {
-  generateBarcode(false)
+  // GS1-128 时这是异步的；正确性由 generateBarcode 内部的递增序号守卫保证
+  void generateBarcode(false)
 })
 saveBarcodeSvgButton.addEventListener('click', () => saveBarcode('svg'))
 saveBarcodePngButton.addEventListener('click', () => saveBarcode('png'))
@@ -3850,6 +4046,18 @@ function refreshBarcodeFont() {
   if (!state.barcodeBatchItems.length) return
   void generateBarcodeBatch()
 }
+
+itf14PresetSelect.addEventListener('change', () => {
+  state.itf14Preset = ITF14_PRESETS[itf14PresetSelect.value] ? itf14PresetSelect.value : ITF14_DEFAULT_PRESET
+  // 批量条目已冻结旧预设，切换后必须重新生成，避免 SVG 与导出尺寸混模式
+  if (state.barcodeBatchItems.length) {
+    state.barcodeBatchItems = []
+    barcodeBatchList.replaceChildren()
+    setBarcodeBatchExportEnabled(false)
+    barcodeBatchSummary.textContent = '印刷预设已改变，请重新批量生成。'
+  }
+  generateBarcode(false)
+})
 
 barcodeFontSelect.addEventListener('change', () => {
   state.barcodeFont = barcodeFontSelect.value

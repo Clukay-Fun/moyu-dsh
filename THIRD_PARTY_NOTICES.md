@@ -73,3 +73,12 @@
 - Copyright (c) 2023 Yuri Dursin
 - npm integrity：`sha512-R+6yTIk8pnIf50P4z8unG3yfRP0DCYzq7v8J04tool1OR4UkoXKEGfAj+cq6IPPhnVQHz7+m7isg+yU38T727w==`
 - 许可证文件：`licenses/winax-MIT.txt`
+
+## gs1encoder (GS1 Barcode Syntax Engine)
+
+- 版本：1.4.1（精确固定，非 `^` 范围）
+- 许可证：Apache-2.0（见 `licenses/GS1-SYNTAX-ENGINE-Apache-2.0.txt`）
+- 项目：https://github.com/gs1/gs1-syntax-engine
+- npm integrity：`sha512-wiLHo41Jg5o3gPFOoNgv0zy6DVzMeTLq2x/9ue+0PRt6GoDqgfbSIMFpxzq8GcfVOyGRU9b7czhGK2GP4V58vQ==`
+- 用途：GS1-128 的 AI 语法校验与 HRI 生成。使用包内嵌固定 AI 表，
+  **不在运行时下载 Syntax Dictionary**，WASM 随构建本地打包。
