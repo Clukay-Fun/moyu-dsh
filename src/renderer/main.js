@@ -6,6 +6,10 @@ import { createQpdfRunner } from 'qpdf-run'
 import { parse as parseOpenType } from 'opentype.js'
 import { isRetailType, renderRetailBarcode, computeRetailGeometry } from './retailBarcode.js'
 import {
+  isGenericType, renderGenericBarcode, computeGenericGeometry, genericRasterSize,
+  GENERIC_DEFAULTS
+} from './genericBarcode.js'
+import {
   isGs1128Type, prepareGs1128, renderGs1128, computeGs1128Geometry, gs1128RasterSize
 } from './gs1128Barcode.js'
 import {
@@ -3276,6 +3280,14 @@ function renderBarcodeSvg(svgElement, value, typeName = state.selections.bc, itf
     return
   }
 
+  // S4 通用生成：走本项目产品默认几何，不再用 JsBarcode 的默认版式。
+  // HRI 字体仍随用户选择（本档不受 GS1 字体限制约束）。
+  if (isGenericType(typeName)) {
+    renderGenericBarcode(svgElement, typeName, value)
+    outlineBarcodeText(svgElement)
+    return
+  }
+
   const selectedFont = barcodeFonts[state.barcodeFont] || barcodeFonts.ocrb
   const options = {
     font: `"${selectedFont.label}", "Moyu OCR-B", OCRB, monospace`,
@@ -3332,6 +3344,43 @@ function renderBarcodeSpecReport(typeName) {
         'HRI 版式',
         `不拆分 element string（每个 AI 单元整体不换行）· 行距 ${s.hri.lineGapMm.toFixed(2)} mm · 距条码 ${s.hri.gapMm.toFixed(2)} mm —— 均为产品版式值，规范未固定`
       ]
+    ]
+    barcodeSpecReport.replaceChildren()
+    for (const [term, detail] of rows) {
+      const dt = document.createElement('dt')
+      dt.textContent = term
+      const dd = document.createElement('dd')
+      dd.textContent = detail
+      barcodeSpecReport.append(dt, dd)
+    }
+    barcodeSpecReport.hidden = false
+    return
+  }
+
+  // S4 通用生成：只报实际产出尺寸，明示为产品默认值。
+  // 口径：**不出现肯定性生产合规声明**；免责句"不作生产合规承诺"本身含该词，属正常。
+  if (isGenericType(typeName)) {
+    if (!barcodeRenderedValue) {
+      barcodeSpecReport.hidden = true
+      return
+    }
+    const geo = computeGenericGeometry(typeName, barcodeRenderedValue)
+    const raster = genericRasterSize(typeName, barcodeRenderedValue)
+    const d = geo.defaults
+    const rows = [
+      ['参数性质', d.notice],
+      ['依据', d.basis],
+      ['编码', `${geo.symbology.label} · ${geo.symbology.features.join(' · ')} · ${geo.moduleCount} 模块`],
+      ['X-dimension', `${geo.x.toFixed(3)} mm（产品默认值）`],
+      ['SVG / EPS', `${geo.widthMm.toFixed(2)} × ${geo.heightMm.toFixed(2)} mm · 符号宽 ${geo.symbolWidthMm.toFixed(2)} mm`],
+      ['PNG', `${raster.actualWidthMm.toFixed(2)} mm · ${raster.pixelWidth} × ${raster.pixelHeight} px · ${raster.dpi} DPI · 模块 ${raster.modulePx}px · X=${raster.actualXMm.toFixed(4)} mm`],
+      [
+        '条高',
+        `${geo.barHeightMm.toFixed(2)} mm = max(${d.barHeightMinMm} mm, ${(d.barHeightRatio * 100).toFixed(0)}% × 符号宽 ${geo.symbolWidthMm.toFixed(2)} mm)` +
+          `　当前取${geo.barHeightDrivenBy === 'ratio' ? '比例值' : '最小值'}`
+      ],
+      ['静区', `左右各 ${geo.quietLeftMm.toFixed(2)} mm（${d.quietLeftX}X，产品默认值）`],
+      ['HRI', `字形高 ${d.hri.capHeightMm.toFixed(2)} mm · 距条码 ${d.hri.gapMm.toFixed(2)} mm · 字体随选择 —— 均为产品版式值`]
     ]
     barcodeSpecReport.replaceChildren()
     for (const [term, detail] of rows) {
@@ -3607,7 +3656,10 @@ function retailRasterSize(typeName) {
   }
 }
 
-function retailTargetFor(typeName, value = barcodeRenderedValue, itf14Preset = null, prepared = null) {
+function barcodeRasterTargetFor(typeName, value = barcodeRenderedValue, itf14Preset = null, prepared = null) {
+  if (isGenericType(typeName)) {
+    return value ? genericRasterSize(typeName, value) : null
+  }
   if (isGs1128Type(typeName)) {
     const source = prepared || gs1128Prepared
     return source ? gs1128RasterSize(source) : null
@@ -3685,12 +3737,12 @@ async function saveBarcode(type) {
     const svgText = serializeBarcodeSvg()
     const data = type === 'svg'
       ? svgText
-      : await svgToPngBytes(svgText, retailTargetFor(state.selections.bc))
+      : await svgToPngBytes(svgText, barcodeRasterTargetFor(state.selections.bc))
     const result = await window.api.saveBarcodeFile({
       type,
       name: `${state.selections.bc}-${barcodeRenderedValue}`,
       data,
-      density: retailTargetFor(state.selections.bc)?.dpi
+      density: barcodeRasterTargetFor(state.selections.bc)?.dpi
     })
 
     if (result.status === 'saved') {
@@ -3760,10 +3812,10 @@ async function runBarcodeCom(action, button) {
     } else if (action === 'illustrator') {
       result = await window.api.openBarcodeInIllustrator({ data: svgText })
     } else {
-      const png = await svgToPngBytes(svgText, retailTargetFor(state.selections.bc))
+      const png = await svgToPngBytes(svgText, barcodeRasterTargetFor(state.selections.bc))
       result = await window.api.openBarcodeInPhotoshop({
         data: png,
-        density: retailTargetFor(state.selections.bc)?.dpi
+        density: barcodeRasterTargetFor(state.selections.bc)?.dpi
       })
     }
 
@@ -3979,7 +4031,7 @@ async function saveBarcodeBatch(type) {
         name: safeBarcodeFileName(item.type, item.value, index),
         data: type === 'svg'
           ? svgText
-          : await svgToPngBytes(svgText, retailTargetFor(item.type, item.value, item.itf14Preset, item.prepared))
+          : await svgToPngBytes(svgText, barcodeRasterTargetFor(item.type, item.value, item.itf14Preset, item.prepared))
       })
       barcodeBatchSummary.textContent = `正在准备 ${index + 1} / ${validItems.length}…`
       if ((index + 1) % 10 === 0) await nextFrame()
@@ -3991,7 +4043,7 @@ async function saveBarcodeBatch(type) {
 
     try {
       const batchDensities = new Set(
-        validItems.map((item) => retailTargetFor(item.type, item.value, item.itf14Preset, item.prepared)?.dpi ?? 0)
+        validItems.map((item) => barcodeRasterTargetFor(item.type, item.value, item.itf14Preset, item.prepared)?.dpi ?? 0)
       )
       const result = await window.api.saveBarcodeFiles({
         type,
