@@ -17,12 +17,14 @@
 import CODE128Module from 'jsbarcode/bin/barcodes/CODE128/index.js'
 import CODE39Module from 'jsbarcode/bin/barcodes/CODE39/index.js'
 import ITFModule from 'jsbarcode/bin/barcodes/ITF/index.js'
+import CodabarModule from 'jsbarcode/bin/barcodes/codabar/index.js'
 
 const CODE128Bundle = CODE128Module.default || CODE128Module
 const CODE39 = (CODE39Module.default || CODE39Module).CODE39
 // 注意：只取通用 ITF，**不碰同文件导出的 ITF14**——ITF-14 由 itf14Barcode.js
 // 按 GS1 规范独立实现，两者不得混用。
 const ITF = (ITFModule.default || ITFModule).ITF
+const Codabar = (CodabarModule.default || CodabarModule).codabar
 
 const MM_PER_INCH = 25.4
 export const GENERIC_DPI = 300
@@ -181,7 +183,68 @@ function assertItfInput(value) {
   return text
 }
 
-// 本模块当前已接入的码制。后续 Codabar / MSI / Auto 逐个加入。
+// ─────────────────────────────────────────────────────────────
+// Codabar 产品默认方案（S4）
+export const CODABAR_DEFAULTS = {
+  wideRatio: 2.5, // Codabar 自己的产品默认值
+  start: 'A',
+  stop: 'B',
+  showStartStop: false, // HRI 默认只显示正文
+  // 本版**不提供**校验位：Codabar 的 Mod 16 是可选且未标准化的。
+  // 将来若需要，必须作为显式选项单独实现，不得改变现有默认输出。
+  checkDigit: false,
+
+  // 起止符唯一真值。别名仅用于 UI 标注，编码与参数报告一律用 A–D。
+  startStopChars: [
+    { value: 'A', alias: 'T' },
+    { value: 'B', alias: 'N' },
+    { value: 'C', alias: '*' },
+    { value: 'D', alias: 'E' }
+  ],
+  // 正文字符集：不含 A–D（那是起止符，写进正文会产生歧义）
+  payloadCharset: '0123456789-$:./+'
+}
+
+/** 解析 Codabar 选项；起止符必须是 A–D。 */
+export function resolveCodabarOptions(options) {
+  const d = CODABAR_DEFAULTS
+  const input = options || {}
+  const valid = d.startStopChars.map((c) => c.value)
+  const start = String(input.start ?? d.start).toUpperCase()
+  const stop = String(input.stop ?? d.stop).toUpperCase()
+  for (const [name, char] of [['起始符', start], ['终止符', stop]]) {
+    if (!valid.includes(char)) {
+      throw new Error(`Codabar ${name}必须是 ${valid.join(' / ')} 之一，收到「${char}」`)
+    }
+  }
+  return {
+    start,
+    stop,
+    showStartStop: Boolean(input.showStartStop ?? d.showStartStop),
+    wideRatio: d.wideRatio
+  }
+}
+
+/** Codabar 正文校验：只接受 0-9 - $ : . + /，**A–D 必须走起止符选项**。 */
+function assertCodabarPayload(value) {
+  const text = String(value)
+  if (!text.length) throw new Error('Codabar 正文不能为空')
+  for (const char of text) {
+    if (CODABAR_DEFAULTS.payloadCharset.includes(char)) continue
+    const upper = char.toUpperCase()
+    if (['A', 'B', 'C', 'D'].includes(upper)) {
+      throw new Error(
+        `Codabar 正文不能包含起止符「${char}」，请用"起始符/终止符"选项设置`
+      )
+    }
+    throw new Error(
+      `Codabar 正文不支持「${char}」（可用：0-9 - $ : . + /）`
+    )
+  }
+  return text
+}
+
+// 本模块当前已接入的码制。后续 MSI / Auto 逐个加入。
 //
 // ⚠ 每个码制必须声明 `model`，几何层据此**分发到不同的宽度模型**，
 //   绝不能让新码制默认落进模块网格：
@@ -262,6 +325,42 @@ const GENERIC_SYMBOLOGIES = {
       return { binary, text, wideRatio: ITF_DEFAULTS.wideRatio }
     },
     features: ['偶数位数字', '不补零', '不追加校验位', '无承载条']
+  },
+
+  Codabar: {
+    label: 'Codabar',
+    model: 'element',
+    narrowRun: 1,
+    // ⚠ 此编码器的二进制用 run=2 表示宽元素（不是 Code39/ITF 的 3）。
+    //   这只是二进制表示，绘制宽度仍按本码制声明的 wideRatio。
+    wideRun: 2,
+    wideRatio: CODABAR_DEFAULTS.wideRatio,
+    encode(value, options) {
+      const opts = resolveCodabarOptions(options)
+      // 裸正文会被 JsBarcode 静默补成 A…A，因此**必须由产品显式拼接**，
+      // 不把正文直接交给编码器。
+      const payload = assertCodabarPayload(value)
+      const composed = `${opts.start}${payload}${opts.stop}`
+      const instance = new Codabar(composed, {})
+      if (!instance.valid()) throw new Error('Codabar 输入无效')
+      const { data: binary, text: encoderText } = instance.encode()
+      if (!binary || !binary.length) throw new Error('Codabar 编码结果为空')
+      // 编码器的 text 会剥掉起止符，只剩正文；据此确认正文未被改动。
+      if (encoderText !== payload) {
+        throw new Error(`Codabar 正文被编码器改动（${encoderText} ≠ ${payload}）`)
+      }
+      // HRI：默认只显示正文；开启后显示完整规范字符（A–D，不用别名）
+      const hriText = opts.showStartStop ? composed : payload
+      return {
+        binary,
+        text: hriText,
+        payload,
+        composed,
+        resolved: opts,
+        wideRatio: opts.wideRatio
+      }
+    },
+    features: ['起止符可选 A–D', '不附加校验字符', '无承载条']
   }
 }
 
@@ -305,7 +404,9 @@ export function buildGenericSymbol(typeName, value, options = null) {
       wideRatio: encoded.wideRatio ?? symbology.wideRatio,
       resolved: encoded.resolved ?? null,
       checkChar: encoded.checkChar ?? null,
-      encodedValue: encoded.encodedValue ?? null
+      encodedValue: encoded.encodedValue ?? null,
+      payload: encoded.payload ?? null,
+      composed: encoded.composed ?? null
     }
   }
 
@@ -378,6 +479,8 @@ export function computeGenericGeometry(typeName, value, options = null) {
     resolved: built.resolved ?? null,
     checkChar: built.checkChar ?? null,
     encodedValue: built.encodedValue ?? null,
+    payload: built.payload ?? null,
+    composed: built.composed ?? null,
     x,
     binary: built.binary,
     moduleCount: built.moduleCount,

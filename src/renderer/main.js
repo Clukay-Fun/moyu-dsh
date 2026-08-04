@@ -7,7 +7,7 @@ import { parse as parseOpenType } from 'opentype.js'
 import { isRetailType, renderRetailBarcode, computeRetailGeometry } from './retailBarcode.js'
 import {
   isGenericType, renderGenericBarcode, computeGenericGeometry, genericRasterSize,
-  GENERIC_DEFAULTS, CODE39_DEFAULTS
+  GENERIC_DEFAULTS, CODE39_DEFAULTS, CODABAR_DEFAULTS
 } from './genericBarcode.js'
 import {
   isGs1128Type, prepareGs1128, renderGs1128, computeGs1128Geometry, gs1128RasterSize
@@ -343,6 +343,11 @@ const state = {
     wideRatio: CODE39_DEFAULTS.wideRatio,
     mod43: CODE39_DEFAULTS.mod43,
     fullAscii: CODE39_DEFAULTS.fullAscii
+  },
+  codabar: {
+    start: CODABAR_DEFAULTS.start,
+    stop: CODABAR_DEFAULTS.stop,
+    showStartStop: CODABAR_DEFAULTS.showStartStop
   },
   barcodeBatchItems: [],
   pdfFiles: [],
@@ -3236,6 +3241,23 @@ for (const ratio of CODE39_DEFAULTS.selectableRatios) {
 }
 code39RatioSelect.value = String(CODE39_DEFAULTS.wideRatio)
 
+const codabarOptionsBox = document.querySelector('#codabar-options')
+const codabarStartSelect = document.querySelector('#codabar-start')
+const codabarStopSelect = document.querySelector('#codabar-stop')
+const codabarShowSsCheck = document.querySelector('#codabar-showss')
+
+// 起止符选项同样由常量生成，别名只出现在 UI 标注上
+for (const select of [codabarStartSelect, codabarStopSelect]) {
+  for (const { value, alias } of CODABAR_DEFAULTS.startStopChars) {
+    const option = document.createElement('option')
+    option.value = value
+    option.textContent = `${value}（${alias}）`
+    select.append(option)
+  }
+}
+codabarStartSelect.value = CODABAR_DEFAULTS.start
+codabarStopSelect.value = CODABAR_DEFAULTS.stop
+
 barcodeFontSelect.value = state.barcodeFont
 
 function saveBarcodeFont() {
@@ -3270,13 +3292,15 @@ function getBarcodeType() {
 
 // Code 39 的三项设置必须能被批量条目冻结：生成后用户改设置，
 // 已有条目的 SVG 与导出尺寸必须仍属同一状态。
-function code39OptionsSnapshot() {
-  return { ...state.code39 }
+const GENERIC_OPTION_SOURCES = {
+  Code39: () => ({ ...state.code39 }),
+  Codabar: () => ({ ...state.codabar })
 }
 
 function genericOptionsFor(typeName, frozen = null) {
-  if (typeName !== 'Code39') return null
-  return frozen || code39OptionsSnapshot()
+  const source = GENERIC_OPTION_SOURCES[typeName]
+  if (!source) return null
+  return frozen || source()
 }
 
 function renderBarcodeSvg(svgElement, value, typeName = state.selections.bc, itf14Preset = null, prepared = null, genericOptions = null) {
@@ -3418,6 +3442,14 @@ function renderBarcodeSpecReport(typeName) {
                 `${CODE39_DEFAULTS.ratioRange.min}–${CODE39_DEFAULTS.ratioRange.max}）`
               : `${geo.wideRatio}:1（${typeName} 产品默认值）`
           ]]
+        : []),
+      ...(typeName === 'Codabar'
+        ? [
+            ['起止符', `${geo.resolved.start} … ${geo.resolved.stop}（实际编码内容 ${geo.composed}）`],
+            ['HRI 内容', geo.resolved.showStartStop ? '正文 + 起止符（A–D，不用别名）' : '仅正文，隐藏起止符'],
+            ['校验字符', '未附加校验字符（本版不提供 Mod 16）'],
+            ['正文字符集', `0-9 - $ : . + /（A–D 属起止符，不可写入正文）`]
+          ]
         : []),
       ...(typeName === 'ITF'
         ? [
@@ -3925,6 +3957,17 @@ function updateBarcodeFontPickerVisibility(typeName) {
     code39Mod43Check.checked = state.code39.mod43
     code39FullAsciiCheck.checked = state.code39.fullAscii
   }
+
+  const codabar = typeName === 'Codabar'
+  codabarOptionsBox.hidden = !codabar
+  codabarStartSelect.disabled = !codabar
+  codabarStopSelect.disabled = !codabar
+  codabarShowSsCheck.disabled = !codabar
+  if (codabar) {
+    codabarStartSelect.value = state.codabar.start
+    codabarStopSelect.value = state.codabar.stop
+    codabarShowSsCheck.checked = state.codabar.showStartStop
+  }
 }
 
 function selectBarcodeType(typeName, replaceValue = false) {
@@ -4197,6 +4240,24 @@ function onCode39OptionChange() {
   void generateBarcode(false)
 }
 code39RatioSelect.addEventListener('change', onCode39OptionChange)
+
+function onCodabarOptionChange() {
+  state.codabar = {
+    start: codabarStartSelect.value,
+    stop: codabarStopSelect.value,
+    showStartStop: codabarShowSsCheck.checked
+  }
+  if (state.barcodeBatchItems.length) {
+    state.barcodeBatchItems = []
+    barcodeBatchList.replaceChildren()
+    setBarcodeBatchExportEnabled(false)
+    barcodeBatchSummary.textContent = 'Codabar 设置已改变，请重新批量生成。'
+  }
+  void generateBarcode(false)
+}
+codabarStartSelect.addEventListener('change', onCodabarOptionChange)
+codabarStopSelect.addEventListener('change', onCodabarOptionChange)
+codabarShowSsCheck.addEventListener('change', onCodabarOptionChange)
 code39Mod43Check.addEventListener('change', onCode39OptionChange)
 code39FullAsciiCheck.addEventListener('change', onCode39OptionChange)
 
