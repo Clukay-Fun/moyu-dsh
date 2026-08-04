@@ -7,7 +7,7 @@ import { parse as parseOpenType } from 'opentype.js'
 import { isRetailType, renderRetailBarcode, computeRetailGeometry } from './retailBarcode.js'
 import {
   isGenericType, renderGenericBarcode, computeGenericGeometry, genericRasterSize,
-  GENERIC_DEFAULTS, CODE39_DEFAULTS, CODABAR_DEFAULTS
+  GENERIC_DEFAULTS, CODE39_DEFAULTS, CODABAR_DEFAULTS, MSI_DEFAULTS
 } from './genericBarcode.js'
 import {
   isGs1128Type, prepareGs1128, renderGs1128, computeGs1128Geometry, gs1128RasterSize
@@ -349,6 +349,7 @@ const state = {
     stop: CODABAR_DEFAULTS.stop,
     showStartStop: CODABAR_DEFAULTS.showStartStop
   },
+  msi: { checksumMode: MSI_DEFAULTS.checksumMode },
   barcodeBatchItems: [],
   pdfFiles: [],
   pdfFileStatuses: [],
@@ -3258,6 +3259,16 @@ for (const select of [codabarStartSelect, codabarStopSelect]) {
 codabarStartSelect.value = CODABAR_DEFAULTS.start
 codabarStopSelect.value = CODABAR_DEFAULTS.stop
 
+const msiOptionsBox = document.querySelector('#msi-options')
+const msiChecksumSelect = document.querySelector('#msi-checksum')
+for (const { value, label } of MSI_DEFAULTS.checksumModes) {
+  const option = document.createElement('option')
+  option.value = value
+  option.textContent = label
+  msiChecksumSelect.append(option)
+}
+msiChecksumSelect.value = MSI_DEFAULTS.checksumMode
+
 barcodeFontSelect.value = state.barcodeFont
 
 function saveBarcodeFont() {
@@ -3294,7 +3305,8 @@ function getBarcodeType() {
 // 已有条目的 SVG 与导出尺寸必须仍属同一状态。
 const GENERIC_OPTION_SOURCES = {
   Code39: () => ({ ...state.code39 }),
-  Codabar: () => ({ ...state.codabar })
+  Codabar: () => ({ ...state.codabar }),
+  MSI: () => ({ ...state.msi })
 }
 
 function genericOptionsFor(typeName, frozen = null) {
@@ -3442,6 +3454,19 @@ function renderBarcodeSpecReport(typeName) {
                 `${CODE39_DEFAULTS.ratioRange.min}–${CODE39_DEFAULTS.ratioRange.max}）`
               : `${geo.wideRatio}:1（${typeName} 产品默认值）`
           ]]
+        : []),
+      ...(typeName === 'MSI'
+        ? [
+            ['原始数据', geo.payload],
+            ['校验模式', geo.resolved.modeLabel],
+            [
+              '追加字符',
+              geo.addedChars.length
+                ? `${geo.addedChars}（${geo.addedChars.length} 位）`
+                : '无（未追加任何字符）'
+            ],
+            ['实际编码内容', `${geo.composed}（HRI 显示此内容）`]
+          ]
         : []),
       ...(typeName === 'Codabar'
         ? [
@@ -3958,6 +3983,11 @@ function updateBarcodeFontPickerVisibility(typeName) {
     code39FullAsciiCheck.checked = state.code39.fullAscii
   }
 
+  const msi = typeName === 'MSI'
+  msiOptionsBox.hidden = !msi
+  msiChecksumSelect.disabled = !msi
+  if (msi) msiChecksumSelect.value = state.msi.checksumMode
+
   const codabar = typeName === 'Codabar'
   codabarOptionsBox.hidden = !codabar
   codabarStartSelect.disabled = !codabar
@@ -4255,6 +4285,17 @@ function onCodabarOptionChange() {
   }
   void generateBarcode(false)
 }
+msiChecksumSelect.addEventListener('change', () => {
+  state.msi = { checksumMode: msiChecksumSelect.value }
+  if (state.barcodeBatchItems.length) {
+    state.barcodeBatchItems = []
+    barcodeBatchList.replaceChildren()
+    setBarcodeBatchExportEnabled(false)
+    barcodeBatchSummary.textContent = 'MSI 校验模式已改变，请重新批量生成。'
+  }
+  void generateBarcode(false)
+})
+
 codabarStartSelect.addEventListener('change', onCodabarOptionChange)
 codabarStopSelect.addEventListener('change', onCodabarOptionChange)
 codabarShowSsCheck.addEventListener('change', onCodabarOptionChange)

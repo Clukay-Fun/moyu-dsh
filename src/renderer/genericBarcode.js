@@ -18,6 +18,7 @@ import CODE128Module from 'jsbarcode/bin/barcodes/CODE128/index.js'
 import CODE39Module from 'jsbarcode/bin/barcodes/CODE39/index.js'
 import ITFModule from 'jsbarcode/bin/barcodes/ITF/index.js'
 import CodabarModule from 'jsbarcode/bin/barcodes/codabar/index.js'
+import MSIModule from 'jsbarcode/bin/barcodes/MSI/index.js'
 
 const CODE128Bundle = CODE128Module.default || CODE128Module
 const CODE39 = (CODE39Module.default || CODE39Module).CODE39
@@ -25,6 +26,7 @@ const CODE39 = (CODE39Module.default || CODE39Module).CODE39
 // 按 GS1 规范独立实现，两者不得混用。
 const ITF = (ITFModule.default || ITFModule).ITF
 const Codabar = (CodabarModule.default || CodabarModule).codabar
+const MSIBundle = MSIModule.default || MSIModule
 
 const MM_PER_INCH = 25.4
 export const GENERIC_DPI = 300
@@ -244,7 +246,46 @@ function assertCodabarPayload(value) {
   return text
 }
 
-// 本模块当前已接入的码制。后续 MSI / Auto 逐个加入。
+// ─────────────────────────────────────────────────────────────
+// MSI 产品默认方案（S4）
+export const MSI_DEFAULTS = {
+  checksumMode: 'none', // 默认无校验
+
+  // 五种校验模式。value 是唯一真值，UI 下拉由本数组生成。
+  // ⚠ 两个"双校验"模式是**链式**的：第二次校验基于**已追加第一次校验后**的数据，
+  //   不是基于原始数据。
+  checksumModes: [
+    { value: 'none', label: '无校验（默认）', encoder: 'MSI' },
+    { value: 'mod10', label: 'Mod 10', encoder: 'MSI10' },
+    { value: 'mod11', label: 'Mod 11', encoder: 'MSI11' },
+    { value: 'mod1010', label: 'Mod 10 + Mod 10', encoder: 'MSI1010' },
+    { value: 'mod1110', label: 'Mod 11 + Mod 10', encoder: 'MSI1110' }
+  ]
+}
+
+/** 解析 MSI 选项；校验模式必须是已声明的五种之一。 */
+export function resolveMsiOptions(options) {
+  const d = MSI_DEFAULTS
+  const input = options || {}
+  const mode = String(input.checksumMode ?? d.checksumMode)
+  const entry = d.checksumModes.find((m) => m.value === mode)
+  if (!entry) {
+    throw new Error(
+      `MSI 校验模式「${mode}」无效，可选：${d.checksumModes.map((m) => m.value).join(' / ')}`
+    )
+  }
+  return { checksumMode: mode, modeLabel: entry.label, encoderName: entry.encoder }
+}
+
+/** MSI 输入校验：非空、纯数字。校验位由软件按所选模式追加，用户只填原始数据。 */
+function assertMsiInput(value) {
+  const text = String(value)
+  if (!text.length) throw new Error('MSI 输入不能为空')
+  if (!/^[0-9]+$/.test(text)) throw new Error('MSI 只接受数字，请移除非数字字符')
+  return text
+}
+
+// 本模块当前已接入的码制。后续 Auto 加入。
 //
 // ⚠ 每个码制必须声明 `model`，几何层据此**分发到不同的宽度模型**，
 //   绝不能让新码制默认落进模块网格：
@@ -361,6 +402,42 @@ const GENERIC_SYMBOLOGIES = {
       }
     },
     features: ['起止符可选 A–D', '不附加校验字符', '无承载条']
+  },
+
+  MSI: {
+    label: 'MSI',
+    // 模块制：每位数字 12 个模块，元素宽度均为 X 的整数倍。
+    model: 'module',
+    encode(value, options) {
+      const opts = resolveMsiOptions(options)
+      const payload = assertMsiInput(value)
+      const Encoder = MSIBundle[opts.encoderName]
+      if (!Encoder) throw new Error(`MSI 编码器缺失：${opts.encoderName}`)
+      const instance = new Encoder(payload, {})
+      if (!instance.valid()) throw new Error('MSI 输入无效')
+      const { data: binary, text: encoderText } = instance.encode()
+      if (!binary || !binary.length) throw new Error('MSI 编码结果为空')
+      // 编码器只应在原始数据**后面追加**校验位，不得改动原始数据本身
+      if (!encoderText.startsWith(payload)) {
+        throw new Error(`MSI 原始数据被改动（${encoderText} 不以 ${payload} 开头）`)
+      }
+      // ⚠ 追加位数**不固定为 1**：Mod 11 可能返回 10（两位）。
+      //   这里不做位数假设，一律按实际差集取。
+      const addedChars = encoderText.slice(payload.length)
+      if (opts.checksumMode === 'none' && addedChars.length !== 0) {
+        throw new Error(`MSI 无校验模式不应追加字符，却追加了「${addedChars}」`)
+      }
+      return {
+        binary,
+        // HRI 默认显示完整编码内容（含追加的校验数字）
+        text: encoderText,
+        payload,
+        addedChars,
+        composed: encoderText,
+        resolved: opts
+      }
+    },
+    features: ['校验模式可选', '校验位由软件追加', 'HRI 显示完整编码内容']
   }
 }
 
@@ -406,7 +483,8 @@ export function buildGenericSymbol(typeName, value, options = null) {
       checkChar: encoded.checkChar ?? null,
       encodedValue: encoded.encodedValue ?? null,
       payload: encoded.payload ?? null,
-      composed: encoded.composed ?? null
+      composed: encoded.composed ?? null,
+      addedChars: encoded.addedChars ?? null
     }
   }
 
@@ -423,7 +501,17 @@ export function buildGenericSymbol(typeName, value, options = null) {
     index += run
   }
 
-  return { model: 'module', binary, text, moduleCount: binary.length, symbology, resolved: encoded.resolved ?? null }
+  return {
+    model: 'module',
+    binary,
+    text,
+    moduleCount: binary.length,
+    symbology,
+    resolved: encoded.resolved ?? null,
+    payload: encoded.payload ?? null,
+    composed: encoded.composed ?? null,
+    addedChars: encoded.addedChars ?? null
+  }
 }
 
 /** 元素制：二进制 run → 窄/宽元素序列。narrowRun/wideRun 由码制声明。 */
@@ -481,6 +569,7 @@ export function computeGenericGeometry(typeName, value, options = null) {
     encodedValue: built.encodedValue ?? null,
     payload: built.payload ?? null,
     composed: built.composed ?? null,
+    addedChars: built.addedChars ?? null,
     x,
     binary: built.binary,
     moduleCount: built.moduleCount,
