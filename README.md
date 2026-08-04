@@ -40,6 +40,8 @@ npm run build:win
 
 `npm run build` 生成 Electron bundle；`npm run build:win` 会先下载并校验固定版本的 FFmpeg/ffprobe、构建 Windows AI sidecar，再生成 Windows x64 portable EXE。构建 sidecar 需要 Windows Python 3.11；可用 `MOYU_PYTHON` 指定解释器。
 
+频繁测试时可在 Windows 源码目录先双击 `首次安装.cmd`，以后通过 `启动测试版.cmd` 直接启动 Electron，不必每次生成 portable EXE。完整说明见 [Windows 源码测试版](docs/windows-source-test.md)。
+
 完整的 Windows 本机构建、临时 Windows runner、启动冒烟、SHA-256 校验、桌面交付和远程清理流程见 [Windows x64 构建与交付规范](docs/windows-release.md)。非 Windows 主机需要提供 EXE 时按该规范使用临时 Windows runner，不使用 Docker，也不长期保留 Artifact。
 
 AI 模型不会随源码或 EXE 分发。模型版本、哈希与使用边界见 [AI-MODEL-NOTICE.md](licenses/AI-MODEL-NOTICE.md)。当前模型只按自用、学习场景启用。
