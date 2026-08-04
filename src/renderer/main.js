@@ -3413,9 +3413,18 @@ function renderBarcodeSpecReport(typeName) {
       ...(geo.model === 'element'
         ? [[
             '窄宽比',
-            `${geo.wideRatio}:1（产品默认 ${CODE39_DEFAULTS.wideRatio}:1，本产品支持 ` +
-              `${CODE39_DEFAULTS.ratioRange.min}–${CODE39_DEFAULTS.ratioRange.max}）`
+            typeName === 'Code39'
+              ? `${geo.wideRatio}:1（产品默认 ${CODE39_DEFAULTS.wideRatio}:1，本产品支持 ` +
+                `${CODE39_DEFAULTS.ratioRange.min}–${CODE39_DEFAULTS.ratioRange.max}）`
+              : `${geo.wideRatio}:1（${typeName} 产品默认值）`
           ]]
+        : []),
+      ...(typeName === 'ITF'
+        ? [
+            ['位数', `${barcodeRenderedValue.length} 位（必须为偶数；不补零、不追加校验位）`],
+            ['承载条', '通用 ITF 固定不生成承载条/外框；需要承载框与固定 14 位请使用 ITF-14'],
+            ['HRI 内容', '与用户输入逐字一致']
+          ]
         : []),
       ...(typeName === 'Code39'
         ? [

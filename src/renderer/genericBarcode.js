@@ -16,9 +16,13 @@
 // 产品默认值来源：本项目 F-007 规范来源矩阵 S4 档，已由项目负责人拍板。
 import CODE128Module from 'jsbarcode/bin/barcodes/CODE128/index.js'
 import CODE39Module from 'jsbarcode/bin/barcodes/CODE39/index.js'
+import ITFModule from 'jsbarcode/bin/barcodes/ITF/index.js'
 
 const CODE128Bundle = CODE128Module.default || CODE128Module
 const CODE39 = (CODE39Module.default || CODE39Module).CODE39
+// 注意：只取通用 ITF，**不碰同文件导出的 ITF14**——ITF-14 由 itf14Barcode.js
+// 按 GS1 规范独立实现，两者不得混用。
+const ITF = (ITFModule.default || ITFModule).ITF
 
 const MM_PER_INCH = 25.4
 export const GENERIC_DPI = 300
@@ -147,7 +151,37 @@ export function toCode39FullAscii(value) {
   return out
 }
 
-// 本模块当前已接入的码制。后续 ITF / Codabar / MSI / Auto 逐个加入。
+// ─────────────────────────────────────────────────────────────
+// 通用 ITF（Interleaved 2 of 5）产品默认方案（S4）
+//
+// ⚠ 与 ITF-14 的关系：ITF-14 是 GS1 管辖的**特定应用**（固定 14 位、
+//   承载框、规定 X 与条高），由 itf14Barcode.js 按 GS1 GenSpecs 实现。
+//   本条目是**通用 ITF**，位数不固定、无承载框、不受 GS1 管辖。
+//   下面的 2.5 是 ITF 自己的产品默认值，与 ITF-14 的规范值同数不同源。
+export const ITF_DEFAULTS = {
+  wideRatio: 2.5, // ITF 产品默认值（不引用 ITF-14 参数）
+  // 通用 ITF 固定不生成承载条/外框：需要承载框与固定 14 位的场景应使用 ITF-14。
+  bearer: false,
+  // 通用 ITF 不自动追加校验位，严格编码用户输入。
+  // 将来若需要校验位，必须作为显式选项独立实现，不得在此隐式开启。
+  checkDigit: false
+}
+
+/** ITF 输入校验：非空、纯数字、偶数位。**绝不静默补零**。 */
+function assertItfInput(value) {
+  const text = String(value)
+  if (!text.length) throw new Error('ITF 输入不能为空')
+  if (!/^[0-9]+$/.test(text)) {
+    throw new Error('ITF 只接受数字，请移除非数字字符')
+  }
+  if (text.length % 2 !== 0) {
+    // 补零会改变扫码结果，必须由用户自己决定
+    throw new Error('ITF 只接受偶数位数字，请自行确认是否需要在前方补 0')
+  }
+  return text
+}
+
+// 本模块当前已接入的码制。后续 Codabar / MSI / Auto 逐个加入。
 //
 // ⚠ 每个码制必须声明 `model`，几何层据此**分发到不同的宽度模型**，
 //   绝不能让新码制默认落进模块网格：
@@ -205,6 +239,29 @@ const GENERIC_SYMBOLOGIES = {
       return { binary, text: hriText, checkChar, encodedValue, resolved: opts, wideRatio: opts.wideRatio }
     },
     features: ['标准 43 字符集', 'Mod 43 可选', 'Full ASCII 可选']
+  },
+
+  ITF: {
+    label: 'ITF（Interleaved 2 of 5）',
+    model: 'element',
+    narrowRun: 1,
+    wideRun: 3,
+    wideRatio: ITF_DEFAULTS.wideRatio,
+    encode(value) {
+      // 先自校验：JsBarcode 的 valid() 虽然也拒奇数位，但错误信息不可执行，
+      // 且不保证将来不改行为。位数/字符判据由本模块自己把关。
+      const text = assertItfInput(value)
+      const instance = new ITF(text, {})
+      if (!instance.valid()) throw new Error('ITF 输入无效')
+      const { data: binary, text: encoderText } = instance.encode()
+      if (!binary || !binary.length) throw new Error('ITF 编码结果为空')
+      // 兜底：编码器若擅自补零或加校验位，此处必须炸出来而不是静默出图
+      if (encoderText !== text) {
+        throw new Error(`ITF 编码结果与输入不一致（${encoderText} ≠ ${text}）`)
+      }
+      return { binary, text, wideRatio: ITF_DEFAULTS.wideRatio }
+    },
+    features: ['偶数位数字', '不补零', '不追加校验位', '无承载条']
   }
 }
 
