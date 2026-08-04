@@ -6,7 +6,7 @@ import { createQpdfRunner } from 'qpdf-run'
 import { parse as parseOpenType } from 'opentype.js'
 import { isRetailType, renderRetailBarcode, computeRetailGeometry } from './retailBarcode.js'
 import {
-  isGenericType, renderGenericBarcode, computeGenericGeometry, genericRasterSize,
+  isGenericType, renderGenericBarcode, computeGenericGeometry, genericRasterSize, resolveGenericTypeName,
   GENERIC_DEFAULTS, CODE39_DEFAULTS, CODABAR_DEFAULTS, MSI_DEFAULTS
 } from './genericBarcode.js'
 import {
@@ -138,7 +138,7 @@ const barcodeTypes = {
     example: 'AUTO-123456',
     inputMode: 'text',
     maxLength: 80,
-    hint: '由 JsBarcode 自动选择可编码的一维格式'
+    hint: '自动编码为 Code 128（自动切换 Code Set A/B/C）'
   }
 }
 
@@ -3436,6 +3436,9 @@ function renderBarcodeSpecReport(typeName) {
     const rows = [
       ['参数性质', d.notice],
       ['依据', d.basis],
+      ...(geo.symbology.resolvesTo
+        ? [['自动选择', `${typeName} → ${geo.symbology.resolvesTo}（导出文件名按实际码制命名）`]]
+        : []),
       ['编码', `${geo.symbology.label} · ${geo.symbology.features.join(' · ')} · ${geo.moduleCount} 模块`],
       ['X-dimension', `${geo.x.toFixed(3)} mm（产品默认值）`],
       ['SVG / EPS', `${geo.widthMm.toFixed(2)} × ${geo.heightMm.toFixed(2)} mm · 符号宽 ${geo.symbolWidthMm.toFixed(2)} mm`],
@@ -4162,7 +4165,9 @@ async function generateBarcodeBatch() {
 
 function safeBarcodeFileName(typeName, value, index) {
   const compactValue = value.replace(/[^a-z0-9_.-]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 54)
-  return `${String(index + 1).padStart(3, '0')}-${typeName}-${compactValue || 'barcode'}`
+  // Auto 等选择策略按**实际码制**命名：用户必须能从文件名看出拿到的是什么码
+  const actualType = isGenericType(typeName) ? resolveGenericTypeName(typeName) : typeName
+  return `${String(index + 1).padStart(3, '0')}-${actualType}-${compactValue || 'barcode'}`
 }
 
 async function saveBarcodeBatch(type) {

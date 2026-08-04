@@ -438,7 +438,32 @@ const GENERIC_SYMBOLOGIES = {
       }
     },
     features: ['校验模式可选', '校验位由软件追加', 'HRI 显示完整编码内容']
+  },
+
+  // Auto 不是码制，是**选择策略**。
+  //
+  // 本版策略固定映射到 Code 128：只让 Code 128 自动切换 Code Set A/B/C，
+  // **不做跨码制猜测**。跨码制猜测会让用户拿到的条码类型不可预期——
+  // 同一批数据可能一半是 ITF 一半是 Code 39，交印厂时无法说明按什么验。
+  // 跨码制自动推测列入 v2.2.0 再评估。
+  Auto: {
+    label: '自动编码（Code 128）',
+    model: 'module',
+    resolvesTo: 'Code128',
+    encode(value, options) {
+      return GENERIC_SYMBOLOGIES.Code128.encode(value, options)
+    },
+    features: ['固定映射到 Code 128', '仅自动切换 Code Set A/B/C', '不推测其他码制']
   }
+}
+
+/**
+ * 解析实际生效的码制名。
+ * Auto 之类的"选择策略"条目要返回它真正映射到的码制，
+ * 供参数报告与导出文件名使用——用户必须知道拿到的是什么码。
+ */
+export function resolveGenericTypeName(typeName) {
+  return GENERIC_SYMBOLOGIES[typeName]?.resolvesTo || typeName
 }
 
 export const GENERIC_MODELS = ['module', 'element']
