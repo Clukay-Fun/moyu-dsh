@@ -3838,3 +3838,19 @@ input:focus-visible {
 }
 .barcode-spec-report dt { color: var(--faint); white-space: nowrap; }
 .barcode-spec-report dd { margin: 0; color: var(--fg); word-break: break-word; }
+
+.barcode-preset-picker .barcode-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.barcode-preset-picker .barcode-check input {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent, #6978e6);
+  cursor: pointer;
+}

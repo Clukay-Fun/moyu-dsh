@@ -278,6 +278,13 @@
                           <option value="plate">印版直印</option>
                         </select>
                       </label>
+                      <div class="barcode-preset-picker" id="code39-options" hidden>
+                        <label>Code 39 窄宽比
+                          <select id="code39-ratio"></select>
+                        </label>
+                        <label class="barcode-check"><input type="checkbox" id="code39-mod43" /> Mod 43 校验字符</label>
+                        <label class="barcode-check"><input type="checkbox" id="code39-fullascii" /> Full ASCII 扩展</label>
+                      </div>
                       <label class="barcode-font-picker">数字字体
                         <select id="barcode-font">
                           <option value="ocrb">OCRB</option>

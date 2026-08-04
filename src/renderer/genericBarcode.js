@@ -15,8 +15,10 @@
 //
 // 产品默认值来源：本项目 F-007 规范来源矩阵 S4 档，已由项目负责人拍板。
 import CODE128Module from 'jsbarcode/bin/barcodes/CODE128/index.js'
+import CODE39Module from 'jsbarcode/bin/barcodes/CODE39/index.js'
 
 const CODE128Bundle = CODE128Module.default || CODE128Module
+const CODE39 = (CODE39Module.default || CODE39Module).CODE39
 
 const MM_PER_INCH = 25.4
 export const GENERIC_DPI = 300
@@ -48,7 +50,104 @@ export const GENERIC_DEFAULTS = {
   pngModulePx: 4
 }
 
-// 本模块当前已接入的码制。后续 Code39 / ITF / Codabar / MSI / Auto 逐个加入。
+// ─────────────────────────────────────────────────────────────
+// Code 39 产品默认方案（S4）
+//
+// 三项均为**产品默认值**，不是 ISO/IEC 16388 的唯一正确取值。
+export const CODE39_DEFAULTS = {
+  wideRatio: 2.5,
+  mod43: false, // 校验字符在 Code 39 中是可选项，默认关闭兼容性最好
+  fullAscii: false, // 开启后一个字符会展开成多个 Code 39 字符，符号明显变长
+  showCheckChar: true, // Mod 43 开启时，HRI 默认显示校验字符便于与实物核对
+
+  // 本产品支持范围，是**产品策略**，不是对 ISO/IEC 16388 的引用。
+  // 不做"X 小时下限收紧"那类未经原文核对的推导——既然拿不到规范依据，
+  // 就不以规范名义拒绝用户输入，只声明本产品支持到哪里。
+  ratioRange: { min: 2.25, max: 3.0 },
+
+  // 唯一真值：UI 选项由本数组生成。
+  // 窄 4px 时以下比值均得整数宽像素（9/10/11/12），不产生亚像素漂移。
+  selectableRatios: [2.25, 2.5, 2.75, 3.0]
+}
+
+/** 标准 43 字符集。注意 $ / + % 在 Full ASCII 模式下另作移位符使用。 */
+export const CODE39_STANDARD_CHARSET = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-. $/+%'
+
+/** AIM Full ASCII 映射：ASCII 0–127 → 一个或两个标准 Code 39 字符。 */
+const FULL_ASCII_MAP = (() => {
+  const map = new Array(128)
+  map[0] = '%U'
+  for (let c = 1; c <= 26; c += 1) map[c] = `$${String.fromCharCode(64 + c)}` // SOH–SUB → $A–$Z
+  for (let c = 27; c <= 31; c += 1) map[c] = `%${String.fromCharCode(65 + c - 27)}` // ESC–US → %A–%E
+  map[32] = ' '
+  const p33 = ['/A', '/B', '/C', '/D', '/E', '/F', '/G', '/H', '/I', '/J', '/K', '/L', '-', '.', '/O']
+  p33.forEach((v, i) => { map[33 + i] = v }) // ! .. /
+  for (let c = 48; c <= 57; c += 1) map[c] = String.fromCharCode(c) // 0–9
+  map[58] = '/Z'
+  const p59 = ['%F', '%G', '%H', '%I', '%J']
+  p59.forEach((v, i) => { map[59 + i] = v }) // ; < = > ?
+  map[64] = '%V'
+  for (let c = 65; c <= 90; c += 1) map[c] = String.fromCharCode(c) // A–Z
+  const p91 = ['%K', '%L', '%M', '%N', '%O']
+  p91.forEach((v, i) => { map[91 + i] = v }) // [ \ ] ^ _
+  map[96] = '%W'
+  for (let c = 97; c <= 122; c += 1) map[c] = `+${String.fromCharCode(c - 32)}` // a–z → +A–+Z
+  const p123 = ['%P', '%Q', '%R', '%S', '%T']
+  p123.forEach((v, i) => { map[123 + i] = v }) // { | } ~ DEL
+  return map
+})()
+
+/** 解析并校验 Code 39 选项；窄宽比超出**本产品支持范围**时抛错。 */
+export function resolveCode39Options(options) {
+  const d = CODE39_DEFAULTS
+  // 显式传 null（调用链上"无选项"的表示法）也要落到默认值，
+  // 不能依赖形参默认值——那只对 undefined 生效。
+  const input = options || {}
+  const wideRatio = Number(input.wideRatio ?? d.wideRatio)
+  if (!Number.isFinite(wideRatio) || wideRatio < d.ratioRange.min || wideRatio > d.ratioRange.max) {
+    throw new Error(
+      `Code 39 窄宽比 ${input.wideRatio} 超出本产品支持范围 ` +
+        `${d.ratioRange.min}–${d.ratioRange.max}`
+    )
+  }
+  return {
+    wideRatio,
+    mod43: Boolean(input.mod43 ?? d.mod43),
+    fullAscii: Boolean(input.fullAscii ?? d.fullAscii),
+    showCheckChar: Boolean(input.showCheckChar ?? d.showCheckChar)
+  }
+}
+
+/** 标准字符集校验：**绝不静默转换**，小写与越界字符各给可执行提示。 */
+function assertStandardCharset(value) {
+  const text = String(value)
+  if (!text.length) throw new Error('Code 39 输入不能为空')
+  for (const char of text) {
+    if (CODE39_STANDARD_CHARSET.includes(char)) continue
+    if (char >= 'a' && char <= 'z') {
+      throw new Error(`Code 39 标准字符集不含小写字母「${char}」，请开启 Full ASCII 扩展`)
+    }
+    throw new Error(
+      `Code 39 标准字符集不含「${char}」，请开启 Full ASCII 扩展（标准集：0-9 A-Z 空格 - . $ / + %）`
+    )
+  }
+  return text
+}
+
+/** Full ASCII 展开：一个输入字符 → 一或两个标准 Code 39 字符。 */
+export function toCode39FullAscii(value) {
+  const text = String(value)
+  if (!text.length) throw new Error('Code 39 输入不能为空')
+  let out = ''
+  for (const char of text) {
+    const code = char.codePointAt(0)
+    if (code > 127) throw new Error(`Full ASCII 仅支持 ASCII 字符，「${char}」超出范围`)
+    out += FULL_ASCII_MAP[code]
+  }
+  return out
+}
+
+// 本模块当前已接入的码制。后续 ITF / Codabar / MSI / Auto 逐个加入。
 //
 // ⚠ 每个码制必须声明 `model`，几何层据此**分发到不同的宽度模型**，
 //   绝不能让新码制默认落进模块网格：
@@ -74,6 +173,38 @@ const GENERIC_SYMBOLOGIES = {
     // Code 128 由编码器自动切换 Code Set A/B/C 并追加符号校验字符，
     // 本引擎不干预、也不重新实现该逻辑。
     features: ['Code Set 自动切换', '符号校验字符（编码器内建）']
+  },
+
+  Code39: {
+    label: 'Code 39',
+    // 元素制：只有窄/宽两级，宽窄比可调且非整数倍 → 逐元素累加宽度。
+    // JsBarcode 的二进制把宽元素写成 '111'（隐含 3:1），本引擎把 run 还原成
+    // 元素后按**本码制自己声明的** wideRatio 重算宽度。
+    // 架构与 ITF-14 相同，但 2.5 是 Code 39 的产品默认值，与 ITF-14 的规范值无关。
+    model: 'element',
+    narrowRun: 1,
+    wideRun: 3,
+    wideRatio: CODE39_DEFAULTS.wideRatio,
+    optionsKey: 'code39',
+    encode(value, options) {
+      const opts = resolveCode39Options(options)
+      // 先按所选字符集校验/展开，**不把原值直接丢给编码器**——
+      // JsBarcode 会把小写静默转成大写，那会让实物与用户输入不一致。
+      const encodedValue = opts.fullAscii
+        ? toCode39FullAscii(value)
+        : assertStandardCharset(value)
+      const instance = new CODE39(encodedValue, { mod43: opts.mod43 })
+      if (!instance.valid()) throw new Error('Code 39 输入无效')
+      const { data: binary, text: encoderText } = instance.encode()
+      if (!binary || !binary.length) throw new Error('Code 39 编码结果为空')
+      // mod43 时编码器把校验字符追加在 text 末尾
+      const checkChar = opts.mod43 ? encoderText.slice(-1) : null
+      // HRI 显示**用户原始数据**（不显示起止符 *，不显示 Full ASCII 展开结果）；
+      // 校验字符默认显示，便于实物与编码内容核对。
+      const hriText = String(value) + (opts.mod43 && opts.showCheckChar ? checkChar : '')
+      return { binary, text: hriText, checkChar, encodedValue, resolved: opts, wideRatio: opts.wideRatio }
+    },
+    features: ['标准 43 字符集', 'Mod 43 可选', 'Full ASCII 可选']
   }
 }
 
@@ -95,17 +226,30 @@ export function genericSymbology(typeName) {
  * module 模型 → { model:'module', binary, moduleCount }
  * element 模型 → { model:'element', elements: [{ isBar, wide }], ... }
  */
-export function buildGenericSymbol(typeName, value) {
+export function buildGenericSymbol(typeName, value, options = null) {
   const symbology = genericSymbology(typeName)
   if (!GENERIC_MODELS.includes(symbology.model)) {
     throw new Error(`${typeName} 未声明有效的宽度模型（model）`)
   }
-  const { binary, text } = symbology.encode(value)
+  const encoded = symbology.encode(value, options)
+  const { binary, text } = encoded
 
   if (symbology.model === 'element') {
     // 元素制：把二进制 run 还原为窄/宽元素，宽窄比由码制自己声明，
     // 几何层按元素宽度累加，**不经过模块网格**。
-    return { model: 'element', ...buildElementRuns(typeName, symbology, binary), text, symbology }
+    return {
+      model: 'element',
+      binary,
+      ...buildElementRuns(typeName, symbology, binary),
+      text,
+      symbology,
+      // 实际生效的宽窄比来自**解析后的选项**，不是码制上的默认值，
+      // 否则用户改了比例，几何仍按默认值算。
+      wideRatio: encoded.wideRatio ?? symbology.wideRatio,
+      resolved: encoded.resolved ?? null,
+      checkChar: encoded.checkChar ?? null,
+      encodedValue: encoded.encodedValue ?? null
+    }
   }
 
   // 模块制自检：所有 run 必须落在 1–4 模块内，否则说明编码器输出
@@ -121,7 +265,7 @@ export function buildGenericSymbol(typeName, value) {
     index += run
   }
 
-  return { model: 'module', binary, text, moduleCount: binary.length, symbology }
+  return { model: 'module', binary, text, moduleCount: binary.length, symbology, resolved: encoded.resolved ?? null }
 }
 
 /** 元素制：二进制 run → 窄/宽元素序列。narrowRun/wideRun 由码制声明。 */
@@ -144,18 +288,15 @@ function buildElementRuns(typeName, symbology, binary) {
 }
 
 /** 计算通用几何（毫米）。 */
-export function computeGenericGeometry(typeName, value) {
+export function computeGenericGeometry(typeName, value, options = null) {
   const defaults = GENERIC_DEFAULTS
-  const built = buildGenericSymbol(typeName, value)
+  const built = buildGenericSymbol(typeName, value, options)
   const x = defaults.xMm
 
   // 符号宽按模型分别计算：模块制 = 模块数 × X；元素制 = 逐元素累加
   const symbolWidthMm =
     built.model === 'element'
-      ? built.elements.reduce(
-          (sum, el) => sum + (el.wide ? x * built.symbology.wideRatio : x),
-          0
-        )
+      ? built.elements.reduce((sum, el) => sum + (el.wide ? x * built.wideRatio : x), 0)
       : built.moduleCount * x
   const quietLeftMm = defaults.quietLeftX * x
   const quietRightMm = defaults.quietRightX * x
@@ -176,6 +317,10 @@ export function computeGenericGeometry(typeName, value) {
     symbology: built.symbology,
     typeName,
     model: built.model,
+    wideRatio: built.wideRatio ?? null,
+    resolved: built.resolved ?? null,
+    checkChar: built.checkChar ?? null,
+    encodedValue: built.encodedValue ?? null,
     x,
     binary: built.binary,
     moduleCount: built.moduleCount,
@@ -197,8 +342,8 @@ export function computeGenericGeometry(typeName, value) {
 }
 
 /** PNG 栅格化：模块按整数像素量化，绝对毫米量向上取整。 */
-export function genericRasterSize(typeName, value) {
-  const geo = computeGenericGeometry(typeName, value)
+export function genericRasterSize(typeName, value, options = null) {
+  const geo = computeGenericGeometry(typeName, value, options)
   const defaults = geo.defaults
   const modulePx = defaults.pngModulePx
   const pxPerMm = GENERIC_DPI / MM_PER_INCH
@@ -210,7 +355,7 @@ export function genericRasterSize(typeName, value) {
   // 故此处显式分支，新码制接入时无法漏掉。
   let symbolPx
   if (geo.model === 'element') {
-    const widePx = geo.symbology.pngWidePx ?? modulePx * geo.symbology.wideRatio
+    const widePx = geo.symbology.pngWidePx ?? modulePx * geo.wideRatio
     if (!Number.isInteger(widePx)) {
       throw new Error(
         `${typeName} 宽元素像素宽 ${widePx} 非整数，需在码制上声明 pngWidePx`
@@ -237,8 +382,9 @@ export function genericRasterSize(typeName, value) {
     modulePx,
     narrowPx: modulePx,
     widePx: geo.model === 'element'
-      ? (geo.symbology.pngWidePx ?? modulePx * geo.symbology.wideRatio)
+      ? (geo.symbology.pngWidePx ?? modulePx * geo.wideRatio)
       : null,
+    wideRatio: geo.wideRatio,
     actualXMm,
     nominalXMm: defaults.xMm,
     pixelWidth,
@@ -254,8 +400,8 @@ export function genericRasterSize(typeName, value) {
 }
 
 /** 按通用几何填充 SVG（HRI 以 <text> 写入，由 outlineBarcodeText 转路径）。 */
-export function renderGenericBarcode(svgElement, typeName, value) {
-  const geo = computeGenericGeometry(typeName, value)
+export function renderGenericBarcode(svgElement, typeName, value, options = null) {
+  const geo = computeGenericGeometry(typeName, value, options)
   const ns = 'http://www.w3.org/2000/svg'
 
   svgElement.replaceChildren()
@@ -280,7 +426,7 @@ export function renderGenericBarcode(svgElement, typeName, value) {
     // 元素制：逐元素累加宽度（窄 = X，宽 = wideRatio × X）
     let cursor = geo.symbolStartMm
     for (const element of geo.elements) {
-      const width = element.wide ? geo.x * geo.symbology.wideRatio : geo.x
+      const width = element.wide ? geo.x * geo.wideRatio : geo.x
       if (element.isBar) rect(cursor, geo.barTopMm, width, geo.barHeightMm)
       cursor += width
     }

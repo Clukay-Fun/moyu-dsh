@@ -7,7 +7,7 @@ import { parse as parseOpenType } from 'opentype.js'
 import { isRetailType, renderRetailBarcode, computeRetailGeometry } from './retailBarcode.js'
 import {
   isGenericType, renderGenericBarcode, computeGenericGeometry, genericRasterSize,
-  GENERIC_DEFAULTS
+  GENERIC_DEFAULTS, CODE39_DEFAULTS
 } from './genericBarcode.js'
 import {
   isGs1128Type, prepareGs1128, renderGs1128, computeGs1128Geometry, gs1128RasterSize
@@ -339,6 +339,11 @@ const state = {
   barcodeMode: 'single',
   barcodeFont: barcodeFonts[savedBarcodeStyle.font] ? savedBarcodeStyle.font : 'ocrb',
   itf14Preset: ITF14_DEFAULT_PRESET,
+  code39: {
+    wideRatio: CODE39_DEFAULTS.wideRatio,
+    mod43: CODE39_DEFAULTS.mod43,
+    fullAscii: CODE39_DEFAULTS.fullAscii
+  },
   barcodeBatchItems: [],
   pdfFiles: [],
   pdfFileStatuses: [],
@@ -3217,6 +3222,19 @@ const saveBarcodeBatchPngButton = document.querySelector('#save-barcode-batch-pn
 const barcodeFontSelect = document.querySelector('#barcode-font')
 const itf14PresetPicker = document.querySelector('#itf14-preset-picker')
 const itf14PresetSelect = document.querySelector('#itf14-preset')
+const code39OptionsBox = document.querySelector('#code39-options')
+const code39RatioSelect = document.querySelector('#code39-ratio')
+const code39Mod43Check = document.querySelector('#code39-mod43')
+const code39FullAsciiCheck = document.querySelector('#code39-fullascii')
+
+// 窄宽比选项由 CODE39_DEFAULTS.selectableRatios 生成，避免 HTML 与常量各存一份真值
+for (const ratio of CODE39_DEFAULTS.selectableRatios) {
+  const option = document.createElement('option')
+  option.value = String(ratio)
+  option.textContent = `${ratio} : 1${ratio === CODE39_DEFAULTS.wideRatio ? '（产品默认）' : ''}`
+  code39RatioSelect.append(option)
+}
+code39RatioSelect.value = String(CODE39_DEFAULTS.wideRatio)
 
 barcodeFontSelect.value = state.barcodeFont
 
@@ -3250,7 +3268,18 @@ function getBarcodeType() {
   return barcodeTypes[state.selections.bc] || barcodeTypes['EAN-13']
 }
 
-function renderBarcodeSvg(svgElement, value, typeName = state.selections.bc, itf14Preset = null, prepared = null) {
+// Code 39 的三项设置必须能被批量条目冻结：生成后用户改设置，
+// 已有条目的 SVG 与导出尺寸必须仍属同一状态。
+function code39OptionsSnapshot() {
+  return { ...state.code39 }
+}
+
+function genericOptionsFor(typeName, frozen = null) {
+  if (typeName !== 'Code39') return null
+  return frozen || code39OptionsSnapshot()
+}
+
+function renderBarcodeSvg(svgElement, value, typeName = state.selections.bc, itf14Preset = null, prepared = null, genericOptions = null) {
   const type = barcodeTypes[typeName]
   if (!type) throw new Error('不支持的条码类型')
 
@@ -3283,7 +3312,7 @@ function renderBarcodeSvg(svgElement, value, typeName = state.selections.bc, itf
   // S4 通用生成：走本项目产品默认几何，不再用 JsBarcode 的默认版式。
   // HRI 字体仍随用户选择（本档不受 GS1 字体限制约束）。
   if (isGenericType(typeName)) {
-    renderGenericBarcode(svgElement, typeName, value)
+    renderGenericBarcode(svgElement, typeName, value, genericOptionsFor(typeName, genericOptions))
     outlineBarcodeText(svgElement)
     return
   }
@@ -3364,8 +3393,9 @@ function renderBarcodeSpecReport(typeName) {
       barcodeSpecReport.hidden = true
       return
     }
-    const geo = computeGenericGeometry(typeName, barcodeRenderedValue)
-    const raster = genericRasterSize(typeName, barcodeRenderedValue)
+    const opts = genericOptionsFor(typeName)
+    const geo = computeGenericGeometry(typeName, barcodeRenderedValue, opts)
+    const raster = genericRasterSize(typeName, barcodeRenderedValue, opts)
     const d = geo.defaults
     const rows = [
       ['参数性质', d.notice],
@@ -3380,6 +3410,30 @@ function renderBarcodeSpecReport(typeName) {
           `　当前取${geo.barHeightDrivenBy === 'ratio' ? '比例值' : '最小值'}`
       ],
       ['静区', `左右各 ${geo.quietLeftMm.toFixed(2)} mm（${d.quietLeftX}X，产品默认值）`],
+      ...(geo.model === 'element'
+        ? [[
+            '窄宽比',
+            `${geo.wideRatio}:1（产品默认 ${CODE39_DEFAULTS.wideRatio}:1，本产品支持 ` +
+              `${CODE39_DEFAULTS.ratioRange.min}–${CODE39_DEFAULTS.ratioRange.max}）`
+          ]]
+        : []),
+      ...(typeName === 'Code39'
+        ? [
+            [
+              'Mod 43',
+              geo.resolved.mod43
+                ? `已开启 · 校验字符「${geo.checkChar}」${geo.resolved.showCheckChar ? '已显示在 HRI 中' : '不显示在 HRI 中'}`
+                : '已关闭（Code 39 校验字符为可选项）'
+            ],
+            [
+              '字符集',
+              geo.resolved.fullAscii
+                ? `Full ASCII 扩展 · 原始 ${barcodeRenderedValue.length} 字符展开为 ${geo.encodedValue.length} 个 Code 39 字符 · 需扫描器开启对应解码模式`
+                : '标准 Code 39（0-9 A-Z 空格 - . $ / + %）'
+            ],
+            ['HRI 内容', `显示用户数据${geo.resolved.mod43 && geo.resolved.showCheckChar ? ' + 校验字符' : ''}，不显示起止符 *`]
+          ]
+        : []),
       ['HRI', `字形高 ${d.hri.capHeightMm.toFixed(2)} mm · 距条码 ${d.hri.gapMm.toFixed(2)} mm · 字体随选择 —— 均为产品版式值`]
     ]
     barcodeSpecReport.replaceChildren()
@@ -3499,7 +3553,7 @@ async function generateBarcode(notifyError = true) {
   }
 
   try {
-    renderBarcodeSvg(barcodeSvg, value, typeName, null, prepared)
+    renderBarcodeSvg(barcodeSvg, value, typeName, null, prepared, genericOptionsFor(typeName))
     if (token !== barcodeRequestSeq) return false
     gs1128Prepared = prepared
     barcodeRenderedValue = value
@@ -3511,7 +3565,9 @@ async function generateBarcode(notifyError = true) {
   } catch (error) {
     if (token !== barcodeRequestSeq) return false
     // GS1-128 的几何层错误（如超过 165.10mm）自带可执行信息，不应被通用提示盖掉
-    const message = isGs1128Type(typeName) && error instanceof Error
+    // GS1-128 的上限错误、Code 39 的字符集/窄宽比错误都自带可执行信息，
+    // 不能被通用提示盖掉。
+    const message = (isGs1128Type(typeName) || isGenericType(typeName)) && error instanceof Error
       ? error.message
       : friendlyBarcodeError(typeName)
     barcodeSpecReport.hidden = true
@@ -3656,9 +3712,9 @@ function retailRasterSize(typeName) {
   }
 }
 
-function barcodeRasterTargetFor(typeName, value = barcodeRenderedValue, itf14Preset = null, prepared = null) {
+function barcodeRasterTargetFor(typeName, value = barcodeRenderedValue, itf14Preset = null, prepared = null, genericOptions = null) {
   if (isGenericType(typeName)) {
-    return value ? genericRasterSize(typeName, value) : null
+    return value ? genericRasterSize(typeName, value, genericOptionsFor(typeName, genericOptions)) : null
   }
   if (isGs1128Type(typeName)) {
     const source = prepared || gs1128Prepared
@@ -3848,6 +3904,18 @@ function updateBarcodeFontPickerVisibility(typeName) {
   itf14PresetPicker.hidden = !itf14
   itf14PresetSelect.disabled = !itf14
   if (itf14) itf14PresetSelect.value = state.itf14Preset || ITF14_DEFAULT_PRESET
+
+  // Code 39 三项设置仅对 Code 39 显示
+  const code39 = typeName === 'Code39'
+  code39OptionsBox.hidden = !code39
+  code39RatioSelect.disabled = !code39
+  code39Mod43Check.disabled = !code39
+  code39FullAsciiCheck.disabled = !code39
+  if (code39) {
+    code39RatioSelect.value = String(state.code39.wideRatio)
+    code39Mod43Check.checked = state.code39.mod43
+    code39FullAsciiCheck.checked = state.code39.fullAscii
+  }
 }
 
 function selectBarcodeType(typeName, replaceValue = false) {
@@ -3960,17 +4028,21 @@ async function generateBarcodeBatch() {
     // 冻结生成时的 ITF-14 预设：生成后若切换预设，
     // 已有 SVG 与导出像素尺寸必须仍属同一模式。
     const itf14Preset = isItf14Type(state.selections.bc) ? state.itf14Preset : null
+    // Code 39 的窄宽比 / Mod 43 / Full ASCII 随条目冻结，
+    // 生成后改设置不得影响已有条目的 SVG 与导出像素。
+    const genericOptions = genericOptionsFor(state.selections.bc)
 
     try {
       // GS1-128 每条独立做一次 AI 校验，校验结果随条目冻结，
       // 后续导出只用这份结果，不重新校验、不共用上一条的数据。
       const prepared = isGs1128Type(state.selections.bc) ? await prepareGs1128(value) : null
-      renderBarcodeSvg(svg, value, state.selections.bc, itf14Preset, prepared)
+      renderBarcodeSvg(svg, value, state.selections.bc, itf14Preset, prepared, genericOptions)
       item = {
         value,
         type: state.selections.bc,
         itf14Preset,
         prepared,
+        genericOptions,
         valid: true,
         svg
       }
@@ -3981,8 +4053,9 @@ async function generateBarcodeBatch() {
         type: state.selections.bc,
         itf14Preset,
         prepared: null,
+        genericOptions,
         valid: false,
-        error: isGs1128Type(state.selections.bc) && error instanceof Error
+        error: (isGs1128Type(state.selections.bc) || isGenericType(state.selections.bc)) && error instanceof Error
           ? error.message
           : friendlyBarcodeError(state.selections.bc)
       }
@@ -4031,7 +4104,7 @@ async function saveBarcodeBatch(type) {
         name: safeBarcodeFileName(item.type, item.value, index),
         data: type === 'svg'
           ? svgText
-          : await svgToPngBytes(svgText, barcodeRasterTargetFor(item.type, item.value, item.itf14Preset, item.prepared))
+          : await svgToPngBytes(svgText, barcodeRasterTargetFor(item.type, item.value, item.itf14Preset, item.prepared, item.genericOptions))
       })
       barcodeBatchSummary.textContent = `正在准备 ${index + 1} / ${validItems.length}…`
       if ((index + 1) % 10 === 0) await nextFrame()
@@ -4043,7 +4116,7 @@ async function saveBarcodeBatch(type) {
 
     try {
       const batchDensities = new Set(
-        validItems.map((item) => barcodeRasterTargetFor(item.type, item.value, item.itf14Preset, item.prepared)?.dpi ?? 0)
+        validItems.map((item) => barcodeRasterTargetFor(item.type, item.value, item.itf14Preset, item.prepared, item.genericOptions)?.dpi ?? 0)
       )
       const result = await window.api.saveBarcodeFiles({
         type,
@@ -4098,6 +4171,25 @@ function refreshBarcodeFont() {
   if (!state.barcodeBatchItems.length) return
   void generateBarcodeBatch()
 }
+
+function onCode39OptionChange() {
+  state.code39 = {
+    wideRatio: Number(code39RatioSelect.value),
+    mod43: code39Mod43Check.checked,
+    fullAscii: code39FullAsciiCheck.checked
+  }
+  // 批量条目已冻结旧设置，改动后必须重新生成，避免混状态
+  if (state.barcodeBatchItems.length) {
+    state.barcodeBatchItems = []
+    barcodeBatchList.replaceChildren()
+    setBarcodeBatchExportEnabled(false)
+    barcodeBatchSummary.textContent = 'Code 39 设置已改变，请重新批量生成。'
+  }
+  void generateBarcode(false)
+}
+code39RatioSelect.addEventListener('change', onCode39OptionChange)
+code39Mod43Check.addEventListener('change', onCode39OptionChange)
+code39FullAsciiCheck.addEventListener('change', onCode39OptionChange)
 
 itf14PresetSelect.addEventListener('change', () => {
   state.itf14Preset = ITF14_PRESETS[itf14PresetSelect.value] ? itf14PresetSelect.value : ITF14_DEFAULT_PRESET
