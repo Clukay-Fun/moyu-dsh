@@ -9,6 +9,8 @@ contextBridge.exposeInMainWorld(
     saveBarcodeFiles: (payload) => ipcRenderer.invoke('barcode:save-files', payload),
     copyBarcodeVector: (data) => ipcRenderer.invoke('barcode:copy-vector', data),
     exportBarcodeEps: (payload) => ipcRenderer.invoke('barcode:export-eps', payload),
+    illustratorUngroupedCopy: (payload) =>
+      ipcRenderer.invoke('barcode:illustrator-ungrouped-copy', payload),
     openBarcodeInIllustrator: (payload) => ipcRenderer.invoke('barcode:open-illustrator', payload),
     openBarcodeInPhotoshop: (payload) => ipcRenderer.invoke('barcode:open-photoshop', payload),
     saveImageFile: (payload) => ipcRenderer.invoke('image:save-file', payload),

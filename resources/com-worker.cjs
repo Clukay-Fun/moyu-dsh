@@ -97,6 +97,127 @@ function illustratorScript(inputPath, outputPath, action) {
   `
 }
 
+// Spike：验证 SVG 导入 Illustrator 后能否得到"未编组的独立对象"。
+//
+// 口径说明（2026-08-03 修正）：
+//   - 数字对象可以是 PathItem 或 CompoundPathItem——只有 0/6/8/9 等带内孔的
+//     才会是复合路径，1/2/3/5/7 等通常是普通 PathItem。因此**不能**用
+//     compoundPathItems≈12 作判据；正确判据是"HRI 区共 12 个独立数字对象"。
+//   - 条为轴对齐矩形（4 个锚点），数字路径锚点数远多于 4，据此区分。
+//   - mode='roundtrip' 才能证明**粘贴后**仍未编组；inspect 只证明复制前。
+//
+// 本脚本只回报证据，不下结论。
+function illustratorUngroupedCopyScript(inputPath, mode) {
+  const input = extendScriptString(inputPath)
+  const doCopy = mode === 'copy' || mode === 'roundtrip' ? 'true' : 'false'
+  const doRoundtrip = mode === 'roundtrip' ? 'true' : 'false'
+  return `
+    var previousInteractionLevel = app.userInteractionLevel;
+    var doc = null;
+    var pastedDoc = null;
+    var report = {};
+    try {
+      app.userInteractionLevel = UserInteractionLevel.DONTDISPLAYALERTS;
+
+      // 递归解组（自底向上，防死循环）
+      function ungroupAll(container) {
+        var changed = true, guard = 0;
+        while (changed && guard < 64) {
+          changed = false; guard++;
+          for (var i = container.groupItems.length - 1; i >= 0; i--) {
+            var group = container.groupItems[i];
+            for (var j = group.pageItems.length - 1; j >= 0; j--) {
+              group.pageItems[j].moveBefore(group);
+            }
+            group.remove();
+            changed = true;
+          }
+        }
+        return guard;
+      }
+
+      // 结构统计：只数**顶层独立对象**。
+      // ⚠ Document.pathItems 会把 CompoundPathItem 的子路径也算进去，
+      //   若直接遍历它再叠加 compoundPathItems，数字会被重复计数（DigitLike 虚高）。
+      //   因此按 parent.typename === 'Layer' 过滤，排除复合路径内部子路径与组内成员。
+      function survey(container, prefix) {
+        var rectLike = 0, glyphLike = 0, holes = 0, topLevel = 0;
+        for (var i = 0; i < container.pageItems.length; i++) {
+          var item = container.pageItems[i];
+          var parentType = '';
+          try { parentType = item.parent.typename; } catch (e) { parentType = ''; }
+          if (parentType !== 'Layer') continue;   // 跳过复合路径子路径 / 组内成员
+          topLevel++;
+
+          if (item.typename === 'CompoundPathItem') {
+            glyphLike++;
+            var subs = 0;
+            try { subs = item.pathItems.length; } catch (e) { subs = 0; }
+            if (subs >= 2) holes++;
+          } else if (item.typename === 'PathItem') {
+            var pts = 0;
+            try { pts = item.pathPoints.length; } catch (e) { pts = 0; }
+            if (pts === 4) rectLike++; else if (pts > 4) glyphLike++;
+          }
+        }
+        report[prefix + 'Groups'] = container.groupItems.length;
+        report[prefix + 'TopLevel'] = topLevel;
+        report[prefix + 'BarLike'] = rectLike;
+        report[prefix + 'DigitLike'] = glyphLike;
+        report[prefix + 'WithHoles'] = holes;
+      }
+
+      doc = app.open(new File(${input}));
+      report.ungroupPasses = ungroupAll(doc);
+
+      // 删白色满幅背景
+      var removed = 0;
+      for (var m = doc.pathItems.length - 1; m >= 0; m--) {
+        var item = doc.pathItems[m];
+        var white = false;
+        try {
+          white = item.filled && item.fillColor.typename === 'RGBColor' &&
+            item.fillColor.red > 250 && item.fillColor.green > 250 && item.fillColor.blue > 250;
+        } catch (e) { white = false; }
+        if (white && item.width >= doc.width - 1 && item.height >= doc.height - 1) {
+          item.remove(); removed++;
+        }
+      }
+      report.removedBackground = removed;
+      report.docWidthPt = doc.width;
+      report.docHeightPt = doc.height;
+      survey(doc, 'before');
+
+      if (${doCopy}) {
+        app.executeMenuCommand('selectall');
+        report.selectedCount = doc.selection.length;
+        app.copy();
+        report.copied = true;
+      }
+
+      if (${doRoundtrip}) {
+        doc.close(SaveOptions.DONOTSAVECHANGES);
+        doc = null;
+        pastedDoc = app.documents.add();
+        app.executeMenuCommand('paste');
+        // 粘贴后可能仍带外层组：先如实统计，再解组统计，两者都回报
+        survey(pastedDoc, 'pasted');
+        report.pastedUngroupPasses = ungroupAll(pastedDoc);
+        survey(pastedDoc, 'pastedAfterUngroup');
+      }
+    } catch (err) {
+      report.error = String(err);
+    } finally {
+      try { if (doc) doc.close(SaveOptions.DONOTSAVECHANGES); } catch (e) {}
+      try { if (pastedDoc) pastedDoc.close(SaveOptions.DONOTSAVECHANGES); } catch (e) {}
+      app.userInteractionLevel = previousInteractionLevel;
+    }
+    var parts = [];
+    for (var key in report) { parts.push(key + '=' + report[key]); }
+    parts.join('|');
+  `
+}
+
 function illustratorSvgScript(inputPath, outputPath) {
   const input = extendScriptString(inputPath)
   if (!outputPath) {
@@ -222,6 +343,28 @@ async function runIllustratorBatch(id, payload) {
   return { outputs }
 }
 
+function runIllustratorUngroupedCopy(payload) {
+  const application = createComObject('Illustrator.Application', true)
+  try {
+    const raw = application.DoJavaScript(
+      illustratorUngroupedCopyScript(payload.inputPath, payload.mode || 'inspect')
+    )
+    const report = String(raw == null ? '' : raw)
+    // ExtendScript 内部异常写在 report.error 里；此处必须转成真正的失败，
+    // 否则会把脚本失败误判为成功（与 PNG density 同类缺陷）。
+    const fields = {}
+    for (const pair of report.split('|')) {
+      const at = pair.indexOf('=')
+      if (at > 0) fields[pair.slice(0, at)] = pair.slice(at + 1)
+    }
+    if (fields.error) throw new Error(`Illustrator 脚本失败：${fields.error}`)
+    if (!report) throw new Error('Illustrator 脚本未返回任何结构统计')
+    return { report, fields }
+  } finally {
+    release(application)
+  }
+}
+
 function runIllustratorSvg(payload) {
   const application = createComObject('Illustrator.Application', true)
   try {
@@ -260,6 +403,7 @@ async function execute(id, command, payload) {
   if (command === 'office-to-pdf') return runOfficeToPdf(payload)
   if (command === 'illustrator-batch') return runIllustratorBatch(id, payload)
   if (command === 'illustrator-svg') return runIllustratorSvg(payload)
+  if (command === 'illustrator-ungrouped-copy') return runIllustratorUngroupedCopy(payload)
   if (command === 'photoshop-open') return runPhotoshopOpen(payload)
   throw new Error(`不支持的 COM 命令：${command}`)
 }

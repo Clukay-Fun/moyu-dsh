@@ -1386,6 +1386,39 @@ ipcMain.handle('com:show-result', async (event, resultId) => {
   return { status: 'shown' }
 })
 
+// Spike / 正式链路：把条码 SVG 交给 Illustrator，递归解组后（可选）执行 app.copy()。
+// mode='inspect' 只返回结构统计；mode='copy' 额外全选并复制到 Illustrator 原生剪贴板。
+// ⚠ 仅 Windows + 已安装 Illustrator 可用；"复制后未编组"只对 Illustrator 承诺。
+ipcMain.handle('barcode:illustrator-ungrouped-copy', async (event, payload) => {
+  assertMainWindowSender(event)
+  const normalized = normalizeBarcodeData('svg', payload?.data)
+  if (Buffer.byteLength(normalized.data) > 20 * 1024 * 1024) {
+    throw new Error('条码 SVG 超过 20 MB')
+  }
+  const temporaryDirectory = join(app.getPath('temp'), 'moyu-tools-com')
+  await mkdir(temporaryDirectory, { recursive: true })
+  const inputPath = join(temporaryDirectory, `${randomUUID()}.svg`)
+  await writeFile(inputPath, normalized.data, 'utf8')
+  try {
+    const mode = ['copy', 'roundtrip'].includes(payload?.mode) ? payload.mode : 'inspect'
+    const result = await runComCommand(
+      event,
+      'illustrator-ungrouped-copy',
+      { inputPath, mode },
+      { timeoutMs: 10 * 60 * 1000 }
+    )
+    // 失败语义：worker 在 report.error 或空报告时已抛错，
+    // runComCommand 会 reject，本 IPC 直接以 Promise 抛错传出，不再包 status:'error'。
+    const fields = result?.fields || {}
+    // 判据：inspect 看 beforeGroups；roundtrip 以**粘贴后** pastedGroups 为准。
+    const ungrouped =
+      mode === 'roundtrip' ? Number(fields.pastedGroups) === 0 : Number(fields.beforeGroups) === 0
+    return { status: 'ok', mode, ungrouped, fields, report: result.report }
+  } finally {
+    await unlink(inputPath).catch(() => {})
+  }
+})
+
 ipcMain.handle('barcode:export-eps', async (event, payload) => {
   assertMainWindowSender(event)
   const normalized = normalizeBarcodeData('svg', payload?.data)
