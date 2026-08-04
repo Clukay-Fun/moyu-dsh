@@ -22,41 +22,26 @@ if errorlevel 1 goto npm_missing
 rem A machine-level ELECTRON_SKIP_BINARY_DOWNLOAD would leave only the JS package.
 set "ELECTRON_SKIP_BINARY_DOWNLOAD="
 
-echo [1/6] Installing locked npm dependencies...
+echo [1/5] Installing locked npm dependencies...
 call npm ci
 if errorlevel 1 goto failed
 
-echo [2/6] Verifying the Electron Windows binary...
+echo [2/5] Verifying the Electron Windows binary...
 if not exist "node_modules\electron\path.txt" (
   call node "node_modules\electron\install.js"
   if errorlevel 1 goto electron_failed
 )
 if not exist "node_modules\electron\dist\electron.exe" goto electron_failed
 
-echo [3/6] Rebuilding Electron native dependencies...
+echo [3/5] Rebuilding Electron native dependencies...
 call npx electron-builder install-app-deps
 if errorlevel 1 goto failed
 
-echo [4/6] Preparing FFmpeg and ffprobe...
+echo [4/5] Preparing FFmpeg and ffprobe...
 call npm run build:tools:win
 if errorlevel 1 goto failed
 
-if not defined MOYU_PYTHON (
-  for /f "delims=" %%P in ('py -3.11 -c "import sys;print(sys.executable)" 2^>nul') do set "MOYU_PYTHON=%%P"
-)
-if not defined MOYU_PYTHON (
-  python -c "import sys;raise SystemExit(0 if sys.version_info[:2] == (3,11) else 1)" >nul 2>nul
-  if not errorlevel 1 (
-    for /f "delims=" %%P in ('python -c "import sys;print(sys.executable)"') do set "MOYU_PYTHON=%%P"
-  )
-)
-if not defined MOYU_PYTHON goto python_missing
-
-echo [5/6] Building the Windows AI sidecar with Python 3.11...
-call npm run build:sidecar:win
-if errorlevel 1 goto failed
-
-echo [6/6] Verifying the Electron production bundle...
+echo [5/5] Verifying the Electron production bundle...
 call npm run build
 if errorlevel 1 goto failed
 
@@ -77,11 +62,6 @@ goto failed_pause
 
 :npm_missing
 echo [ERROR] npm was not found. Reinstall Node.js 22 x64 with npm enabled.
-goto failed_pause
-
-:python_missing
-echo [ERROR] Python 3.11 was not found.
-echo Install Python 3.11 x64, or set MOYU_PYTHON to python.exe and run again.
 goto failed_pause
 
 :electron_failed

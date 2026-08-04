@@ -16,12 +16,6 @@ if not exist "build\ffmpeg\ffmpeg.exe" (
   echo.
 )
 
-if not exist "build\sidecars\moyu-ai-sidecar.exe" (
-  echo [WARN] The AI sidecar is not ready. AI image features may fail.
-  echo        Run the first-setup CMD file again with Python 3.11 installed.
-  echo.
-)
-
 echo Starting Moyu Tools in Electron development mode...
 echo Keep this window open while testing. Press Ctrl+C here to stop the app.
 echo.

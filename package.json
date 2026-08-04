@@ -1,6 +1,6 @@
 {
   "name": "moyu-tools",
-  "version": "2.1.0-beta.1",
+  "version": "2.1.0-beta.2",
   "description": "面向设计工作流的 Windows Electron 工具箱",
   "author": "Clukay",
   "private": true,
@@ -15,7 +15,7 @@
     "build:icon": "node scripts/generate-icon.mjs",
     "build:sidecar:win": "powershell -ExecutionPolicy Bypass -File scripts/build-ai-sidecar.ps1",
     "build:tools:win": "powershell -ExecutionPolicy Bypass -File scripts/download-ffmpeg-win.ps1",
-    "build:win": "npm run build:icon && npm run build:tools:win && npm run build:sidecar:win && npm run build && electron-builder --win portable --x64",
+    "build:win": "npm run build:icon && npm run build:tools:win && npm run build && electron-builder --win portable --x64",
     "preview": "electron-vite preview"
   },
   "build": {
@@ -55,10 +55,6 @@
     ],
     "win": {
       "extraResources": [
-        {
-          "from": "build/sidecars/moyu-ai-sidecar.exe",
-          "to": "sidecars/moyu-ai-sidecar.exe"
-        },
         {
           "from": "build/ffmpeg",
           "to": "tools/ffmpeg"

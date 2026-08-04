@@ -125,6 +125,7 @@ const AI_MODELS = {
 }
 
 const AI_IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp'])
+const AI_IMAGE_SEALED = true
 const AI_MAX_FILE_BYTES = 50 * 1024 * 1024
 const AI_MAX_FILES = 100
 const AI_COMMAND_TIMEOUT_MS = 10 * 60 * 1000
@@ -134,6 +135,10 @@ let aiSidecar = null
 let aiSidecarBuffer = ''
 let aiSidecarStarting = null
 const aiSidecarPending = new Map()
+
+function assertAiImageEnabled() {
+  if (AI_IMAGE_SEALED) throw new Error('AI 图像模块已在本测试版封印')
+}
 
 const FORMAT_EXTENSIONS = {
   video: new Set(['.mp4', '.mov', '.mkv', '.avi', '.webm', '.m4v']),
@@ -1648,6 +1653,15 @@ ipcMain.handle('image:save-file', async (event, payload) => {
 
 ipcMain.handle('ai:get-status', async (event) => {
   assertMainWindowSender(event)
+  if (AI_IMAGE_SEALED) {
+    return {
+      sealed: true,
+      sidecarReady: false,
+      sidecarMessage: 'AI 图像模块已在本测试版封印',
+      models: {},
+      platform: process.platform
+    }
+  }
   const models = {}
   for (const [key, model] of Object.entries(AI_MODELS)) {
     const state = await inspectAiModel(key)
@@ -1684,6 +1698,7 @@ ipcMain.handle('ai:get-status', async (event) => {
 
 ipcMain.handle('ai:pick-images', async (event, payload) => {
   assertMainWindowSender(event)
+  assertAiImageEnabled()
   const ownerWindow = BrowserWindow.fromWebContents(event.sender)
   const result = await dialog.showOpenDialog(ownerWindow, {
     title: '选择 AI 图像处理文件',
@@ -1709,6 +1724,7 @@ ipcMain.handle('ai:pick-images', async (event, payload) => {
 
 ipcMain.handle('ai:pick-folder', async (event) => {
   assertMainWindowSender(event)
+  assertAiImageEnabled()
   const ownerWindow = BrowserWindow.fromWebContents(event.sender)
   const result = await dialog.showOpenDialog(ownerWindow, {
     title: '选择批量图片文件夹',
@@ -1740,6 +1756,7 @@ ipcMain.handle('ai:pick-folder', async (event) => {
 
 ipcMain.handle('ai:remove-inputs', (event, inputIds) => {
   assertMainWindowSender(event)
+  assertAiImageEnabled()
   const ids = Array.isArray(inputIds) ? inputIds : []
   ids.forEach((id) => {
     const input = aiInputSessions.get(id)
@@ -1750,6 +1767,7 @@ ipcMain.handle('ai:remove-inputs', (event, inputIds) => {
 
 ipcMain.handle('ai:run', async (event, payload) => {
   assertMainWindowSender(event)
+  assertAiImageEnabled()
   const mode = payload?.mode
   if (!['remove', 'batch', 'id-photo', 'inpaint'].includes(mode)) {
     throw new Error('不支持的 AI 图像任务')
@@ -1849,6 +1867,7 @@ ipcMain.handle('ai:run', async (event, payload) => {
 
 ipcMain.handle('ai:save-results', async (event, resultIds) => {
   assertMainWindowSender(event)
+  assertAiImageEnabled()
   const ids = Array.isArray(resultIds) ? resultIds : []
   if (!ids.length || ids.length > AI_MAX_FILES) throw new Error('没有可保存的 AI 处理结果')
   const results = ids.map((id) => getAiResult(event, id))
@@ -1894,6 +1913,7 @@ ipcMain.handle('ai:save-results', async (event, resultIds) => {
 
 ipcMain.handle('ai:export-psd', async (event, resultId) => {
   assertMainWindowSender(event)
+  assertAiImageEnabled()
   const result = getAiResult(event, resultId)
   const [original, processed] = await Promise.all([
     psdImageDataFromPath(result.inputPath),

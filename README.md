@@ -15,7 +15,7 @@ v2 正在从旧版 Python/pywebview 桌面应用重构为 Electron。唯一正�
 - Illustrator：批量导出 PDF、250 PPI 最小化 PDF 与文字转曲。
 - 截图：区域截图、标注、应用内滚动截图、离线中英 OCR、钉图。
 - 格式工厂：视频格式转换/压缩/抽取音频、音频转换，以及图片转换/压缩。
-- AI 图像：RMBG-1.4 抠图/批量抠图/证件照，MI-GAN 局部修补，分层 PSD 导出。
+- AI 图像：本测试版本暂时封印，不提供模型下载、推理或 sidecar 打包。
 - 设置：浅色/深色/跟随系统与自定义强调色。
 
 COM 已采用独立 Electron utility process 隔离，winax 的 Electron ABI、发布包资源与启动已通过 Windows 自动验收；Office/Adobe 的真实文件处理仍需在安装了对应软件的 Windows 机器上做发布前回归。开发范围与验收以本地 `scope/` 子计划为准。
@@ -38,7 +38,7 @@ npm run build
 npm run build:win
 ```
 
-`npm run build` 生成 Electron bundle；`npm run build:win` 会先下载并校验固定版本的 FFmpeg/ffprobe、构建 Windows AI sidecar，再生成 Windows x64 portable EXE。构建 sidecar 需要 Windows Python 3.11；可用 `MOYU_PYTHON` 指定解释器。
+`npm run build` 生成 Electron bundle；`npm run build:win` 会先下载并校验固定版本的 FFmpeg/ffprobe，再生成 Windows x64 portable EXE。本测试版本的 AI 图像模块已封印，不构建或打包 AI sidecar。
 
 频繁测试时可在 Windows 源码目录先双击 `首次安装.cmd`，以后通过 `启动测试版.cmd` 直接启动 Electron，不必每次生成 portable EXE。完整说明见 [Windows 源码测试版](docs/windows-source-test.md)。
 

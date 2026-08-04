@@ -8,7 +8,6 @@
 
 - Windows 10/11 x64。
 - Node.js 22 x64（包含 npm）。
-- Python 3.11 x64，用于首次构建 AI sidecar。
 - 测试 Office/Adobe 联动时，安装对应的 Microsoft Office、Illustrator 或 Photoshop。
 
 Git 不是首次启动的必要条件。若测试文件夹包含 `.git/`，可以用 Git 核对 commit，并在对应提交已推送后使用 `git pull --ff-only` 更新。
@@ -28,22 +27,9 @@ Git 不是首次启动的必要条件。若测试文件夹包含 `.git/`，可�
 3. 检查 `node_modules/electron/path.txt` 与 `dist/electron.exe`；缺少时显式执行 Electron 安装脚本，仍缺少则停止并报错。
 4. `npx electron-builder install-app-deps` 重建 winax、sharp 等 Electron 原生依赖。
 5. 下载并校验固定版本 FFmpeg/ffprobe。
-6. 使用 Python 3.11 构建 `moyu-ai-sidecar.exe`。
-7. 运行一次生产 bundle 构建，确认 main、preload、renderer 可以编译。
+6. 运行一次生产 bundle 构建，确认 main、preload、renderer 可以编译。
 
-首次安装时间取决于 npm、FFmpeg 和 Python 依赖下载速度。AI 模型不会在这一步下载；模型仍在第一次使用对应 AI 功能时下载并校验。
-
-若 Python 3.11 不在默认命令中，可以先在 CMD 设置：
-
-```cmd
-set MOYU_PYTHON=C:\Python311\python.exe
-```
-
-然后在同一窗口运行：
-
-```cmd
-首次安装.cmd
-```
+首次安装时间取决于 npm、Electron 与 FFmpeg 下载速度。本测试版本的 AI 图像模块已封印，不下载模型，也不构建 AI sidecar。
 
 ## 日常启动
 
@@ -68,7 +54,7 @@ git status --short --branch
 git pull --ff-only
 ```
 
-如果 `package-lock.json`、Electron 版本、原生依赖或 `sidecar/ai/requirements-win.txt` 有变化，应重新运行 `首次安装.cmd`。只有普通 `src/`、CSS 或静态资源变化时，直接重新启动即可。
+如果 `package-lock.json`、Electron 版本或原生依赖有变化，应重新运行 `首次安装.cmd`。只有普通 `src/`、CSS 或静态资源变化时，直接重新启动即可。
 
 没有 Git 时，也可以用新版源码覆盖旧文件夹。不要覆盖或删除 `node_modules/` 与 `build/`，除非准备重新运行首次安装。
 

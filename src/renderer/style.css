@@ -404,6 +404,16 @@ input:focus-visible {
   background: var(--accent-10);
 }
 
+.nav-ic:disabled {
+  color: var(--muted);
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+.nav-ic:disabled:hover {
+  background: transparent;
+}
+
 .nav-ic.active {
   border-color: var(--border);
   color: var(--accent);

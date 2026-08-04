@@ -7,7 +7,7 @@
 ## 1. 目标产物
 
 - 文件名：`摸鱼工具箱-v<version>-x64.exe`
-- 当前测试版本：`摸鱼工具箱-v2.1.0-beta.1-x64.exe`
+- 当前测试版本：`摸鱼工具箱-v2.1.0-beta.2-x64.exe`
 - 架构：Windows x64
 - 形态：electron-builder `portable` 单文件 EXE
 - 交付位置：用户桌面根目录
@@ -54,15 +54,14 @@ npm run build:win
 `build:win` 会依次：
 
 1. 下载固定版本的 `ffmpeg.exe` 和 `ffprobe.exe`，校验下载文件与解压后二进制 SHA-256。
-2. 使用 Windows Python 构建 `moyu-ai-sidecar.exe`。
-3. 构建 Electron main、preload 和 renderer。
-4. rebuild `winax`、sharp 等 Windows/Electron 原生模块。
-5. 生成 Windows x64 portable EXE。
+2. 构建 Electron main、preload 和 renderer。
+3. rebuild `winax`、sharp 等 Windows/Electron 原生模块。
+4. 生成 Windows x64 portable EXE。本测试版本的 AI 图像模块已封印，不构建或打包 AI sidecar。
 
 预期产物：
 
 ```text
-release/摸鱼工具箱-v2.1.0-beta.1-x64.exe
+release/摸鱼工具箱-v2.1.0-beta.2-x64.exe
 ```
 
 ### 3.2 当前机器不是 Windows，但用户要求直接提供 EXE
@@ -104,10 +103,6 @@ jobs:
           node-version: 22
           cache: npm
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
       - name: Install and rebuild native dependencies
         run: |
           npm ci --ignore-scripts
@@ -118,7 +113,6 @@ jobs:
         shell: pwsh
         run: |
           npm run build:tools:win
-          npm run build:sidecar:win
           npm run build
 
       - name: Package and inspect portable executable
@@ -158,7 +152,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: moyu-tools-windows-v2.1.0-beta.1
+          name: moyu-tools-windows-v2.1.0-beta.2
           path: |
             release/*-x64.exe
             release/SHA256SUMS.txt
@@ -191,12 +185,11 @@ git push -u origin codex/windows-repackage
 1. npm 依赖安装。
 2. Electron ABI 原生模块 rebuild。
 3. FFmpeg/ffprobe 固定资源构建。
-4. AI sidecar 构建。
-5. Electron bundle。
-6. portable EXE。
-7. `com-worker.cjs`、许可证、notices 和 OCR-B 字体包内检查。
-8. `win-unpacked/摸鱼工具箱.exe` 启动后持续运行至少 8 秒。
-9. SHA-256 文件生成。
+4. Electron bundle。
+5. portable EXE，且包内不存在 AI sidecar。
+6. `com-worker.cjs`、许可证、notices 和 OCR-B 字体包内检查。
+7. `win-unpacked/摸鱼工具箱.exe` 启动后持续运行至少 8 秒。
+8. SHA-256 文件生成。
 
 仅“工作流绿色”不代表 Office/Adobe 真实业务验收完成。Word、Excel、PowerPoint、Illustrator、Photoshop 仍须在安装了相应软件的 Windows 真机上测试。
 
@@ -209,15 +202,15 @@ git push -u origin codex/windows-repackage
 3. 本地重新计算：
 
    ```bash
-   shasum -a 256 摸鱼工具箱-v2.1.0-beta.1-x64.exe
+   shasum -a 256 摸鱼工具箱-v2.1.0-beta.2-x64.exe
    ```
 
 4. 本地计算结果必须与 runner 生成的 `SHA256SUMS.txt` 完全一致。
 5. 将以下两个文件直接放在桌面根目录：
 
    ```text
-   ~/Desktop/摸鱼工具箱-v2.1.0-beta.1-x64.exe
-   ~/Desktop/摸鱼工具箱-v2.1.0-beta.1-x64-SHA256.txt
+   ~/Desktop/摸鱼工具箱-v2.1.0-beta.2-x64.exe
+   ~/Desktop/摸鱼工具箱-v2.1.0-beta.2-x64-SHA256.txt
    ```
 
 6. 最终回复必须报告：

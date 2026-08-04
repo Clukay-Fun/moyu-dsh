@@ -301,10 +301,6 @@ const searchFeatures = [
   ['文字水印', '图片', 'image', 'watermark', '水印 编辑'],
   ['调色与马赛克', '图片', 'image', 'adjust', '亮度 对比度 饱和度 像素化'],
   ['图片导出', '图片', 'image', 'export', 'PNG JPG WebP TIFF'],
-  ['智能抠图', 'AI 图像', 'aimg', '智能抠图', '去背景 透明 PNG RMBG'],
-  ['批量抠图', 'AI 图像', 'aimg', '批量抠图', '批处理 去背景'],
-  ['证件照', 'AI 图像', 'aimg', '证件照', '换底色 一寸 二寸'],
-  ['图像修补', 'AI 图像', 'aimg', '图像修补', '擦除 物体 移除 MI-GAN'],
   ['区域截图', '截图', 'screen', '', '屏幕 截屏 标注'],
   ['截图复制', '截图', 'screen', '', '剪贴板 PNG'],
   ['视频转换', '格式工厂', 'video', '视频转换', 'FFmpeg MP4 MKV WebM'],
@@ -421,6 +417,11 @@ function renderSubmenu(module) {
 }
 
 function activateModule(module, action = '') {
+  if (module === 'aimg') {
+    showToast('AI 图像模块已在本测试版封印')
+    return
+  }
+
   state.module = module
 
   document.querySelectorAll('.nav-ic').forEach((button) => {
