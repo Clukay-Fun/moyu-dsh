@@ -176,17 +176,14 @@ input:focus-visible {
   display: grid;
   width: 36px;
   height: 36px;
-  overflow: hidden;
   place-items: center;
-  border: 1px solid var(--border);
-  border-radius: 11px;
-  background: var(--card);
-  box-shadow: inset 0 1px rgba(255, 255, 255, 0.55);
 }
 
+/* 新版 logo 自带透明通道与留白，不再加白底/边框/描边，
+   容器只负责尺寸与布局。 */
 .brand-logo img {
-  width: 30px;
-  height: 30px;
+  width: 34px;
+  height: 34px;
   object-fit: contain;
 }
 
@@ -2881,7 +2878,7 @@ input:focus-visible {
 .about img {
   width: 52px;
   height: 52px;
-  border-radius: 14px;
+  object-fit: contain;
 }
 
 .about h2 {

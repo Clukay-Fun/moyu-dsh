@@ -31,7 +31,7 @@ const eraserBrushReady = import('fabric/src/mixins/eraser_brush.mixin.js')
   .then(() => fabric.EraserBrush)
 GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
-const appLogoUrl = new URL('../../assets/logo_128.png', import.meta.url).href
+const appLogoUrl = new URL('../../assets/app-icon.png', import.meta.url).href
 
 document.querySelectorAll('[data-app-logo]').forEach((image) => {
   image.src = appLogoUrl

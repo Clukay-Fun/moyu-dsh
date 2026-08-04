@@ -12,9 +12,10 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
+    "build:icon": "node scripts/generate-icon.mjs",
     "build:sidecar:win": "powershell -ExecutionPolicy Bypass -File scripts/build-ai-sidecar.ps1",
     "build:tools:win": "powershell -ExecutionPolicy Bypass -File scripts/download-ffmpeg-win.ps1",
-    "build:win": "npm run build:tools:win && npm run build:sidecar:win && npm run build && electron-builder --win portable --x64",
+    "build:win": "npm run build:icon && npm run build:tools:win && npm run build:sidecar:win && npm run build && electron-builder --win portable --x64",
     "preview": "electron-vite preview"
   },
   "build": {
@@ -61,6 +62,14 @@
         {
           "from": "build/ffmpeg",
           "to": "tools/ffmpeg"
+        },
+        {
+          "from": "build/icon.ico",
+          "to": "icon.ico"
+        },
+        {
+          "from": "assets/app-icon.png",
+          "to": "app-icon.png"
         }
       ],
       "target": [
@@ -71,7 +80,8 @@
           ]
         }
       ],
-      "artifactName": "${productName}-v${version}-${arch}.${ext}"
+      "artifactName": "${productName}-v${version}-${arch}.${ext}",
+      "icon": "build/icon.ico"
     }
   },
   "devDependencies": {

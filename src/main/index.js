@@ -15,6 +15,7 @@ import { writePsdBuffer } from 'ag-psd'
 import { createWorker, OEM } from 'tesseract.js'
 import sharp from 'sharp'
 import { spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { createHash, randomUUID } from 'node:crypto'
 import {
   copyFile,
@@ -1179,6 +1180,32 @@ async function ensureOcrWorker() {
   return ocrWorkerPromise
 }
 
+
+/**
+ * 窗口图标。
+ * 开发环境用项目内 PNG（assets/app-icon.png）；
+ * Windows 打包后用随包资源的 ICO —— 任务栏与窗口标题栏取的是它。
+ * macOS 的 Dock 图标由 app bundle 决定，不受此处影响。
+ */
+function resolveWindowIcon() {
+  const candidates = app.isPackaged
+    ? [
+        join(process.resourcesPath, 'icon.ico'),
+        join(process.resourcesPath, 'app-icon.png')
+      ]
+    : [
+        join(__dirname, '../../build/icon.ico'),
+        join(__dirname, '../../assets/app-icon.png')
+      ]
+  for (const candidate of candidates) {
+    if (process.platform !== 'win32' && candidate.endsWith('.ico')) continue
+    if (!existsSync(candidate)) continue
+    const image = nativeImage.createFromPath(candidate)
+    if (!image.isEmpty()) return image
+  }
+  return undefined
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 960,
@@ -1186,6 +1213,7 @@ function createWindow() {
     minWidth: 720,
     minHeight: 480,
     show: false,
+    icon: resolveWindowIcon(),
     webPreferences: {
       preload: join(__dirname, '../preload/index.cjs'),
       contextIsolation: true,
