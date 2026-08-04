@@ -24,11 +24,12 @@ Git 不是首次启动的必要条件。若测试文件夹包含 `.git/`，可�
 脚本依次执行：
 
 1. 检查 Node.js 主版本至少为 22。
-2. `npm ci` 安装锁定依赖。
-3. `npx electron-builder install-app-deps` 重建 winax、sharp 等 Electron 原生依赖。
-4. 下载并校验固定版本 FFmpeg/ffprobe。
-5. 使用 Python 3.11 构建 `moyu-ai-sidecar.exe`。
-6. 运行一次生产 bundle 构建，确认 main、preload、renderer 可以编译。
+2. `npm ci` 安装锁定依赖，并清除可能导致 Electron 跳过下载的 `ELECTRON_SKIP_BINARY_DOWNLOAD`。
+3. 检查 `node_modules/electron/path.txt` 与 `dist/electron.exe`；缺少时显式执行 Electron 安装脚本，仍缺少则停止并报错。
+4. `npx electron-builder install-app-deps` 重建 winax、sharp 等 Electron 原生依赖。
+5. 下载并校验固定版本 FFmpeg/ffprobe。
+6. 使用 Python 3.11 构建 `moyu-ai-sidecar.exe`。
+7. 运行一次生产 bundle 构建，确认 main、preload、renderer 可以编译。
 
 首次安装时间取决于 npm、FFmpeg 和 Python 依赖下载速度。AI 模型不会在这一步下载；模型仍在第一次使用对应 AI 功能时下载并校验。
 
@@ -55,6 +56,8 @@ set MOYU_PYTHON=C:\Python311\python.exe
 脚本运行 `npm run dev` 并打开 Electron 软件窗口。测试期间 CMD 窗口必须保持打开；关闭 CMD 或按 `Ctrl+C` 会停止应用。
 
 普通 renderer、条码、PDF 和样式修改不需要重新生成 EXE。修改源码后重启 `启动测试版.cmd` 即可验证。
+
+若启动时提示 `Electron uninstall`，说明 Electron 的 npm 包存在，但 Windows 可执行文件没有下载完整。重新运行最新版 `首次安装.cmd`；脚本会直接检查 `path.txt` 和 `dist/electron.exe`，不会再把这种残缺安装误判为可启动状态。
 
 ## 更新源码
 
