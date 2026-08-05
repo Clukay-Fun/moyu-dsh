@@ -4002,3 +4002,10 @@ input:focus-visible {
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
+
+.board-export-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}

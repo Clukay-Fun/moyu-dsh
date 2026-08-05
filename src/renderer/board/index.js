@@ -29,6 +29,7 @@ import {
 import { BoardCanvas } from './canvas.js'
 import { BoardHistory } from './history.js'
 import { packBoard, unpackBoard } from './container.js'
+import { exportBounds, planExport, planPdfPages, describePlan } from './export.js'
 
 /** 单张图片上限，与主进程截图上限口径一致。 */
 const MAX_IMAGE_BYTES = 100 * 1024 * 1024
@@ -118,6 +119,15 @@ export class BoardController {
     dom.save.addEventListener('click', () => this.save(false))
     dom.saveAs.addEventListener('click', () => this.save(true))
     dom.open.addEventListener('click', () => this.open())
+    dom.exportPng.addEventListener('click', () => this.exportPng({
+      range: dom.exportRange.value,
+      scale: Number(dom.exportScale.value)
+    }))
+    dom.exportPdf.addEventListener('click', () => this.exportPdf({
+      range: dom.exportRange.value,
+      scale: Number(dom.exportScale.value),
+      mode: dom.pdfMode.value
+    }))
 
     // Delete / Backspace 删除选中，但在文本编辑态下不拦截
     this.keyHandler = (event) => {
@@ -516,6 +526,95 @@ export class BoardController {
     } catch (error) {
       this.onStatus({ error: error instanceof Error ? error.message : '打开失败' })
       return false
+    }
+  }
+
+  // ── 导出 ────────────────────────────────────────────────
+  /**
+   * 导出 PNG。超过 Chromium 画布上限时自动降级倍率并如实告知。
+   */
+  async exportPng({ range = 'content', scale = 1 } = {}) {
+    try {
+      const bounds = exportBounds(this.scene, range, {
+        selection: this.selection,
+        viewport: this.canvas.viewportRect()
+      })
+      const plan = planExport(bounds, scale)
+      if (plan.degraded) this.onStatus({ warn: describePlan(plan) })
+      const image = await this.canvas.renderRegion(plan.bounds, plan.appliedScale)
+      const result = await window.api.saveImageFile({
+        data: image.bytes,
+        name: this.#suggestedName(),
+        type: 'png'
+      })
+      if (result?.status === 'saved') {
+        this.onStatus({ saved: result.path, note: describePlan(plan) })
+      }
+      return plan
+    } catch (error) {
+      this.onStatus({ error: error instanceof Error ? error.message : '导出 PNG 失败' })
+      return null
+    }
+  }
+
+  /**
+   * 导出 PDF。fit-single 为整张一页；a4-* 按 A4 纵向切页。
+   */
+  async exportPdf({ range = 'content', scale = 1, mode = 'fit-single' } = {}) {
+    try {
+      const bounds = exportBounds(this.scene, range, {
+        selection: this.selection,
+        viewport: this.canvas.viewportRect()
+      })
+      const plan = planExport(bounds, scale)
+      if (plan.degraded) this.onStatus({ warn: describePlan(plan) })
+      const image = await this.canvas.renderRegion(plan.bounds, plan.appliedScale)
+      const layout = planPdfPages(image.width, image.height, mode)
+
+      const { PDFDocument } = await import('pdf-lib')
+      const pdf = await PDFDocument.create()
+
+      if (layout.mode === 'fit-single') {
+        const embedded = await pdf.embedPng(image.bytes)
+        const page = pdf.addPage([layout.pageWidth, layout.pageHeight])
+        page.drawImage(embedded, { x: 0, y: 0, width: layout.pageWidth, height: layout.pageHeight })
+      } else {
+        // 分页需要按行裁切；每页单独出一张 PNG 再嵌入
+        const source = await createImageBitmap(new Blob([image.bytes], { type: 'image/png' }))
+        for (const slice of layout.pages) {
+          const cut = document.createElement('canvas')
+          cut.width = slice.sw
+          cut.height = slice.sh
+          const ctx = cut.getContext('2d')
+          ctx.fillStyle = '#ffffff'
+          ctx.fillRect(0, 0, cut.width, cut.height)
+          ctx.drawImage(source, slice.sx, slice.sy, slice.sw, slice.sh, 0, 0, slice.sw, slice.sh)
+          const blob = await new Promise((resolve) => cut.toBlob(resolve, 'image/png'))
+          const embedded = await pdf.embedPng(new Uint8Array(await blob.arrayBuffer()))
+          const page = pdf.addPage([layout.pageWidth, layout.pageHeight])
+          page.drawImage(embedded, {
+            x: 0,
+            y: layout.pageHeight - slice.drawHeight,
+            width: slice.drawWidth,
+            height: slice.drawHeight
+          })
+        }
+        source.close()
+      }
+
+      const bytes = await pdf.save()
+      const result = await window.api.savePdfFile({
+        data: bytes,
+        name: this.#suggestedName(),
+        type: 'pdf'
+      })
+      if (result?.status === 'saved') {
+        this.onStatus({ saved: result.path, note: `${layout.rows} 页 · ${describePlan(plan)}` })
+      }
+      return { plan, layout }
+    } catch (error) {
+      this.onStatus({ error: error instanceof Error ? error.message : '导出 PDF 失败' })
+      return null
     }
   }
 

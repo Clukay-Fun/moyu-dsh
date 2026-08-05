@@ -375,6 +375,47 @@ export class BoardCanvas {
     this.canvas.requestRenderAll()
   }
 
+  /**
+   * 离屏栅格化指定区域。
+   * 用 StaticCanvas 重建一份，避免动到用户正在编辑的画布视口。
+   */
+  async renderRegion(bounds, scale) {
+    const staticCanvas = new this.fabric.StaticCanvas(null, {
+      width: Math.floor(bounds.width * scale),
+      height: Math.floor(bounds.height * scale),
+      backgroundColor: '#ffffff'
+    })
+    staticCanvas.setViewportTransform([scale, 0, 0, scale, -bounds.x * scale, -bounds.y * scale])
+
+    const { nodesByZ } = await import('./scene.js')
+    for (const node of nodesByZ(this.scene)) {
+      const object = await this.#createObject(node)
+      if (object) staticCanvas.add(object)
+    }
+    for (const edge of this.scene.edges) {
+      const object = this.#createEdgeObject(edge)
+      if (object) staticCanvas.add(object)
+    }
+    staticCanvas.renderAll()
+    const element = staticCanvas.getElement()
+    const blob = await new Promise((resolve) => element.toBlob(resolve, 'image/png'))
+    const bytes = new Uint8Array(await blob.arrayBuffer())
+    staticCanvas.dispose()
+    return { bytes, width: element.width, height: element.height }
+  }
+
+  /** 当前视口在场景坐标系中的矩形。 */
+  viewportRect() {
+    const vt = this.canvas.viewportTransform
+    const zoom = vt[0] || 1
+    return {
+      x: -vt[4] / zoom,
+      y: -vt[5] / zoom,
+      width: this.canvas.getWidth() / zoom,
+      height: this.canvas.getHeight() / zoom
+    }
+  }
+
   dispose() {
     for (const url of this.assetUrls.values()) URL.revokeObjectURL(url)
     this.assetUrls.clear()

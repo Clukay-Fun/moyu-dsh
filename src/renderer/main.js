@@ -2481,6 +2481,7 @@ function ensureBoardController() {
       if (info?.error) showToast(info.error)
       if (info?.saved) showToast(`已保存：${info.saved.split(/[\\/]/).pop()}`)
       if (info?.opened) showToast(`已打开：${info.opened.split(/[\\/]/).pop()}`)
+      if (info?.warn) showToast(info.warn)
     }
   })
   boardController.mount({
@@ -2515,6 +2516,11 @@ function ensureBoardController() {
     open: document.querySelector('#board-open'),
     save: document.querySelector('#board-save'),
     saveAs: document.querySelector('#board-save-as'),
+    exportRange: document.querySelector('#board-export-range'),
+    exportScale: document.querySelector('#board-export-scale'),
+    exportPng: document.querySelector('#board-export-png'),
+    pdfMode: document.querySelector('#board-pdf-mode'),
+    exportPdf: document.querySelector('#board-export-pdf'),
     fileInput: document.querySelector('#board-file-input'),
     deleteButton: document.querySelector('#board-delete'),
     front: document.querySelector('#board-front'),

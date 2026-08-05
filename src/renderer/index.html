@@ -618,6 +618,25 @@
                       <button class="gbtn danger" id="board-edge-delete" type="button">删除连线</button>
                     </div>
                     <button class="gbtn danger" id="board-delete" type="button" disabled>删除</button>
+                    <div class="board-export-group">
+                      <select id="board-export-range" aria-label="导出范围">
+                        <option value="content">全部内容</option>
+                        <option value="viewport">当前视口</option>
+                        <option value="selection">选中对象</option>
+                      </select>
+                      <select id="board-export-scale" aria-label="导出倍率">
+                        <option value="1">1x</option>
+                        <option value="2">2x</option>
+                        <option value="3">3x</option>
+                      </select>
+                      <button class="gbtn" id="board-export-png" type="button">导出 PNG</button>
+                      <select id="board-pdf-mode" aria-label="PDF 分页">
+                        <option value="fit-single">自适应单页</option>
+                        <option value="a4-landscape">A4 横向分页</option>
+                        <option value="a4-portrait">A4 竖向分页</option>
+                      </select>
+                      <button class="gbtn" id="board-export-pdf" type="button">导出 PDF</button>
+                    </div>
                     <div class="board-view-group">
                       <button class="gbtn" id="board-undo" type="button" disabled>撤销</button>
                       <button class="gbtn" id="board-redo" type="button" disabled>重做</button>
