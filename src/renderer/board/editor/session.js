@@ -18,7 +18,7 @@ export const EDITOR_TOOLS = [
 
 /**
  * 调色参数。
- * ⚠ 这 8 项是既有能力（原图片模块 imageState.adjustments），
+ * ⚠ 这 8 项是 U6 之前旧图片模块就有的能力，
  *   U4 迁移**不得缩减**成亮度/对比度/饱和度三项。
  */
 export const ADJUSTMENT_KEYS = [

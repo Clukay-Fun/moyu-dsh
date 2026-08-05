@@ -526,19 +526,34 @@ export class BoardCanvas {
   /**
    * 离屏栅格化指定区域。
    * 用 StaticCanvas 重建一份，避免动到用户正在编辑的画布视口。
+   *
+   * @param {object} options
+   *   fillColor  底色；null 表示保留透明（PNG 用）
+   *   mime       输出类型
    */
-  async renderRegion(bounds, scale) {
+  async renderRegion(bounds, scale, { fillColor = null, mime = 'image/png' } = {}) {
     const staticCanvas = new this.fabric.StaticCanvas(null, {
       width: Math.floor(bounds.width * scale),
       height: Math.floor(bounds.height * scale),
-      backgroundColor: '#ffffff'
+      // 空字符串 = 不绘制背景，导出即为透明；不能写 '#ffffff'，
+      // 那样"透明背景"的工程会被无声地铺成白底
+      backgroundColor: fillColor || '',
+      // ⚠ 必须关掉 Retina 缩放。fabric 默认按 devicePixelRatio 放大后备缓冲，
+      //   于是同一份工程在 2x 屏上导出的像素是 1x 屏的两倍，而 planExport
+      //   的上限是按 1x 算的——在 2x 屏上按上限规划的导出实际会申请 4 倍面积。
+      //   导出结果必须只由工程决定，与用户显示器无关。
+      enableRetinaScaling: false
     })
     staticCanvas.setViewportTransform([scale, 0, 0, scale, -bounds.x * scale, -bounds.y * scale])
 
     const { nodesByZ } = await import('./scene.js')
     for (const node of nodesByZ(this.scene)) {
       const object = await this.#createObject(node)
-      if (object) staticCanvas.add(object)
+      if (!object) continue
+      // ⚠ 必须与屏幕渲染同样转成中心原点，否则导出时旋转对象绕左上角转，
+      //   导出结果和用户看到的画面对不上。
+      this.#useCenterOrigin(object, node)
+      staticCanvas.add(object)
     }
     for (const edge of this.scene.edges) {
       const object = this.#createEdgeObject(edge)
@@ -546,7 +561,8 @@ export class BoardCanvas {
     }
     staticCanvas.renderAll()
     const element = staticCanvas.getElement()
-    const blob = await new Promise((resolve) => element.toBlob(resolve, 'image/png'))
+    // JPG 不传 quality：用底层编码器默认值，不写死（规格 8.2）
+    const blob = await new Promise((resolve) => element.toBlob(resolve, mime))
     const bytes = new Uint8Array(await blob.arrayBuffer())
     staticCanvas.dispose()
     return { bytes, width: element.width, height: element.height }

@@ -1009,12 +1009,6 @@ submenu.addEventListener('click', (event) => {
   }
 })
 
-document.querySelector('.image-tools').addEventListener('click', (event) => {
-  const button = event.target.closest('.image-tool')
-  if (button && !button.classList.contains('placeholder-action')) {
-    setImageMode(button.dataset.imageMode)
-  }
-})
 
 function showToast(message) {
   window.clearTimeout(toastTimer)
@@ -2416,31 +2410,6 @@ window.api.onPdfSaveProgress((progress) => {
   }
 })
 
-const screenshotStage = document.querySelector('#screenshot-stage')
-const screenshotEmpty = document.querySelector('#screenshot-empty')
-const screenshotStatusText = document.querySelector('#screenshot-status-text')
-const screenshotStatusDot = document.querySelector('#screenshot-status-dot')
-const startScreenshotButton = document.querySelector('#start-screenshot')
-const startScrollScreenshotButton = document.querySelector('#start-scroll-screenshot')
-const copyScreenshotButton = document.querySelector('#copy-screenshot')
-const saveScreenshotButton = document.querySelector('#save-screenshot')
-const pinScreenshotButton = document.querySelector('#pin-screenshot')
-const ocrScreenshotButton = document.querySelector('#ocr-screenshot')
-const ocrOverlay = document.querySelector('#ocr-overlay')
-const ocrResult = document.querySelector('#ocr-result')
-const ocrProgressFill = document.querySelector('#ocr-progress-fill')
-const ocrProgressText = document.querySelector('#ocr-progress-text')
-const ocrSummary = document.querySelector('#ocr-summary')
-const copyOcrResultButton = document.querySelector('#copy-ocr-result')
-const scrollSpikeOverlay = document.querySelector('#scroll-spike-overlay')
-const controlledScrollSource = document.querySelector('#controlled-scroll-source')
-const controlledScrollList = document.querySelector('#controlled-scroll-list')
-const confirmScrollScreenshotButton = document.querySelector('#confirm-scroll-screenshot')
-const cancelScrollScreenshotButton = document.querySelector('#cancel-scroll-screenshot')
-const screenshotCanvas = new fabric.Canvas('screenshot-canvas-element', {
-  preserveObjectStacking: true,
-  selection: true
-})
 // ── 汇总画布（F-009）────────────────────────────────────────
 // U1：截图与图片合并为单一「图片」模块，统一画布挂在 #page-image。
 // 旧的 screen 双面板已退役，其 DOM 保留但不可达（U6 删除）。
@@ -2449,6 +2418,10 @@ const boardFileInput = document.querySelector('#board-file-input')
 
 let boardController = null
 
+
+/** 取当前截图编辑器的画面字节；无截图时返回 null。 */
+
+/** 进入图片模块时挂载统一画布。页面刚显示时尺寸才可测，故延后一帧 fit。 */
 function ensureBoardController() {
   if (boardController) return boardController
   boardController = new BoardController({
@@ -2464,6 +2437,50 @@ function ensureBoardController() {
   })
   // 双击图片与对象工具栏的 编辑/裁切 都走这里（U4）
   boardController.onEditImage = (image, tool) => openImageEditor(image, tool)
+
+  // 对象侧栏「更多」：复制 / OCR / 钉住（U6 / 规格 6.1）。
+  // 主进程能力原样复用，只是入口从旧截图页搬到了对象上。
+  boardController.onNodeCommand = async (action, ids) => {
+    if (ids.length !== 1) {
+      showToast('请先单选一张图片')
+      return
+    }
+    const image = boardController.getNodeImage(ids[0])
+    if (!image?.bytes) {
+      showToast('该对象不是图片或数据不可用')
+      return
+    }
+    try {
+      if (action === 'copy') {
+        // 复制的是当前编辑后的源像素
+        const result = await window.api.copyScreenshot(image.bytes)
+        showToast(result?.status === 'copied' ? '已复制到剪贴板' : '复制失败')
+        return
+      }
+      if (action === 'ocr') {
+        // OCR 输入是**未经画布变换的源像素**：不叠加旋转、缩放、背景与网格，
+        // 任何重采样都会拉低识别率（规格 6.1）
+        showToast('正在识别文字…')
+        const result = await window.api.recognizeScreenshot(image.bytes)
+        const text = (result?.text || '').trim()
+        if (!text) { showToast('未识别到文字'); return }
+        await window.api.copyScreenshotText(text)
+        showToast(`已识别 ${text.length} 个字符并复制`)
+        return
+      }
+      if (action === 'pin') {
+        // 钉住的是该对象**单独渲染的当前视觉结果**：含旋转与显示尺寸，
+        // 但不含控制器、参考线与其他对象
+        const pixels = await boardController.renderNodeAlone(ids[0])
+        const result = await window.api.pinScreenshot(pixels)
+        showToast(result?.status === 'pinned' ? '已钉在桌面' : '钉住失败')
+        return
+      }
+      showToast(`暂不支持的操作：${action}`)
+    } catch (error) {
+      showToast(cleanIpcError(error?.message ?? error) || '操作失败')
+    }
+  }
 
   // 新建 / 打开 / 退出前的统一确认：保存 / 不保存 / 取消（规格 7.2）
   boardController.onConfirmDiscard = (actionLabel) => {
@@ -2521,10 +2538,8 @@ function ensureBoardController() {
     objectToolbar: document.querySelector('#object-toolbar'),
     objectMoreMenu: document.querySelector('#object-more-menu'),
     exportRange: document.querySelector('#board-export-range'),
-    exportScale: document.querySelector('#board-export-scale'),
     exportPng: document.querySelector('#board-export-png'),
-    pdfMode: document.querySelector('#board-pdf-mode'),
-    exportPdf: document.querySelector('#board-export-pdf'),
+    exportJpg: document.querySelector('#board-export-jpg'),
     fileInput: document.querySelector('#board-file-input'),
     deleteButton: document.querySelector('#board-delete'),
     front: document.querySelector('#board-front'),
@@ -2535,31 +2550,9 @@ function ensureBoardController() {
   // 只读检视接口：仅暴露读取方法，无法修改画布状态
   window.__moyuBoard = boardController.inspector()
 
-  // 「添加截图」把当前标注面板的成果送进画布
-  document.querySelector('#board-add-capture').addEventListener('click', async () => {
-    try {
-      const bytes = await currentScreenshotBytes()
-      if (!bytes) {
-        showToast('还没有截图，请先在「区域截图与标注」中截取')
-        return
-      }
-      await boardController.addImage(bytes, 'image/png')
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : '添加截图失败')
-    }
-  })
   return boardController
 }
 
-/** 取当前截图编辑器的画面字节；无截图时返回 null。 */
-async function currentScreenshotBytes() {
-  if (!screenshotState?.sourceCanvas) return null
-  const dataUrl = screenshotCanvas.toDataURL({ format: 'png' })
-  const response = await fetch(dataUrl)
-  return new Uint8Array(await response.arrayBuffer())
-}
-
-/** 进入图片模块时挂载统一画布。页面刚显示时尺寸才可测，故延后一帧 fit。 */
 /**
  * 启动时检查上次是否异常退出。
  *
@@ -2775,6 +2768,55 @@ function consumePendingImageTool(imported) {
   if (pick.ok) openImageEditor(boardController.getNodeImage(pick.node.id), tool)
 }
 
+/** 区域截图是否在进行中。旧截图页删除后，这是唯一的忙碌标记。 */
+let regionCaptureBusy = false
+
+/**
+ * 发起区域截图。
+ * @returns {Promise<boolean>} 覆盖层是否真的起来了。
+ *
+ * 返回值很重要：调用方要靠它决定截图结果归谁。忙碌中直接返回 false，
+ * 启动异常也返回 false——两种情况都不会有 captured/cancelled 回调，
+ * 若此时留下"结果归画布"的标记，下一次截图结果就会被劫持。
+ */
+async function beginRegionScreenshot() {
+  if (regionCaptureBusy) return false
+  regionCaptureBusy = true
+  showToast('正在读取屏幕…')
+  try {
+    await window.api.startScreenshot()
+    return true
+  } catch (error) {
+    regionCaptureBusy = false
+    showToast(`截图失败：${error instanceof Error ? error.message : error}`)
+    return false
+  }
+}
+
+// 截图结果：直接成为画布上的普通图片对象，不自动打开编辑器（规格 6）
+window.api.onScreenshotCaptured((result) => {
+  regionCaptureBusy = false
+  if (!captureTargetsCanvas) return
+  captureTargetsCanvas = false
+  ;(async () => {
+    const controller = ensureBoardController()
+    controller.beginAddTransaction()
+    try {
+      await controller.addImage(new Uint8Array(result.data), 'image/png')
+      showToast('截图已加入画布')
+    } catch (error) {
+      showToast(`截图加入画布失败：${error.message}`)
+    } finally {
+      controller.endAddTransaction()
+    }
+  })()
+})
+
+window.api.onScreenshotCancelled(() => {
+  regionCaptureBusy = false
+  captureTargetsCanvas = false
+})
+
 /** 区域截图 / 应用内滚动截图统一入口。 */
 /**
  * 截图结果是否应进统一编辑器。
@@ -2783,11 +2825,118 @@ function consumePendingImageTool(imported) {
  */
 let captureTargetsCanvas = false
 
+
+
+// ── 应用内滚动截图（实验能力，规格 6）────────────────────────
+// 只截本应用可控的滚动区，不扩张到第三方窗口。
+// 结果与区域截图一样，作为普通图片对象加入画布。
+const scrollSpikeOverlay = document.querySelector('#scroll-spike-overlay')
+const controlledScrollSource = document.querySelector('#controlled-scroll-source')
+const controlledScrollList = document.querySelector('#controlled-scroll-list')
+const confirmScrollScreenshotButton = document.querySelector('#confirm-scroll-screenshot')
+const cancelScrollScreenshotButton = document.querySelector('#cancel-scroll-screenshot')
+let scrollCaptureBusy = false
+
+async function captureControlledScroll() {
+  const originalScrollTop = controlledScrollSource.scrollTop
+  controlledScrollSource.classList.add('capturing')
+  await nextAnimationFrames(2)
+  const clientHeight = controlledScrollSource.clientHeight
+  const scrollHeight = controlledScrollSource.scrollHeight
+  const maxScrollTop = Math.max(0, scrollHeight - clientHeight)
+  const positions = []
+
+  for (let scrollTop = 0; scrollTop < maxScrollTop; scrollTop += clientHeight) {
+    positions.push(scrollTop)
+  }
+  positions.push(maxScrollTop)
+
+  let outputCanvas
+  let outputContext
+  let pixelScale = 1
+
+  try {
+    for (const [index, scrollTop] of [...new Set(positions)].entries()) {
+      controlledScrollSource.scrollTop = scrollTop
+      await nextAnimationFrames(3)
+      const rect = controlledScrollSource.getBoundingClientRect()
+      const frame = await window.api.captureScrollFrame({
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height
+      })
+      const frameCanvas = await decodePngCanvas(frame.data)
+
+      if (!outputCanvas) {
+        pixelScale = frameCanvas.width / rect.width
+        outputCanvas = document.createElement('canvas')
+        outputCanvas.width = frameCanvas.width
+        outputCanvas.height = Math.max(1, Math.round(scrollHeight * pixelScale))
+        outputContext = outputCanvas.getContext('2d')
+      }
+
+      const targetY = Math.round(scrollTop * pixelScale)
+      const remainingHeight = outputCanvas.height - targetY
+      outputContext.drawImage(
+        frameCanvas,
+        0,
+        0,
+        frameCanvas.width,
+        Math.min(frameCanvas.height, remainingHeight),
+        0,
+        targetY,
+        frameCanvas.width,
+        Math.min(frameCanvas.height, remainingHeight)
+      )
+      showToast(`正在拼接 ${index + 1} / ${positions.length} 帧…`)
+    }
+  } finally {
+    controlledScrollSource.scrollTop = originalScrollTop
+    controlledScrollSource.classList.remove('capturing')
+  }
+
+  if (!outputCanvas) throw new Error('没有捕获到滚动内容')
+  return { canvas: outputCanvas, frameCount: [...new Set(positions)].length }
+}
+
+
+cancelScrollScreenshotButton.addEventListener('click', () => {
+  scrollSpikeOverlay.hidden = true
+})
+
+confirmScrollScreenshotButton.addEventListener('click', async () => {
+  if (scrollCaptureBusy) return
+  scrollCaptureBusy = true
+  confirmScrollScreenshotButton.disabled = true
+  showToast('正在截取应用内长内容…')
+  try {
+    const result = await captureControlledScroll()
+    scrollSpikeOverlay.hidden = true
+    const blob = await canvasToBlob(result.canvas, 'image/png')
+    const controller = ensureBoardController()
+    controller.beginAddTransaction()
+    try {
+      await controller.addImage(new Uint8Array(await blob.arrayBuffer()), 'image/png')
+    } finally {
+      controller.endAddTransaction()
+    }
+    showToast(`长图已加入画布 · ${result.frameCount} 帧 · ${result.canvas.width} × ${result.canvas.height} px`)
+  } catch (error) {
+    showToast(`滚动截图失败：${error instanceof Error ? error.message : error}`)
+  } finally {
+    scrollCaptureBusy = false
+    confirmScrollScreenshotButton.disabled = false
+  }
+})
+
+/** 区域截图 / 应用内滚动截图统一入口。 */
 async function startUnifiedCapture(kind) {
   activateUnifiedCanvas()
   if (kind === 'scroll') {
-    // 滚动截图仍走旧实验入口，结果不归画布
-    startScrollScreenshotButton?.click()
+    scrollSpikeOverlay.hidden = false
+    controlledScrollSource.scrollTop = 0
+    confirmScrollScreenshotButton.focus()
     return false
   }
   // ⚠ 只有确认覆盖层起来了才置标记。启动失败或忙碌时置了却等不到回调，
@@ -2902,87 +3051,12 @@ document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') closeAllCmdMenus()
 })
 
-const screenshotState = {
-  sourceCanvas: null,
-  width: 0,
-  height: 0,
-  baseImage: null,
-  busy: false
-}
 
-screenshotCanvas.setDimensions({ width: 1, height: 1 })
 
-function setScreenshotStatus(message, status = '') {
-  screenshotStatusText.textContent = message
-  screenshotStatusDot.classList.remove('success', 'error', 'busy')
-  if (status) screenshotStatusDot.classList.add(status)
-}
 
-function updateScreenshotControls() {
-  const hasImage = Boolean(screenshotState.sourceCanvas)
-  document.querySelectorAll('.screenshot-annotation').forEach((button) => {
-    button.disabled = !hasImage || screenshotState.busy
-  })
-  copyScreenshotButton.disabled = !hasImage || screenshotState.busy
-  saveScreenshotButton.disabled = !hasImage || screenshotState.busy
-  pinScreenshotButton.disabled = !hasImage || screenshotState.busy
-  ocrScreenshotButton.disabled = !hasImage || screenshotState.busy
-  startScreenshotButton.disabled = screenshotState.busy
-  startScrollScreenshotButton.disabled = screenshotState.busy
-}
 
-function screenshotPreviewSize() {
-  const maxWidth = Math.max(240, screenshotStage.clientWidth - 30)
-  const maxHeight = Math.max(200, screenshotStage.clientHeight - 30)
-  const scale = Math.min(
-    1,
-    maxWidth / screenshotState.width,
-    maxHeight / screenshotState.height
-  )
-  return {
-    width: Math.max(1, Math.round(screenshotState.width * scale)),
-    height: Math.max(1, Math.round(screenshotState.height * scale)),
-    scale
-  }
-}
 
-function rebuildScreenshotCanvas(overlays = []) {
-  if (!screenshotState.sourceCanvas) return
-  const preview = screenshotPreviewSize()
-  screenshotCanvas.clear()
-  screenshotCanvas.setDimensions({ width: preview.width, height: preview.height })
-  screenshotState.baseImage = new fabric.Image(screenshotState.sourceCanvas, {
-    left: 0,
-    top: 0,
-    scaleX: preview.width / screenshotState.width,
-    scaleY: preview.height / screenshotState.height,
-    selectable: false,
-    evented: false,
-    excludeFromExport: true,
-    dataRole: 'base'
-  })
-  screenshotCanvas.add(screenshotState.baseImage)
-  overlays.forEach((object) => screenshotCanvas.add(object))
-  screenshotCanvas.sendToBack(screenshotState.baseImage)
-  screenshotCanvas.requestRenderAll()
-  screenshotEmpty.classList.add('hidden')
-}
 
-async function loadScreenshotResult(result) {
-  const blob = new Blob([result.data], { type: 'image/png' })
-  const bitmap = await createImageBitmap(blob)
-  const sourceCanvas = document.createElement('canvas')
-  sourceCanvas.width = bitmap.width
-  sourceCanvas.height = bitmap.height
-  sourceCanvas.getContext('2d').drawImage(bitmap, 0, 0)
-  bitmap.close()
-  screenshotState.sourceCanvas = sourceCanvas
-  screenshotState.width = sourceCanvas.width
-  screenshotState.height = sourceCanvas.height
-  rebuildScreenshotCanvas()
-  updateScreenshotControls()
-  setScreenshotStatus(`已截取 ${sourceCanvas.width} × ${sourceCanvas.height} px`, 'success')
-}
 
 const controlledScrollItems = [
   ['01', '区域截图', '选择屏幕区域并载入标注画布', '#6978e6'],
@@ -2997,21 +3071,6 @@ const controlledScrollItems = [
   ['10', '边界清晰', '第三方窗口滚动截图不在本次承诺内', '#737789']
 ]
 
-controlledScrollItems.forEach(([index, title, copy, color]) => {
-  const item = document.createElement('article')
-  item.className = 'controlled-scroll-item'
-  item.style.setProperty('--scroll-item-color', color)
-  const icon = document.createElement('i')
-  icon.textContent = index
-  const content = document.createElement('div')
-  const heading = document.createElement('b')
-  heading.textContent = title
-  const description = document.createElement('span')
-  description.textContent = copy
-  content.append(heading, description)
-  item.append(icon, content)
-  controlledScrollList.append(item)
-})
 
 function nextAnimationFrames(count = 2) {
   return new Promise((resolve) => {
@@ -3034,219 +3093,12 @@ async function decodePngCanvas(data) {
   return canvas
 }
 
-async function captureControlledScroll() {
-  const originalScrollTop = controlledScrollSource.scrollTop
-  controlledScrollSource.classList.add('capturing')
-  await nextAnimationFrames(2)
-  const clientHeight = controlledScrollSource.clientHeight
-  const scrollHeight = controlledScrollSource.scrollHeight
-  const maxScrollTop = Math.max(0, scrollHeight - clientHeight)
-  const positions = []
 
-  for (let scrollTop = 0; scrollTop < maxScrollTop; scrollTop += clientHeight) {
-    positions.push(scrollTop)
-  }
-  positions.push(maxScrollTop)
 
-  let outputCanvas
-  let outputContext
-  let pixelScale = 1
 
-  try {
-    for (const [index, scrollTop] of [...new Set(positions)].entries()) {
-      controlledScrollSource.scrollTop = scrollTop
-      await nextAnimationFrames(3)
-      const rect = controlledScrollSource.getBoundingClientRect()
-      const frame = await window.api.captureScrollFrame({
-        x: rect.x,
-        y: rect.y,
-        width: rect.width,
-        height: rect.height
-      })
-      const frameCanvas = await decodePngCanvas(frame.data)
 
-      if (!outputCanvas) {
-        pixelScale = frameCanvas.width / rect.width
-        outputCanvas = document.createElement('canvas')
-        outputCanvas.width = frameCanvas.width
-        outputCanvas.height = Math.max(1, Math.round(scrollHeight * pixelScale))
-        outputContext = outputCanvas.getContext('2d')
-      }
 
-      const targetY = Math.round(scrollTop * pixelScale)
-      const remainingHeight = outputCanvas.height - targetY
-      outputContext.drawImage(
-        frameCanvas,
-        0,
-        0,
-        frameCanvas.width,
-        Math.min(frameCanvas.height, remainingHeight),
-        0,
-        targetY,
-        frameCanvas.width,
-        Math.min(frameCanvas.height, remainingHeight)
-      )
-      setScreenshotStatus(`正在拼接 ${index + 1} / ${positions.length} 帧…`, 'busy')
-    }
-  } finally {
-    controlledScrollSource.scrollTop = originalScrollTop
-    controlledScrollSource.classList.remove('capturing')
-  }
 
-  if (!outputCanvas) throw new Error('没有捕获到滚动内容')
-  return { canvas: outputCanvas, frameCount: [...new Set(positions)].length }
-}
-
-startScrollScreenshotButton.addEventListener('click', () => {
-  scrollSpikeOverlay.hidden = false
-  controlledScrollSource.scrollTop = 0
-  confirmScrollScreenshotButton.focus()
-})
-
-cancelScrollScreenshotButton.addEventListener('click', () => {
-  scrollSpikeOverlay.hidden = true
-  startScrollScreenshotButton.focus()
-})
-
-confirmScrollScreenshotButton.addEventListener('click', async () => {
-  if (screenshotState.busy) return
-  screenshotState.busy = true
-  confirmScrollScreenshotButton.disabled = true
-  updateScreenshotControls()
-  setScreenshotStatus('正在截取应用内长内容…', 'busy')
-
-  try {
-    const result = await captureControlledScroll()
-    scrollSpikeOverlay.hidden = true
-    await loadScreenshotResult({
-      data: new Uint8Array(await (await canvasToBlob(result.canvas, 'image/png')).arrayBuffer())
-    })
-    setScreenshotStatus(
-      `应用内长图已拼接 · ${result.frameCount} 帧 · ${result.canvas.width} × ${result.canvas.height} px`,
-      'success'
-    )
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error)
-    setScreenshotStatus(`滚动截图失败：${reason}`, 'error')
-  } finally {
-    screenshotState.busy = false
-    confirmScrollScreenshotButton.disabled = false
-    updateScreenshotControls()
-  }
-})
-
-function addScreenshotObject(type) {
-  if (!screenshotState.sourceCanvas) return
-  screenshotCanvas.isDrawingMode = false
-  const centerX = screenshotCanvas.getWidth() / 2
-  const centerY = screenshotCanvas.getHeight() / 2
-  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#6978e6'
-  let object
-
-  if (type === 'rectangle') {
-    object = new fabric.Rect({
-      left: centerX,
-      top: centerY,
-      originX: 'center',
-      originY: 'center',
-      width: Math.min(180, screenshotCanvas.getWidth() * 0.4),
-      height: Math.min(100, screenshotCanvas.getHeight() * 0.3),
-      fill: 'transparent',
-      stroke: accent,
-      strokeWidth: 4
-    })
-  } else if (type === 'arrow') {
-    const line = new fabric.Line([-70, 0, 55, 0], {
-      stroke: accent,
-      strokeWidth: 5,
-      originX: 'center',
-      originY: 'center'
-    })
-    const head = new fabric.Triangle({
-      left: 62,
-      top: 0,
-      width: 18,
-      height: 22,
-      fill: accent,
-      angle: 90,
-      originX: 'center',
-      originY: 'center'
-    })
-    object = new fabric.Group([line, head], {
-      left: centerX,
-      top: centerY,
-      originX: 'center',
-      originY: 'center'
-    })
-  } else if (type === 'text') {
-    object = new fabric.IText('输入文字', {
-      left: centerX,
-      top: centerY,
-      originX: 'center',
-      originY: 'center',
-      fill: accent,
-      fontFamily: 'Segoe UI, Microsoft YaHei UI, sans-serif',
-      fontSize: 28,
-      fontWeight: 700
-    })
-  }
-
-  if (!object) return
-  object.set({
-    dataRole: 'annotation',
-    cornerColor: '#ffffff',
-    cornerStrokeColor: accent,
-    transparentCorners: false
-  })
-  screenshotCanvas.add(object)
-  screenshotCanvas.setActiveObject(object)
-  screenshotCanvas.requestRenderAll()
-  setScreenshotStatus(`${{ rectangle: '矩形', arrow: '箭头', text: '文字' }[type]}标注已添加`)
-}
-
-function enableScreenshotBrush(button) {
-  if (!screenshotState.sourceCanvas) return
-  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#6978e6'
-  screenshotCanvas.discardActiveObject()
-  screenshotCanvas.isDrawingMode = true
-  const brush = new fabric.PencilBrush(screenshotCanvas)
-  brush.color = accent
-  brush.width = 5
-  screenshotCanvas.freeDrawingBrush = brush
-  document.querySelectorAll('.screenshot-annotation').forEach((option) => {
-    option.classList.toggle('on', option === button)
-  })
-  setScreenshotStatus('画笔已启用，直接在截图上拖动')
-}
-
-async function renderScreenshotPng() {
-  if (!screenshotState.sourceCanvas) throw new Error('请先截图')
-  screenshotCanvas.isDrawingMode = false
-  screenshotCanvas.discardActiveObject()
-  screenshotCanvas.requestRenderAll()
-  const rendered = document.createElement('canvas')
-  rendered.width = screenshotState.width
-  rendered.height = screenshotState.height
-  const context = rendered.getContext('2d')
-  context.drawImage(screenshotState.sourceCanvas, 0, 0)
-
-  if (screenshotState.baseImage) {
-    screenshotState.baseImage.visible = false
-    screenshotCanvas.requestRenderAll()
-  }
-  let annotationLayer
-  try {
-    annotationLayer = screenshotCanvas.toCanvasElement()
-  } finally {
-    if (screenshotState.baseImage) {
-      screenshotState.baseImage.visible = true
-      screenshotCanvas.requestRenderAll()
-    }
-  }
-  context.drawImage(annotationLayer, 0, 0, rendered.width, rendered.height)
-  const blob = await canvasToBlob(rendered, 'image/png')
-  return new Uint8Array(await blob.arrayBuffer())
-}
 
 /**
  * 发起区域截图。
@@ -3256,93 +3108,11 @@ async function renderScreenshotPng() {
  * 启动异常也返回 false——两种情况都不会有 captured/cancelled 回调，
  * 若此时留下"结果归画布"的标记，下一次从旧截图页发起的结果就会被劫持。
  */
-async function beginRegionScreenshot() {
-  if (screenshotState.busy) return false
-  screenshotState.busy = true
-  updateScreenshotControls()
-  setScreenshotStatus('正在读取屏幕…', 'busy')
 
-  try {
-    await window.api.startScreenshot()
-    setScreenshotStatus('请在全屏覆盖层中拖动选择区域', 'busy')
-    return true
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error)
-    screenshotState.busy = false
-    updateScreenshotControls()
-    setScreenshotStatus(`截图失败：${reason}`, 'error')
-    return false
-  }
-}
 
-startScreenshotButton.addEventListener('click', () => { beginRegionScreenshot() })
 
-document.querySelectorAll('.screenshot-annotation').forEach((button) => {
-  button.addEventListener('click', () => {
-    document.querySelectorAll('.screenshot-annotation').forEach((option) => {
-      option.classList.remove('on')
-    })
-    if (button.dataset.screenTool === 'brush') enableScreenshotBrush(button)
-    else addScreenshotObject(button.dataset.screenTool)
-  })
-})
 
-copyScreenshotButton.addEventListener('click', async () => {
-  try {
-    screenshotState.busy = true
-    updateScreenshotControls()
-    const result = await window.api.copyScreenshot(await renderScreenshotPng())
-    setScreenshotStatus(`已复制 ${result.size.width} × ${result.size.height} px 到剪贴板`, 'success')
-    showToast('截图已复制')
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error)
-    setScreenshotStatus(`复制失败：${reason}`, 'error')
-  } finally {
-    screenshotState.busy = false
-    updateScreenshotControls()
-  }
-})
 
-saveScreenshotButton.addEventListener('click', async () => {
-  try {
-    screenshotState.busy = true
-    updateScreenshotControls()
-    const result = await window.api.saveScreenshot({
-      name: `screenshot-${Date.now()}`,
-      data: await renderScreenshotPng()
-    })
-    setScreenshotStatus(
-      result.status === 'saved' ? '截图 PNG 已保存' : '已取消保存',
-      result.status === 'saved' ? 'success' : ''
-    )
-    if (result.status === 'saved') showToast('截图已保存')
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error)
-    setScreenshotStatus(`保存失败：${reason}`, 'error')
-  } finally {
-    screenshotState.busy = false
-    updateScreenshotControls()
-  }
-})
-
-pinScreenshotButton.addEventListener('click', async () => {
-  try {
-    screenshotState.busy = true
-    updateScreenshotControls()
-    const result = await window.api.pinScreenshot(await renderScreenshotPng())
-    setScreenshotStatus(
-      `截图已钉住 · ${result.width} × ${result.height} px 浮窗`,
-      'success'
-    )
-    showToast('截图已钉住')
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error)
-    setScreenshotStatus(`钉住失败：${reason}`, 'error')
-  } finally {
-    screenshotState.busy = false
-    updateScreenshotControls()
-  }
-})
 
 const ocrProgressLabels = {
   'loading tesseract core': '载入 OCR 核心',
@@ -3352,133 +3122,13 @@ const ocrProgressLabels = {
   'recognizing text': '正在识别文字'
 }
 
-ocrScreenshotButton.addEventListener('click', async () => {
-  if (screenshotState.busy) return
-  screenshotState.busy = true
-  updateScreenshotControls()
-  ocrOverlay.hidden = false
-  ocrResult.value = ''
-  ocrResult.disabled = true
-  copyOcrResultButton.disabled = true
-  ocrProgressFill.style.width = '2%'
-  ocrProgressText.textContent = '准备本地识别模型…'
-  ocrSummary.textContent = '首次识别需要初始化本地模型。'
-  setScreenshotStatus('正在执行本地 OCR…', 'busy')
 
-  try {
-    const result = await window.api.recognizeScreenshot(await renderScreenshotPng())
-    ocrResult.value = result.text
-    ocrResult.disabled = false
-    copyOcrResultButton.disabled = !result.text
-    ocrProgressFill.style.width = '100%'
-    ocrProgressText.textContent = '识别完成'
-    ocrSummary.textContent = result.text
-      ? `识别完成 · 置信度 ${Math.round(result.confidence)}% · 可编辑后复制`
-      : '未识别到文字，请尝试更清晰或更大的截图。'
-    setScreenshotStatus(
-      result.text ? 'OCR 识别完成' : 'OCR 未识别到文字',
-      result.text ? 'success' : ''
-    )
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error)
-    ocrResult.disabled = false
-    ocrResult.value = ''
-    ocrProgressText.textContent = '识别失败'
-    ocrSummary.textContent = reason
-    setScreenshotStatus(`OCR 失败：${reason}`, 'error')
-  } finally {
-    screenshotState.busy = false
-    updateScreenshotControls()
-  }
-})
 
-document.querySelector('#close-ocr').addEventListener('click', () => {
-  ocrOverlay.hidden = true
-  ocrScreenshotButton.focus()
-})
 
-copyOcrResultButton.addEventListener('click', async () => {
-  const text = ocrResult.value.trim()
-  if (!text) return
-  try {
-    await window.api.copyScreenshotText(text)
-    ocrSummary.textContent = `已复制 ${text.length} 个字符`
-    showToast('OCR 文字已复制')
-  } catch (error) {
-    ocrSummary.textContent = `复制失败：${error instanceof Error ? error.message : String(error)}`
-  }
-})
 
-window.api.onScreenshotOcrProgress((progress) => {
-  if (state.pdfBusy && state.selections.pdf === 'OCR 转 TXT') {
-    const label = ocrProgressLabels[progress.status] || progress.status || '正在识别'
-    setPdfResult(`PDF OCR · ${label} ${Math.round((Number(progress.progress) || 0) * 100)}%`, 'busy')
-  }
-  if (!screenshotState.busy || ocrOverlay.hidden) return
-  const value = Math.min(0.98, Math.max(0.02, Number(progress.progress) || 0))
-  ocrProgressFill.style.width = `${Math.round(value * 100)}%`
-  ocrProgressText.textContent =
-    ocrProgressLabels[progress.status] || progress.status || '正在识别…'
-})
 
-window.api.onScreenshotCaptured((result) => {
-  screenshotState.busy = false
-  // 从统一画布发起的截图**直接成为画布上的普通图片对象**。
-  // 不自动打开编辑器——编辑是双击才发生的事（冻结需求）。
-  if (captureTargetsCanvas) {
-    captureTargetsCanvas = false
-    ;(async () => {
-      const controller = ensureBoardController()
-      controller.beginAddTransaction()
-      try {
-        await controller.addImage(new Uint8Array(result.data), 'image/png')
-      } catch (error) {
-        showToast(`截图加入画布失败：${error.message}`)
-      } finally {
-        controller.endAddTransaction()
-      }
-    })()
-    return
-  }
-  loadScreenshotResult(result).catch((error) => {
-    const reason = error instanceof Error ? error.message : String(error)
-    setScreenshotStatus(`截图载入失败：${reason}`, 'error')
-  }).finally(updateScreenshotControls)
-})
-window.api.onScreenshotCancelled(() => {
-  captureTargetsCanvas = false
-  screenshotState.busy = false
-  updateScreenshotControls()
-  setScreenshotStatus('已取消截图')
-})
-
-screenshotCanvas.on('path:created', (event) => {
-  if (event.path) event.path.set({ dataRole: 'annotation' })
-})
 
 let screenshotResizeTimer
-window.addEventListener('resize', () => {
-  window.clearTimeout(screenshotResizeTimer)
-  screenshotResizeTimer = window.setTimeout(() => {
-    if (!screenshotState.sourceCanvas) return
-    const oldWidth = screenshotCanvas.getWidth()
-    const oldHeight = screenshotCanvas.getHeight()
-    const overlays = screenshotCanvas.getObjects().filter((object) => object.dataRole === 'annotation')
-    const next = screenshotPreviewSize()
-    const scaleX = next.width / oldWidth
-    const scaleY = next.height / oldHeight
-    overlays.forEach((object) => {
-      object.set({
-        left: object.left * scaleX,
-        top: object.top * scaleY,
-        scaleX: object.scaleX * scaleX,
-        scaleY: object.scaleY * scaleY
-      })
-      object.setCoords()
-    })
-    rebuildScreenshotCanvas(overlays)
-  }, 160)
-})
 
 window.addEventListener('beforeunload', () => {
   qpdfRunnerPromise?.then((runner) => runner.destroy()).catch(() => {})
@@ -5297,125 +4947,12 @@ window.api.onFormatProgress((progress) => {
 })
 
 const imageEditor = document.querySelector('#image-editor')
-const imageDropZone = document.querySelector('#image-drop-zone')
-const imageStage = document.querySelector('#image-stage')
-const imageEmpty = document.querySelector('#image-empty')
-const imageFileInput = document.querySelector('#image-file-input')
-const imageFileName = document.querySelector('#image-filename')
-const imageDimensions = document.querySelector('#image-dimensions')
-const imageStatus = document.querySelector('#image-status')
-const imageZoom = document.querySelector('#image-zoom')
-const imageZoomRange = document.querySelector('#image-zoom-range')
-const imagePanelTitle = document.querySelector('#image-panel-title')
-const imagePanelCopy = document.querySelector('#image-panel-copy')
-const imagePanelContent = document.querySelector('#image-panel-content')
-const quickSaveImageButton = document.querySelector('#quick-save-image')
-const undoImageButton = document.querySelector('#undo-image')
-const redoImageButton = document.querySelector('#redo-image')
-const imageCanvas = new fabric.Canvas('image-canvas-element', {
-  preserveObjectStacking: true,
-  selection: true,
-  backgroundColor: 'transparent'
-})
-const imageState = {
-  sourceCanvas: null,
-  sourceWidth: 0,
-  sourceHeight: 0,
-  baseImage: null,
-  cropRect: null,
-  cropBounds: null,
-  cropSize: 90,
-  cropAspect: 'original',
-  cropAngle: 0,
-  cropZoom: 100,
-  cropLastValid: null,
-  mode: 'view',
-  viewZoom: 1,
-  format: 'png',
-  quality: 0.9,
-  exporting: false,
-  restoring: false,
-  brushKind: 'pen',
-  brushSize: 8,
-  adjustments: {
-    brightness: 0,
-    exposure: 0,
-    contrast: 0,
-    shadows: 0,
-    saturation: 0,
-    warmth: 0,
-    tint: 0,
-    clarity: 0
-  },
-  history: [],
-  historyIndex: -1,
-  fileName: 'edited-image.png'
-}
 
-imageCanvas.setDimensions({ width: 1, height: 1 })
-quickSaveImageButton.disabled = true
-undoImageButton.disabled = true
-redoImageButton.disabled = true
 
-function setImageStatus(message, isError = false) {
-  imageStatus.textContent = message
-  imageStatus.classList.toggle('error', isError)
-}
 
-function updateImageHistoryButtons() {
-  undoImageButton.disabled = imageState.historyIndex <= 0 || imageState.restoring
-  redoImageButton.disabled =
-    imageState.historyIndex < 0 ||
-    imageState.historyIndex >= imageState.history.length - 1 ||
-    imageState.restoring
-}
 
-function captureImageSnapshot() {
-  const canvasJson = imageCanvas.toJSON([
-    'dataRole',
-    'overlayType',
-    'erasable',
-    'globalCompositeOperation'
-  ])
 
-  return {
-    sourceCanvas: imageState.sourceCanvas,
-    sourceWidth: imageState.sourceWidth,
-    sourceHeight: imageState.sourceHeight,
-    fileName: imageState.fileName,
-    adjustments: { ...imageState.adjustments },
-    canvasJson: JSON.parse(JSON.stringify(canvasJson))
-  }
-}
 
-function commitImageHistory() {
-  if (!imageState.sourceCanvas || imageState.restoring) return
-
-  const snapshot = captureImageSnapshot()
-  const previous = imageState.history[imageState.historyIndex]
-  const unchanged =
-    previous?.sourceCanvas === snapshot.sourceCanvas &&
-    JSON.stringify(previous.adjustments) === JSON.stringify(snapshot.adjustments) &&
-    JSON.stringify(previous.canvasJson) === JSON.stringify(snapshot.canvasJson)
-
-  if (unchanged) return
-
-  imageState.history.splice(imageState.historyIndex + 1)
-  imageState.history.push(snapshot)
-
-  if (imageState.history.length > 20) {
-    imageState.history.shift()
-  }
-
-  imageState.historyIndex = imageState.history.length - 1
-  updateImageHistoryButtons()
-}
-
-function resetImageHistory() {
-  imageState.history = []
-  imageState.historyIndex = -1
-  updateImageHistoryButtons()
-}
 
 function enlivenImageObjects(objects) {
   return new Promise((resolve) => {
@@ -5423,995 +4960,34 @@ function enlivenImageObjects(objects) {
   })
 }
 
-async function restoreImageHistory(index) {
-  const snapshot = imageState.history[index]
-  if (!snapshot || imageState.restoring) return
 
-  imageState.restoring = true
-  updateImageHistoryButtons()
-  imageCanvas.isDrawingMode = false
-  removeCropSelection()
 
-  try {
-    const overlays = await enlivenImageObjects(snapshot.canvasJson.objects)
-    imageState.sourceCanvas = snapshot.sourceCanvas
-    imageState.sourceWidth = snapshot.sourceWidth
-    imageState.sourceHeight = snapshot.sourceHeight
-    imageState.fileName = snapshot.fileName
-    imageState.adjustments = { ...snapshot.adjustments }
-    imageFileName.textContent = snapshot.fileName
-    imageState.historyIndex = index
-    rebuildImageCanvas(overlays)
-    setImageMode(imageState.mode)
-    setImageStatus(`已${index < imageState.history.length - 1 ? '撤销或重做' : '恢复'}编辑状态`)
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error)
-    setImageStatus(`历史状态恢复失败：${reason}`, true)
-  } finally {
-    imageState.restoring = false
-    updateImageHistoryButtons()
-  }
-}
 
-function getImagePreviewSize(width = imageState.sourceWidth, height = imageState.sourceHeight) {
-  const maxWidth = Math.max(220, imageDropZone.clientWidth - 48)
-  const maxHeight = Math.max(180, imageDropZone.clientHeight - 48)
-  const scale = Math.min(1, maxWidth / width, maxHeight / height)
-  return {
-    width: Math.max(1, Math.round(width * scale)),
-    height: Math.max(1, Math.round(height * scale)),
-    scale
-  }
-}
 
-function updateImageViewZoom() {
-  const percent = Math.round(imageState.viewZoom * 100)
-  imageZoom.textContent = `${percent}%`
-  imageZoomRange.value = String(percent)
-  if (imageState.mode === 'view') {
-    imageStage.style.transform = `scale(${imageState.viewZoom})`
-  }
-}
-
-function removeCropSelection() {
-  imageCanvas.getObjects()
-    .filter((object) => object.dataRole === 'crop')
-    .forEach((object) => imageCanvas.remove(object))
-  imageState.cropRect = null
-  imageState.cropBounds = null
-  imageState.cropLastValid = null
-  if (imageState.baseImage) {
-    imageState.baseImage.set({
-      selectable: false,
-      evented: false,
-      hasControls: true,
-      lockMovementX: false,
-      lockMovementY: false
-    })
-  }
-}
-
-function getOverlayObjects() {
-  return imageCanvas.getObjects().filter((object) => object.dataRole === 'overlay')
-}
 
 function clampColor(value) {
   return Math.max(0, Math.min(255, value))
 }
 
-function applyImageAdjustmentPixels(imageData) {
-  const { data, width, height } = imageData
-  const settings = imageState.adjustments
-  const original = settings.clarity ? new Uint8ClampedArray(data) : null
-  const brightnessOffset = settings.brightness / 100 * 64
-  const exposureFactor = 2 ** (settings.exposure / 100)
-  const contrastValue = settings.contrast / 100 * 180
-  const contrastFactor = (259 * (contrastValue + 255)) / (255 * (259 - contrastValue))
-  const saturationFactor = 1 + settings.saturation / 100
-  const warmth = settings.warmth / 100 * 42
-  const tint = settings.tint / 100
 
-  for (let index = 0; index < data.length; index += 4) {
-    let red = (data[index] + brightnessOffset) * exposureFactor
-    let green = (data[index + 1] + brightnessOffset) * exposureFactor
-    let blue = (data[index + 2] + brightnessOffset) * exposureFactor
-    const luminance = red * 0.2126 + green * 0.7152 + blue * 0.0722
-    const shadowWeight = (1 - Math.min(1, luminance / 255)) ** 2
-    const shadowOffset = settings.shadows / 100 * 72 * shadowWeight
-    red += shadowOffset
-    green += shadowOffset
-    blue += shadowOffset
-    red = contrastFactor * (red - 128) + 128
-    green = contrastFactor * (green - 128) + 128
-    blue = contrastFactor * (blue - 128) + 128
-    const gray = red * 0.2126 + green * 0.7152 + blue * 0.0722
-    red = gray + (red - gray) * saturationFactor + warmth
-    green = gray + (green - gray) * saturationFactor + Math.abs(warmth) * 0.08
-    blue = gray + (blue - gray) * saturationFactor - warmth
-    if (tint > 0) {
-      red += (255 - red) * tint * 0.38
-      green += (245 - green) * tint * 0.38
-      blue += (236 - blue) * tint * 0.38
-    } else if (tint < 0) {
-      const amount = -tint * 0.3
-      red *= 1 - amount
-      green *= 1 - amount
-      blue *= 1 - amount
-    }
-    data[index] = clampColor(red)
-    data[index + 1] = clampColor(green)
-    data[index + 2] = clampColor(blue)
-  }
 
-  if (original && width > 2 && height > 2) {
-    const clarity = settings.clarity / 100 * 0.5
-    for (let y = 1; y < height - 1; y += 1) {
-      for (let x = 1; x < width - 1; x += 1) {
-        const index = (y * width + x) * 4
-        for (let channel = 0; channel < 3; channel += 1) {
-          const center = original[index + channel]
-          const neighbor =
-            (original[index - 4 + channel] + original[index + 4 + channel] +
-              original[index - width * 4 + channel] + original[index + width * 4 + channel]) / 4
-          data[index + channel] = clampColor(data[index + channel] + (center - neighbor) * clarity)
-        }
-      }
-    }
-  }
-  return imageData
-}
 
-function createAdjustedImageCanvas(source, width = source.width, height = source.height) {
-  const canvas = document.createElement('canvas')
-  canvas.width = Math.max(1, Math.round(width))
-  canvas.height = Math.max(1, Math.round(height))
-  const context = canvas.getContext('2d', { willReadFrequently: true })
-  context.imageSmoothingEnabled = true
-  context.imageSmoothingQuality = 'high'
-  context.drawImage(source, 0, 0, canvas.width, canvas.height)
-  const imageData = context.getImageData(0, 0, canvas.width, canvas.height)
-  context.putImageData(applyImageAdjustmentPixels(imageData), 0, 0)
-  return canvas
-}
 
-function createPixelatedPreviewCanvas(blockSize) {
-  const width = imageCanvas.getWidth()
-  const height = imageCanvas.getHeight()
-  const adjusted = createAdjustedImageCanvas(imageState.sourceCanvas, width, height)
-  const small = document.createElement('canvas')
-  small.width = Math.max(1, Math.ceil(width / blockSize))
-  small.height = Math.max(1, Math.ceil(height / blockSize))
-  small.getContext('2d').drawImage(adjusted, 0, 0, small.width, small.height)
-  const pixelated = document.createElement('canvas')
-  pixelated.width = width
-  pixelated.height = height
-  const context = pixelated.getContext('2d')
-  context.imageSmoothingEnabled = false
-  context.drawImage(small, 0, 0, width, height)
-  return pixelated
-}
 
-function replacePathWithMosaic(path) {
-  const bounds = path.getBoundingRect(true, true)
-  const left = Math.max(0, Math.floor(bounds.left))
-  const top = Math.max(0, Math.floor(bounds.top))
-  const right = Math.min(imageCanvas.getWidth(), Math.ceil(bounds.left + bounds.width))
-  const bottom = Math.min(imageCanvas.getHeight(), Math.ceil(bounds.top + bounds.height))
-  if (right <= left || bottom <= top) {
-    imageCanvas.remove(path)
-    return
-  }
-  const full = createPixelatedPreviewCanvas(Math.max(4, Math.round(imageState.brushSize / 2)))
-  const mask = document.createElement('canvas')
-  mask.width = imageCanvas.getWidth()
-  mask.height = imageCanvas.getHeight()
-  const maskContext = mask.getContext('2d')
-  maskContext.drawImage(full, 0, 0)
-  maskContext.globalCompositeOperation = 'destination-in'
-  const pathCanvas = path.toCanvasElement()
-  maskContext.drawImage(pathCanvas, bounds.left, bounds.top, bounds.width, bounds.height)
-  const cropped = document.createElement('canvas')
-  cropped.width = right - left
-  cropped.height = bottom - top
-  cropped.getContext('2d').drawImage(
-    mask,
-    left,
-    top,
-    cropped.width,
-    cropped.height,
-    0,
-    0,
-    cropped.width,
-    cropped.height
-  )
-  const mosaic = new fabric.Image(cropped, {
-    left,
-    top,
-    padding: 4,
-    cornerColor: '#ffffff',
-    cornerStrokeColor: '#6978e6',
-    transparentCorners: false,
-    dataRole: 'overlay',
-    overlayType: 'mosaic',
-    erasable: true
-  })
-  imageCanvas.remove(path)
-  imageCanvas.add(mosaic)
-  imageCanvas.setActiveObject(mosaic)
-  imageCanvas.requestRenderAll()
-  setImageStatus('局部马赛克已生成，可移动、缩放或删除')
-}
 
-function rebuildImageCanvas(overlays = []) {
-  if (!imageState.sourceCanvas) return
 
-  const preview = getImagePreviewSize()
-  imageCanvas.clear()
-  imageCanvas.setDimensions({ width: preview.width, height: preview.height })
-  const previewSource = createAdjustedImageCanvas(
-    imageState.sourceCanvas,
-    preview.width,
-    preview.height
-  )
-  imageState.baseImage = new fabric.Image(previewSource, {
-    left: 0,
-    top: 0,
-    scaleX: 1,
-    scaleY: 1,
-    selectable: false,
-    evented: false,
-    hoverCursor: 'default',
-    dataRole: 'base',
-    erasable: false,
-    excludeFromExport: true
-  })
-  imageCanvas.add(imageState.baseImage)
-  applyImageAdjustments(false)
-  overlays.forEach((object) => imageCanvas.add(object))
-  imageCanvas.sendToBack(imageState.baseImage)
-  imageCanvas.requestRenderAll()
-  imageStage.classList.add('ready')
-  imageEmpty.classList.add('hidden')
-  updateImageViewZoom()
-  imageDimensions.textContent = `${imageState.sourceWidth} × ${imageState.sourceHeight} px`
-  quickSaveImageButton.disabled = false
-}
 
-function createCropSelection() {
-  if (!imageState.sourceCanvas) return
-  removeCropSelection()
-  const canvasWidth = imageCanvas.getWidth()
-  const canvasHeight = imageCanvas.getHeight()
-  const sourceAspect = imageState.sourceWidth / imageState.sourceHeight
-  const aspect = imageState.cropAspect === 'original'
-    ? sourceAspect
-    : imageState.cropAspect === 'free'
-      ? canvasWidth / canvasHeight
-      : Number(imageState.cropAspect)
-  const maxWidth = canvasWidth * imageState.cropSize / 100
-  const maxHeight = canvasHeight * imageState.cropSize / 100
-  const width = Math.min(maxWidth, maxHeight * aspect)
-  const height = width / aspect
-  const left = (canvasWidth - width) / 2
-  const top = (canvasHeight - height) / 2
-  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#6978e6'
-  const mask = 'rgba(14, 17, 27, 0.52)'
-  const maskRects = [
-    [0, 0, canvasWidth, top],
-    [0, top + height, canvasWidth, canvasHeight - top - height],
-    [0, top, left, height],
-    [left + width, top, canvasWidth - left - width, height]
-  ]
-  maskRects.forEach(([maskLeft, maskTop, maskWidth, maskHeight]) => {
-    const object = new fabric.Rect({
-      left: maskLeft,
-      top: maskTop,
-      width: Math.max(0, maskWidth),
-      height: Math.max(0, maskHeight),
-      fill: mask,
-      selectable: false,
-      evented: false,
-      dataRole: 'crop',
-      excludeFromExport: true
-    })
-    imageCanvas.add(object)
-  })
-  imageState.cropRect = new fabric.Rect({
-    left,
-    top,
-    width,
-    height,
-    fill: 'transparent',
-    stroke: accent,
-    strokeWidth: 2,
-    selectable: false,
-    evented: false,
-    dataRole: 'crop',
-    erasable: false,
-    excludeFromExport: true
-  })
-  imageCanvas.add(imageState.cropRect)
-  imageState.cropBounds = { left, top, width, height }
-  prepareCropBaseImage()
-  imageCanvas.requestRenderAll()
-}
 
-function cropCoverageValid() {
-  const image = imageState.baseImage
-  const bounds = imageState.cropBounds
-  if (!image || !bounds) return false
-  const center = image.getCenterPoint()
-  const radians = -(image.angle || 0) * Math.PI / 180
-  const cosine = Math.cos(radians)
-  const sine = Math.sin(radians)
-  const halfWidth = imageState.sourceWidth * Math.abs(image.scaleX) / 2
-  const halfHeight = imageState.sourceHeight * Math.abs(image.scaleY) / 2
-  const corners = [
-    [bounds.left, bounds.top],
-    [bounds.left + bounds.width, bounds.top],
-    [bounds.left, bounds.top + bounds.height],
-    [bounds.left + bounds.width, bounds.top + bounds.height]
-  ]
-  return corners.every(([x, y]) => {
-    const deltaX = x - center.x
-    const deltaY = y - center.y
-    const localX = deltaX * cosine - deltaY * sine
-    const localY = deltaX * sine + deltaY * cosine
-    return Math.abs(localX) <= halfWidth + 0.5 && Math.abs(localY) <= halfHeight + 0.5
-  })
-}
 
-function rememberCropBasePosition() {
-  const image = imageState.baseImage
-  imageState.cropLastValid = image
-    ? {
-        left: image.left,
-        top: image.top,
-        scaleX: image.scaleX,
-        scaleY: image.scaleY,
-        angle: image.angle
-      }
-    : null
-}
 
-function restoreCropBasePosition() {
-  if (!imageState.baseImage || !imageState.cropLastValid) return
-  imageState.baseImage.set(imageState.cropLastValid)
-  imageState.baseImage.setCoords()
-  imageCanvas.requestRenderAll()
-}
 
-function prepareCropBaseImage() {
-  const image = imageState.baseImage
-  const bounds = imageState.cropBounds
-  if (!image || !bounds) return
-  const angle = imageState.cropAngle * Math.PI / 180
-  const requiredScale = Math.max(
-    (bounds.width * Math.abs(Math.cos(angle)) + bounds.height * Math.abs(Math.sin(angle))) /
-      imageState.sourceWidth,
-    (bounds.width * Math.abs(Math.sin(angle)) + bounds.height * Math.abs(Math.cos(angle))) /
-      imageState.sourceHeight
-  )
-  const scale = requiredScale * imageState.cropZoom / 100
-  image.set({
-    originX: 'center',
-    originY: 'center',
-    left: imageCanvas.getWidth() / 2,
-    top: imageCanvas.getHeight() / 2,
-    scaleX: scale,
-    scaleY: scale,
-    angle: imageState.cropAngle,
-    selectable: true,
-    evented: true,
-    hasControls: false,
-    hoverCursor: 'move',
-    moveCursor: 'move'
-  })
-  image.setCoords()
-  rememberCropBasePosition()
-  imageCanvas.setActiveObject(image)
-  imageCanvas.getObjects()
-    .filter((object) => object.dataRole === 'crop')
-    .forEach((object) => imageCanvas.bringToFront(object))
-}
 
-function ensureImageLoaded() {
-  if (imageState.sourceCanvas) return true
-  showToast('请先添加图片')
-  return false
-}
 
-function selectedImageOverlay() {
-  const activeObject = imageCanvas.getActiveObject()
-  return activeObject?.dataRole === 'overlay' ? activeObject : null
-}
 
-function transformSelectedImageObject(action) {
-  const object = selectedImageOverlay()
-  if (!object) return false
 
-  if (action === 'rotate') {
-    object.rotate((object.angle + 90) % 360)
-  } else if (action === 'flip-horizontal') {
-    object.set({ flipX: !object.flipX })
-  } else if (action === 'flip-vertical') {
-    object.set({ flipY: !object.flipY })
-  }
 
-  object.setCoords()
-  imageCanvas.requestRenderAll()
-  commitImageHistory()
-  setImageStatus('已变换选中的编辑对象')
-  return true
-}
 
-function transformWholeImage(action) {
-  if (!ensureImageLoaded()) return
-  if (transformSelectedImageObject(action)) return
 
-  imageCanvas.isDrawingMode = false
-  removeCropSelection()
-  const overlays = getOverlayObjects()
-  const oldSourceWidth = imageState.sourceWidth
-  const oldSourceHeight = imageState.sourceHeight
-  const oldPreviewWidth = imageCanvas.getWidth()
-  const oldPreviewHeight = imageCanvas.getHeight()
-  const oldScale = oldPreviewWidth / oldSourceWidth
-  const transformedCanvas = document.createElement('canvas')
-  const context = transformedCanvas.getContext('2d')
-
-  if (action === 'rotate' || action === 'rotate-left') {
-    transformedCanvas.width = oldSourceHeight
-    transformedCanvas.height = oldSourceWidth
-    if (action === 'rotate') {
-      context.translate(oldSourceHeight, 0)
-      context.rotate(Math.PI / 2)
-    } else {
-      context.translate(0, oldSourceWidth)
-      context.rotate(-Math.PI / 2)
-    }
-  } else {
-    transformedCanvas.width = oldSourceWidth
-    transformedCanvas.height = oldSourceHeight
-
-    if (action === 'flip-horizontal') {
-      context.translate(oldSourceWidth, 0)
-      context.scale(-1, 1)
-    } else {
-      context.translate(0, oldSourceHeight)
-      context.scale(1, -1)
-    }
-  }
-
-  context.drawImage(imageState.sourceCanvas, 0, 0)
-  imageState.sourceCanvas = transformedCanvas
-  imageState.sourceWidth = transformedCanvas.width
-  imageState.sourceHeight = transformedCanvas.height
-  const nextPreview = getImagePreviewSize()
-  const nextScale = nextPreview.width / imageState.sourceWidth
-  const objectScale = nextScale / oldScale
-
-  overlays.forEach((object) => {
-    const center = object.getCenterPoint()
-    const sourceX = center.x / oldPreviewWidth * oldSourceWidth
-    const sourceY = center.y / oldPreviewHeight * oldSourceHeight
-    let nextSourceX = sourceX
-    let nextSourceY = sourceY
-
-    if (action === 'rotate' || action === 'rotate-left') {
-      if (action === 'rotate') {
-        nextSourceX = oldSourceHeight - sourceY
-        nextSourceY = sourceX
-        object.rotate((object.angle + 90) % 360)
-      } else {
-        nextSourceX = sourceY
-        nextSourceY = oldSourceWidth - sourceX
-        object.rotate((object.angle - 90) % 360)
-      }
-    } else if (action === 'flip-horizontal') {
-      nextSourceX = oldSourceWidth - sourceX
-      object.set({
-        angle: -object.angle,
-        flipX: !object.flipX
-      })
-    } else {
-      nextSourceY = oldSourceHeight - sourceY
-      object.set({
-        angle: -object.angle,
-        flipY: !object.flipY
-      })
-    }
-
-    object.set({
-      scaleX: object.scaleX * objectScale,
-      scaleY: object.scaleY * objectScale
-    })
-    object.setPositionByOrigin(
-      new fabric.Point(nextSourceX * nextScale, nextSourceY * nextScale),
-      'center',
-      'center'
-    )
-    object.setCoords()
-  })
-
-  rebuildImageCanvas(overlays)
-  commitImageHistory()
-  const label = {
-    rotate: '顺时针旋转 90°',
-    'rotate-left': '逆时针旋转 90°',
-    'flip-horizontal': '水平翻转',
-    'flip-vertical': '垂直翻转'
-  }[action]
-  setImageStatus(`${label}完成`)
-}
-
-async function configureImageBrush(kind = imageState.brushKind) {
-  imageState.brushKind = kind
-
-  if (!imageState.sourceCanvas || imageState.mode !== 'draw') {
-    imageCanvas.isDrawingMode = false
-    return
-  }
-
-  imageCanvas.discardActiveObject()
-  imageCanvas.isDrawingMode = true
-
-  if (kind === 'eraser') {
-    const EraserBrush = await eraserBrushReady
-    imageCanvas.freeDrawingBrush = new EraserBrush(imageCanvas)
-    imageCanvas.freeDrawingBrush.width = imageState.brushSize
-  } else {
-    const brush = new fabric.PencilBrush(imageCanvas)
-    brush.width = kind === 'highlight' ? imageState.brushSize * 2 : imageState.brushSize
-    brush.color = kind === 'highlight'
-      ? 'rgba(255, 218, 72, 0.38)'
-      : kind === 'mosaic'
-        ? 'rgba(105, 120, 230, 0.38)'
-        : '#20242f'
-    imageCanvas.freeDrawingBrush = brush
-  }
-
-  imageCanvas.requestRenderAll()
-}
-
-function applyImageAdjustments(render = true) {
-  if (!imageState.baseImage) return
-  const adjusted = createAdjustedImageCanvas(
-    imageState.sourceCanvas,
-    imageCanvas.getWidth(),
-    imageCanvas.getHeight()
-  )
-  imageState.baseImage.setElement(adjusted)
-  imageState.baseImage.set({ scaleX: 1, scaleY: 1, dirty: true })
-  if (render) imageCanvas.requestRenderAll()
-}
-
-function renderImagePanel() {
-  imagePanelContent.replaceChildren()
-
-  if (imageState.mode === 'view') {
-    imagePanelTitle.textContent = '图片查看'
-    imagePanelCopy.textContent = '点击“编辑”进入裁切与图像工具。'
-  } else if (imageState.mode === 'crop') {
-    imagePanelTitle.textContent = '裁切'
-    imagePanelCopy.textContent = '裁切框固定居中；拖动图片选择保留区域。'
-    imagePanelContent.innerHTML = `
-      <div class="image-panel">
-        <label>比例
-          <select id="image-crop-aspect">
-            <option value="original">原图比例</option>
-            <option value="1">1 : 1</option>
-            <option value="1.333333">4 : 3</option>
-            <option value="1.777778">16 : 9</option>
-            <option value="free">窗口比例</option>
-          </select>
-        </label>
-        <label class="inline-value"><span>裁切范围</span><output id="image-crop-size-value">${imageState.cropSize}%</output></label>
-        <input id="image-crop-size" type="range" min="35" max="95" value="${imageState.cropSize}">
-        <label class="inline-value"><span>图片缩放</span><output id="image-crop-zoom-value">${imageState.cropZoom}%</output></label>
-        <input id="image-crop-zoom" type="range" min="100" max="300" value="${imageState.cropZoom}">
-        <label class="inline-value"><span>连续旋转</span><output id="image-crop-angle-value">${imageState.cropAngle}°</output></label>
-        <input id="image-crop-angle" type="range" min="-45" max="45" value="${imageState.cropAngle}">
-        <div class="panel-actions">
-          <button class="gbtn" id="crop-rotate-left" type="button">左转 90°</button>
-          <button class="gbtn" id="crop-rotate-right" type="button">右转 90°</button>
-          <button class="gbtn" id="crop-flip-horizontal" type="button">水平翻转</button>
-          <button class="gbtn" id="crop-flip-vertical" type="button">垂直翻转</button>
-          <button class="gbtn ghost" id="cancel-image-crop" type="button">取消</button>
-          <button class="primary" id="apply-image-crop" type="button">应用裁切</button>
-        </div>
-      </div>
-    `
-    const aspect = imagePanelContent.querySelector('#image-crop-aspect')
-    aspect.value = imageState.cropAspect
-    aspect.addEventListener('change', () => {
-      imageState.cropAspect = aspect.value
-      createCropSelection()
-    })
-    imagePanelContent.querySelector('#image-crop-size').addEventListener('input', (event) => {
-      imageState.cropSize = Number(event.target.value)
-      imagePanelContent.querySelector('#image-crop-size-value').textContent = `${imageState.cropSize}%`
-      createCropSelection()
-    })
-    imagePanelContent.querySelector('#image-crop-zoom').addEventListener('input', (event) => {
-      imageState.cropZoom = Number(event.target.value)
-      imagePanelContent.querySelector('#image-crop-zoom-value').textContent = `${imageState.cropZoom}%`
-      prepareCropBaseImage()
-      imageCanvas.requestRenderAll()
-    })
-    imagePanelContent.querySelector('#image-crop-angle').addEventListener('input', (event) => {
-      imageState.cropAngle = Number(event.target.value)
-      imagePanelContent.querySelector('#image-crop-angle-value').textContent = `${imageState.cropAngle}°`
-      prepareCropBaseImage()
-      imageCanvas.requestRenderAll()
-    })
-    imagePanelContent.querySelector('#crop-rotate-left').addEventListener('click', () => {
-      transformWholeImage('rotate-left')
-      setImageMode('crop')
-    })
-    imagePanelContent.querySelector('#crop-rotate-right').addEventListener('click', () => {
-      transformWholeImage('rotate')
-      setImageMode('crop')
-    })
-    imagePanelContent.querySelector('#crop-flip-horizontal').addEventListener('click', () => transformWholeImage('flip-horizontal'))
-    imagePanelContent.querySelector('#crop-flip-vertical').addEventListener('click', () => transformWholeImage('flip-vertical'))
-    imagePanelContent.querySelector('#cancel-image-crop').addEventListener('click', () => {
-      const overlays = getOverlayObjects()
-      rebuildImageCanvas(overlays)
-      setImageMode('view')
-      setImageStatus('已取消裁切')
-    })
-    imagePanelContent.querySelector('#apply-image-crop').addEventListener('click', applyImageCrop)
-  } else if (imageState.mode === 'transform') {
-    imagePanelTitle.textContent = '旋转与翻转'
-    imagePanelCopy.textContent = '选中水印或笔迹时只变换对象；未选中时变换整张图片。'
-    imagePanelContent.innerHTML = `
-      <div class="image-panel">
-        <div class="panel-actions">
-          <button class="gbtn wide" id="rotate-image" type="button">顺时针旋转 90°</button>
-          <button class="gbtn" id="flip-image-horizontal" type="button">水平翻转</button>
-          <button class="gbtn" id="flip-image-vertical" type="button">垂直翻转</button>
-        </div>
-      </div>
-    `
-    imagePanelContent.querySelector('#rotate-image').addEventListener('click', () => transformWholeImage('rotate'))
-    imagePanelContent.querySelector('#flip-image-horizontal').addEventListener('click', () => transformWholeImage('flip-horizontal'))
-    imagePanelContent.querySelector('#flip-image-vertical').addEventListener('click', () => transformWholeImage('flip-vertical'))
-  } else if (imageState.mode === 'watermark') {
-    imagePanelTitle.textContent = '文字水印'
-    imagePanelCopy.textContent = '添加后可在画布中拖动、缩放和旋转。'
-    imagePanelContent.innerHTML = `
-      <div class="image-panel">
-        <label>文字<input id="watermark-text" type="text" value="摸鱼工具箱" maxlength="80"></label>
-        <label class="inline-value"><span>字号</span><output id="watermark-size-value">36</output></label>
-        <input id="watermark-size" type="range" min="12" max="120" value="36">
-        <label>颜色<input id="watermark-color" type="color" value="#ffffff"></label>
-        <label class="inline-value"><span>透明度</span><output id="watermark-opacity-value">70%</output></label>
-        <input id="watermark-opacity" type="range" min="10" max="100" value="70">
-        <button class="primary" id="add-watermark" type="button">添加文字水印</button>
-      </div>
-    `
-    const textInput = imagePanelContent.querySelector('#watermark-text')
-    const sizeInput = imagePanelContent.querySelector('#watermark-size')
-    const colorInput = imagePanelContent.querySelector('#watermark-color')
-    const opacityInput = imagePanelContent.querySelector('#watermark-opacity')
-
-    function updateSelectedWatermark() {
-      const activeObject = imageCanvas.getActiveObject()
-      if (activeObject?.dataRole !== 'overlay' || activeObject?.overlayType !== 'watermark') return
-      activeObject.set({
-        text: textInput.value || '水印',
-        fontSize: Number(sizeInput.value),
-        fill: colorInput.value,
-        opacity: Number(opacityInput.value) / 100
-      })
-      activeObject.setCoords()
-      imageCanvas.requestRenderAll()
-    }
-
-    sizeInput.addEventListener('input', () => {
-      imagePanelContent.querySelector('#watermark-size-value').textContent = sizeInput.value
-      updateSelectedWatermark()
-    })
-    opacityInput.addEventListener('input', () => {
-      imagePanelContent.querySelector('#watermark-opacity-value').textContent = `${opacityInput.value}%`
-      updateSelectedWatermark()
-    })
-    textInput.addEventListener('input', updateSelectedWatermark)
-    textInput.addEventListener('change', commitImageHistory)
-    sizeInput.addEventListener('change', commitImageHistory)
-    colorInput.addEventListener('input', updateSelectedWatermark)
-    colorInput.addEventListener('change', commitImageHistory)
-    opacityInput.addEventListener('change', commitImageHistory)
-    imagePanelContent.querySelector('#add-watermark').addEventListener('click', () => {
-      if (!ensureImageLoaded()) return
-      const watermark = new fabric.IText(textInput.value || '水印', {
-        left: imageCanvas.getWidth() / 2,
-        top: imageCanvas.getHeight() / 2,
-        originX: 'center',
-        originY: 'center',
-        fontFamily: 'Segoe UI, Microsoft YaHei UI, sans-serif',
-        fontSize: Number(sizeInput.value),
-        fill: colorInput.value,
-        opacity: Number(opacityInput.value) / 100,
-        padding: 5,
-        cornerColor: '#ffffff',
-        cornerStrokeColor: '#6978e6',
-        transparentCorners: false,
-        dataRole: 'overlay',
-        overlayType: 'watermark',
-        erasable: true
-      })
-      imageCanvas.add(watermark)
-      imageCanvas.setActiveObject(watermark)
-      imageCanvas.requestRenderAll()
-      commitImageHistory()
-      setImageStatus('文字水印已添加，可直接拖动调整')
-    })
-  } else if (imageState.mode === 'draw') {
-    imagePanelTitle.textContent = '涂鸦'
-    imagePanelCopy.textContent = '画笔位于底部；退出绘制后可选择、移动、缩放或删除笔迹。'
-    imagePanelContent.innerHTML = `
-      <div class="image-panel">
-        <label class="inline-value"><span>画笔大小</span><output id="image-brush-size-value">${imageState.brushSize}</output></label>
-        <input id="image-brush-size" type="range" min="2" max="60" value="${imageState.brushSize}">
-      </div>
-    `
-    const brushSize = imagePanelContent.querySelector('#image-brush-size')
-    brushSize.addEventListener('input', () => {
-      imageState.brushSize = Number(brushSize.value)
-      imagePanelContent.querySelector('#image-brush-size-value').textContent = brushSize.value
-      configureImageBrush()
-    })
-  } else if (imageState.mode === 'adjust') {
-    imagePanelTitle.textContent = '调色'
-    imagePanelCopy.textContent = '预览使用降采样画布，导出时对原始像素重放相同参数。'
-    const controls = [
-      ['brightness', '亮度', -100, 100],
-      ['exposure', '曝光', -100, 100],
-      ['contrast', '对比度', -100, 100],
-      ['shadows', '阴影', -100, 100],
-      ['saturation', '饱和度', -100, 100],
-      ['warmth', '暖度', -100, 100],
-      ['tint', '淡色', -100, 100],
-      ['clarity', '清晰度', -100, 100]
-    ]
-    imagePanelContent.innerHTML = `
-      <div class="image-panel">
-        ${controls.map(([name, label, min, max]) => `
-          <label class="inline-value"><span>${label}</span><output id="image-${name}-value">${imageState.adjustments[name]}</output></label>
-          <input id="image-${name}" data-adjustment="${name}" type="range" min="${min}" max="${max}" value="${imageState.adjustments[name]}">
-        `).join('')}
-        <button class="gbtn" id="reset-image-adjustments" type="button">重置调整</button>
-      </div>
-    `
-    imagePanelContent.querySelectorAll('[data-adjustment]').forEach((input) => {
-      input.addEventListener('input', () => {
-        imageState.adjustments[input.dataset.adjustment] = Number(input.value)
-        imagePanelContent.querySelector(`#image-${input.dataset.adjustment}-value`).textContent = input.value
-        applyImageAdjustments()
-      })
-      input.addEventListener('change', () => {
-        commitImageHistory()
-        setImageStatus('图片调整已更新')
-      })
-    })
-    imagePanelContent.querySelector('#reset-image-adjustments').addEventListener('click', () => {
-      Object.assign(imageState.adjustments, {
-        brightness: 0,
-        exposure: 0,
-        contrast: 0,
-        shadows: 0,
-        saturation: 0,
-        warmth: 0,
-        tint: 0,
-        clarity: 0
-      })
-      applyImageAdjustments()
-      renderImagePanel()
-      commitImageHistory()
-      setImageStatus('图片调整已重置')
-    })
-  } else {
-    imagePanelTitle.textContent = '导出'
-    imagePanelCopy.textContent = 'PNG 保留透明；JPG 自动铺白底。'
-    imagePanelContent.innerHTML = `
-      <div class="image-panel">
-        <div class="format-choice" id="image-format-choice">
-          <button class="on" type="button" data-format="png">PNG</button>
-          <button type="button" data-format="jpeg">JPG</button>
-          <button type="button" data-format="webp">WebP</button>
-          <button type="button" data-format="tiff">TIFF</button>
-        </div>
-        <label class="inline-value"><span>质量</span><output id="image-quality-value">90%</output></label>
-        <input id="image-quality" type="range" min="30" max="100" value="90">
-        <button class="primary" id="export-image" type="button">导出 PNG</button>
-      </div>
-    `
-    const qualityInput = imagePanelContent.querySelector('#image-quality')
-    const exportButton = imagePanelContent.querySelector('#export-image')
-    imagePanelContent.querySelector('#image-format-choice').addEventListener('click', (event) => {
-      const button = event.target.closest('[data-format]')
-      if (!button) return
-      imageState.format = button.dataset.format
-      imagePanelContent.querySelectorAll('[data-format]').forEach((option) => {
-        option.classList.toggle('on', option === button)
-      })
-      exportButton.textContent = `导出 ${imageState.format === 'jpeg' ? 'JPG' : imageState.format.toUpperCase()}`
-    })
-    qualityInput.addEventListener('input', () => {
-      imageState.quality = Number(qualityInput.value) / 100
-      imagePanelContent.querySelector('#image-quality-value').textContent = `${qualityInput.value}%`
-    })
-    exportButton.addEventListener('click', () => exportEditedImage(imageState.format, exportButton))
-  }
-}
-
-function setImageMode(mode) {
-  const previousMode = imageState.mode
-  if (previousMode === 'crop' && mode !== 'crop' && imageState.cropBounds) {
-    rebuildImageCanvas(getOverlayObjects())
-  }
-  imageState.mode = mode
-  imageCanvas.isDrawingMode = false
-  imageEditor.dataset.mode = mode
-  document.querySelector('#image-crumb').textContent = {
-    view: '查看',
-    crop: '裁切',
-    transform: '旋转与翻转',
-    watermark: '文字水印',
-    draw: '涂鸦',
-    adjust: '调色与马赛克',
-    export: '导出'
-  }[mode] || '图片编辑'
-  document.querySelectorAll('.image-tool').forEach((button) => {
-    button.classList.toggle('on', button.dataset.imageMode === mode)
-  })
-  const drawTools = document.querySelector('#image-draw-tools')
-  drawTools.hidden = mode !== 'draw'
-  drawTools.querySelectorAll('[data-brush]').forEach((button) => {
-    button.classList.toggle('on', button.dataset.brush === imageState.brushKind)
-  })
-
-  imageStage.style.transform = mode === 'view' ? `scale(${imageState.viewZoom})` : 'scale(1)'
-  imageStage.style.transformOrigin = 'center'
-  if (mode === 'crop') {
-    if (imageState.sourceCanvas) createCropSelection()
-  } else {
-    removeCropSelection()
-    imageCanvas.discardActiveObject()
-    imageCanvas.requestRenderAll()
-  }
-  renderImagePanel()
-  if (mode === 'draw') {
-    configureImageBrush().catch(() => {
-      setImageStatus('涂鸦组件载入失败', true)
-    })
-  }
-}
-
-async function loadImageFile(file) {
-  if (!file || !['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
-    setImageStatus('仅支持 PNG、JPG 与 WebP 图片', true)
-    showToast('图片格式不受支持')
-    return
-  }
-
-  if (file.size > 50 * 1024 * 1024) {
-    setImageStatus('图片超过 50 MB，已拒绝载入', true)
-    return
-  }
-
-  setImageStatus('正在载入图片…')
-
-  try {
-    const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' })
-    if (bitmap.width * bitmap.height > 80_000_000) {
-      bitmap.close()
-      throw new Error('图片超过 8000 万像素')
-    }
-
-    const sourceCanvas = document.createElement('canvas')
-    sourceCanvas.width = bitmap.width
-    sourceCanvas.height = bitmap.height
-    sourceCanvas.getContext('2d').drawImage(bitmap, 0, 0)
-    bitmap.close()
-    Object.assign(imageState.adjustments, {
-      brightness: 0,
-      exposure: 0,
-      contrast: 0,
-      shadows: 0,
-      saturation: 0,
-      warmth: 0,
-      tint: 0,
-      clarity: 0
-    })
-    imageState.sourceCanvas = sourceCanvas
-    imageState.sourceWidth = sourceCanvas.width
-    imageState.sourceHeight = sourceCanvas.height
-    imageState.fileName = file.name || 'pasted-image.png'
-    imageFileName.textContent = imageState.fileName
-    rebuildImageCanvas()
-    imageState.viewZoom = 1
-    imageZoomRange.value = '100'
-    setImageMode('view')
-    resetImageHistory()
-    commitImageHistory()
-    setImageStatus('图片已载入；点击“编辑”进入图片工具')
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error)
-    setImageStatus(`图片载入失败：${reason}`, true)
-    showToast('图片载入失败')
-  }
-}
-
-function applyImageCrop() {
-  if (!ensureImageLoaded() || !imageState.cropBounds || !imageState.baseImage) return
-  if (!cropCoverageValid()) {
-    restoreCropBasePosition()
-    setImageStatus('图片未完全覆盖裁切框，请调整位置或缩放', true)
-    return
-  }
-  const { left, top, width, height } = imageState.cropBounds
-  if (width < 12 || height < 12) {
-    setImageStatus('裁切选区太小', true)
-    return
-  }
-  const cropObjects = imageCanvas.getObjects().filter((object) => object.dataRole === 'crop')
-  cropObjects.forEach((object) => {
-    object.visible = false
-  })
-  imageCanvas.discardActiveObject()
-  imageCanvas.requestRenderAll()
-  const multiplier = 1 / Math.max(0.0001, Math.abs(imageState.baseImage.scaleX))
-  const baseVisible = imageState.baseImage.visible
-  imageState.baseImage.visible = false
-  const overlayCanvas = imageCanvas.toCanvasElement(multiplier, {
-    left,
-    top,
-    width,
-    height
-  })
-  imageState.baseImage.visible = baseVisible
-  const croppedCanvas = document.createElement('canvas')
-  croppedCanvas.width = Math.max(1, Math.round(width * multiplier))
-  croppedCanvas.height = Math.max(1, Math.round(height * multiplier))
-  const context = croppedCanvas.getContext('2d')
-  context.scale(multiplier, multiplier)
-  context.translate(-left, -top)
-  context.translate(imageState.baseImage.left, imageState.baseImage.top)
-  context.rotate(imageState.baseImage.angle * Math.PI / 180)
-  context.scale(imageState.baseImage.scaleX, imageState.baseImage.scaleY)
-  context.drawImage(
-    createAdjustedImageCanvas(imageState.sourceCanvas),
-    -imageState.sourceWidth / 2,
-    -imageState.sourceHeight / 2
-  )
-  context.setTransform(1, 0, 0, 1, 0, 0)
-  context.drawImage(overlayCanvas, 0, 0, croppedCanvas.width, croppedCanvas.height)
-  cropObjects.forEach((object) => {
-    object.visible = true
-  })
-  imageState.sourceCanvas = croppedCanvas
-  imageState.sourceWidth = croppedCanvas.width
-  imageState.sourceHeight = croppedCanvas.height
-  Object.assign(imageState.adjustments, {
-    brightness: 0,
-    exposure: 0,
-    contrast: 0,
-    shadows: 0,
-    saturation: 0,
-    warmth: 0,
-    tint: 0,
-    clarity: 0
-  })
-  imageState.cropAngle = 0
-  imageState.cropZoom = 100
-  rebuildImageCanvas()
-  setImageMode('view')
-  commitImageHistory()
-  setImageStatus(`裁切完成：${croppedCanvas.width} × ${croppedCanvas.height} px`)
-}
 
 function canvasToBlob(canvas, type, quality) {
   return new Promise((resolve, reject) => {
@@ -6422,370 +4998,14 @@ function canvasToBlob(canvas, type, quality) {
   })
 }
 
-function renderEditedImageCanvas(format = 'png') {
-  const multiplier = imageState.sourceWidth / imageCanvas.getWidth()
-  const baseVisible = imageState.baseImage?.visible
-  if (imageState.baseImage) imageState.baseImage.visible = false
-  const overlays = imageCanvas.toCanvasElement(multiplier)
-  if (imageState.baseImage) imageState.baseImage.visible = baseVisible
-  const output = document.createElement('canvas')
-  output.width = imageState.sourceWidth
-  output.height = imageState.sourceHeight
-  const context = output.getContext('2d')
-  if (format === 'jpeg') {
-    context.fillStyle = '#ffffff'
-    context.fillRect(0, 0, output.width, output.height)
-  }
-  context.drawImage(
-    createAdjustedImageCanvas(imageState.sourceCanvas),
-    0,
-    0,
-    output.width,
-    output.height
-  )
-  context.drawImage(overlays, 0, 0, output.width, output.height)
-  return output
-}
 
-async function exportEditedImage(format = 'png', triggerButton = null) {
-  if (!ensureImageLoaded() || imageState.exporting) return
-  imageState.exporting = true
-  const cropVisible = imageState.cropRect?.visible
-  if (imageState.cropRect) imageState.cropRect.visible = false
-  imageCanvas.discardActiveObject()
-  imageCanvas.requestRenderAll()
-  quickSaveImageButton.disabled = true
-  if (triggerButton) triggerButton.disabled = true
-  setImageStatus('正在生成导出图片…')
 
-  try {
-    const output = renderEditedImageCanvas(format)
-    const encodedFormat = format === 'tiff' ? 'png' : format
-    const mimeType = {
-      png: 'image/png',
-      jpeg: 'image/jpeg',
-      webp: 'image/webp'
-    }[encodedFormat]
-    const blob = await canvasToBlob(output, mimeType, imageState.quality)
-    const data = new Uint8Array(await blob.arrayBuffer())
-    const baseName = imageState.fileName.replace(/\.[^.]+$/, '') || 'edited-image'
-    const result = await window.api.saveImageFile({
-      type: format,
-      name: `${baseName}-edited`,
-      data
-    })
 
-    if (result.status === 'saved') {
-      const label = format === 'jpeg' ? 'JPG' : format.toUpperCase()
-      setImageStatus(`${label} 已保存 · ${(data.byteLength / 1024).toFixed(1)} KB`)
-      showToast(`${label} 图片已保存`)
-    } else {
-      setImageStatus('已取消导出')
-    }
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error)
-    setImageStatus(`导出失败：${reason}`, true)
-    showToast('图片导出失败')
-  } finally {
-    if (imageState.cropRect) imageState.cropRect.visible = cropVisible
-    imageCanvas.requestRenderAll()
-    quickSaveImageButton.disabled = false
-    if (triggerButton) triggerButton.disabled = false
-    imageState.exporting = false
-  }
-}
 
-function clearImageEditor() {
-  imageCanvas.clear()
-  imageCanvas.setDimensions({ width: 1, height: 1 })
-  Object.assign(imageState, {
-    sourceCanvas: null,
-    sourceWidth: 0,
-    sourceHeight: 0,
-    baseImage: null,
-    cropRect: null,
-    mode: 'view',
-    viewZoom: 1,
-    exporting: false,
-    fileName: 'edited-image.png'
-  })
-  imageCanvas.isDrawingMode = false
-  Object.assign(imageState.adjustments, {
-    brightness: 0,
-    exposure: 0,
-    contrast: 0,
-    shadows: 0,
-    saturation: 0,
-    warmth: 0,
-    tint: 0,
-    clarity: 0
-  })
-  resetImageHistory()
-  imageStage.classList.remove('ready')
-  imageStage.style.transform = 'scale(1)'
-  imageEmpty.classList.remove('hidden')
-  imageFileName.textContent = '尚未添加图片'
-  imageDimensions.textContent = '尚未载入图片'
-  setImageStatus('支持拖拽与剪贴板粘贴')
-  quickSaveImageButton.disabled = true
-  imageZoomRange.value = '100'
-  imageZoom.textContent = '100%'
-  setImageMode('view')
-}
-
-function openImagePicker() {
-  imageFileInput.value = ''
-  imageFileInput.click()
-}
-
-document.querySelector('#open-image').addEventListener('click', openImagePicker)
-document.querySelector('#open-image-empty').addEventListener('click', openImagePicker)
-document.querySelector('#clear-image').addEventListener('click', clearImageEditor)
-document.querySelector('#delete-image').addEventListener('click', clearImageEditor)
-document.querySelector('#edit-image').addEventListener('click', () => {
-  if (ensureImageLoaded()) setImageMode('crop')
-})
-document.querySelector('#rotate-view-image').addEventListener('click', () => {
-  if (ensureImageLoaded()) {
-    transformWholeImage('rotate')
-    setImageMode('view')
-  }
-})
-const imageMoreButton = document.querySelector('#image-more')
-const imageMoreMenu = document.querySelector('#image-more-menu')
-imageMoreButton.addEventListener('click', () => {
-  imageMoreMenu.hidden = !imageMoreMenu.hidden
-})
-document.addEventListener('click', (event) => {
-  if (!event.target.closest('.image-more-wrap')) imageMoreMenu.hidden = true
-})
-undoImageButton.addEventListener('click', () => {
-  if (imageState.historyIndex > 0) restoreImageHistory(imageState.historyIndex - 1)
-})
-redoImageButton.addEventListener('click', () => {
-  if (imageState.historyIndex < imageState.history.length - 1) {
-    restoreImageHistory(imageState.historyIndex + 1)
-  }
-})
-quickSaveImageButton.addEventListener('click', () => exportEditedImage('png', quickSaveImageButton))
-document.querySelector('#copy-image').addEventListener('click', async () => {
-  if (!ensureImageLoaded()) return
-  try {
-    const output = renderEditedImageCanvas('png')
-    const blob = await canvasToBlob(output, 'image/png')
-    await window.api.copyScreenshot(new Uint8Array(await blob.arrayBuffer()))
-    setImageStatus('图片已复制到剪贴板')
-    imageMoreMenu.hidden = true
-  } catch (error) {
-    setImageStatus(`复制失败：${error instanceof Error ? error.message : String(error)}`, true)
-  }
-})
-const imageResizeDialog = document.querySelector('#image-resize-dialog')
-const imageResizeWidth = document.querySelector('#image-resize-width')
-const imageResizeHeight = document.querySelector('#image-resize-height')
-const imageResizeRatio = document.querySelector('#image-resize-ratio')
-const imageResizeFormat = document.querySelector('#image-resize-format')
-const imageResizeQuality = document.querySelector('#image-resize-quality')
-const imageResizeSummary = document.querySelector('#image-resize-summary')
 let updatingImageResize = false
-function updateImageResizeSummary() {
-  imageResizeSummary.textContent =
-    `当前 ${imageState.sourceWidth} × ${imageState.sourceHeight} → ` +
-    `${imageResizeWidth.value} × ${imageResizeHeight.value} · ${imageResizeFormat.value.toUpperCase()}`
-}
-document.querySelector('#resize-image').addEventListener('click', () => {
-  if (!ensureImageLoaded()) return
-  imageResizeWidth.value = String(imageState.sourceWidth)
-  imageResizeHeight.value = String(imageState.sourceHeight)
-  updateImageResizeSummary()
-  imageResizeDialog.hidden = false
-  imageMoreMenu.hidden = true
-})
-imageResizeWidth.addEventListener('input', () => {
-  if (updatingImageResize) return
-  if (imageResizeRatio.checked && imageState.sourceWidth) {
-    updatingImageResize = true
-    imageResizeHeight.value = String(Math.max(
-      1,
-      Math.round(Number(imageResizeWidth.value) / imageState.sourceWidth * imageState.sourceHeight)
-    ))
-    updatingImageResize = false
-  }
-  updateImageResizeSummary()
-})
-imageResizeHeight.addEventListener('input', () => {
-  if (updatingImageResize) return
-  if (imageResizeRatio.checked && imageState.sourceHeight) {
-    updatingImageResize = true
-    imageResizeWidth.value = String(Math.max(
-      1,
-      Math.round(Number(imageResizeHeight.value) / imageState.sourceHeight * imageState.sourceWidth)
-    ))
-    updatingImageResize = false
-  }
-  updateImageResizeSummary()
-})
-imageResizeFormat.addEventListener('change', updateImageResizeSummary)
-imageResizeQuality.addEventListener('input', () => {
-  document.querySelector('#image-resize-quality-value').textContent = `${imageResizeQuality.value}%`
-})
-document.querySelector('#cancel-image-resize').addEventListener('click', () => {
-  imageResizeDialog.hidden = true
-})
-document.querySelector('#save-image-resize').addEventListener('click', async () => {
-  const width = Number(imageResizeWidth.value)
-  const height = Number(imageResizeHeight.value)
-  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1 ||
-      width > 30000 || height > 30000 || width * height > 80_000_000) {
-    setImageStatus('新尺寸无效或超过 8000 万像素', true)
-    return
-  }
-  const format = imageResizeFormat.value
-  const source = renderEditedImageCanvas(format)
-  const resized = document.createElement('canvas')
-  resized.width = width
-  resized.height = height
-  const context = resized.getContext('2d')
-  if (format === 'jpeg') {
-    context.fillStyle = '#ffffff'
-    context.fillRect(0, 0, width, height)
-  }
-  context.imageSmoothingEnabled = true
-  context.imageSmoothingQuality = 'high'
-  context.drawImage(source, 0, 0, width, height)
-  try {
-    const encodedFormat = format === 'tiff' ? 'png' : format
-    const mimeType = encodedFormat === 'jpeg' ? 'image/jpeg' : 'image/png'
-    const blob = await canvasToBlob(
-      resized,
-      mimeType,
-      Number(imageResizeQuality.value) / 100
-    )
-    const result = await window.api.saveImageFile({
-      type: format,
-      name: `${imageState.fileName.replace(/\.[^.]+$/, '') || 'image'}-${width}x${height}`,
-      data: new Uint8Array(await blob.arrayBuffer())
-    })
-    if (result.status === 'saved') {
-      imageResizeDialog.hidden = true
-      setImageStatus(`已保存 ${width} × ${height} ${format.toUpperCase()}`)
-    }
-  } catch (error) {
-    setImageStatus(`调整尺寸失败：${error instanceof Error ? error.message : String(error)}`, true)
-  }
-})
-imageResizeDialog.addEventListener('click', (event) => {
-  if (event.target === imageResizeDialog) imageResizeDialog.hidden = true
-})
-imageZoomRange.addEventListener('input', () => {
-  imageState.viewZoom = Number(imageZoomRange.value) / 100
-  updateImageViewZoom()
-})
-imageDropZone.addEventListener('wheel', (event) => {
-  if (!event.ctrlKey || imageState.mode !== 'view' || !imageState.sourceCanvas) return
-  event.preventDefault()
-  const next = Math.max(0.25, Math.min(3, imageState.viewZoom + (event.deltaY < 0 ? 0.1 : -0.1)))
-  imageState.viewZoom = Math.round(next * 10) / 10
-  updateImageViewZoom()
-}, { passive: false })
-imageFileInput.addEventListener('change', () => loadImageFile(imageFileInput.files[0]))
-imageDropZone.addEventListener('dragover', (event) => {
-  event.preventDefault()
-  imageDropZone.classList.add('drag-over')
-})
-imageDropZone.addEventListener('dragleave', () => imageDropZone.classList.remove('drag-over'))
-imageDropZone.addEventListener('drop', (event) => {
-  event.preventDefault()
-  imageDropZone.classList.remove('drag-over')
-  const file = Array.from(event.dataTransfer.files).find((item) => item.type.startsWith('image/'))
-  loadImageFile(file)
-})
-window.addEventListener('paste', (event) => {
-  if (state.module !== 'image') return
-  const file = Array.from(event.clipboardData?.files || []).find((item) => item.type.startsWith('image/'))
-  if (file) loadImageFile(file)
-})
-window.addEventListener('keydown', (event) => {
-  if (state.module !== 'image' || !['Delete', 'Backspace'].includes(event.key)) return
-  const active = imageCanvas.getActiveObject()
-  if (!active || active.dataRole !== 'overlay') return
-  event.preventDefault()
-  imageCanvas.remove(active)
-  imageCanvas.requestRenderAll()
-  commitImageHistory()
-  setImageStatus('已删除选中的编辑对象')
-})
 
-imageCanvas.on('object:modified', (event) => {
-  if (event.target === imageState.baseImage && imageState.mode === 'crop') {
-    if (cropCoverageValid()) rememberCropBasePosition()
-    else restoreCropBasePosition()
-  } else if (event.target?.dataRole === 'overlay') {
-    commitImageHistory()
-  }
-})
-imageCanvas.on('object:moving', (event) => {
-  if (event.target !== imageState.baseImage || imageState.mode !== 'crop') return
-  if (cropCoverageValid()) rememberCropBasePosition()
-  else restoreCropBasePosition()
-})
-imageCanvas.on('path:created', (event) => {
-  if (!event.path || imageState.brushKind === 'eraser') return
-  if (imageState.brushKind === 'mosaic') {
-    replacePathWithMosaic(event.path)
-    commitImageHistory()
-    return
-  }
-  event.path.set({
-    dataRole: 'overlay',
-    overlayType: imageState.brushKind,
-    erasable: true
-  })
-  event.path.setCoords()
-  commitImageHistory()
-})
-imageCanvas.on('erasing:end', () => {
-  window.setTimeout(commitImageHistory, 0)
-})
-document.querySelector('#image-draw-tools').addEventListener('click', async (event) => {
-  const button = event.target.closest('[data-brush]')
-  if (!button) return
-  document.querySelectorAll('#image-draw-tools [data-brush]').forEach((option) => {
-    option.classList.toggle('on', option === button)
-  })
-  try {
-    await configureImageBrush(button.dataset.brush)
-    setImageStatus(`${button.getAttribute('aria-label')}已启用`)
-  } catch {
-    setImageStatus('画笔组件载入失败', true)
-  }
-})
 
 let imageResizeTimer
-window.addEventListener('resize', () => {
-  window.clearTimeout(imageResizeTimer)
-  imageResizeTimer = window.setTimeout(() => {
-    if (!imageState.sourceCanvas) return
-    const oldWidth = imageCanvas.getWidth()
-    const oldHeight = imageCanvas.getHeight()
-    const overlays = getOverlayObjects()
-    const nextPreview = getImagePreviewSize()
-    const scaleX = nextPreview.width / oldWidth
-    const scaleY = nextPreview.height / oldHeight
-
-    overlays.forEach((object) => {
-      object.set({
-        left: object.left * scaleX,
-        top: object.top * scaleY,
-        scaleX: object.scaleX * scaleX,
-        scaleY: object.scaleY * scaleY
-      })
-      object.setCoords()
-    })
-    rebuildImageCanvas(overlays)
-    if (imageState.mode === 'crop') createCropSelection()
-  }, 160)
-})
 
 function renderSearchResults(query) {
   const normalized = query.trim().toLowerCase()
@@ -7120,7 +5340,6 @@ updateColorControls()
 applyAccent()
 setBarcodeMode('single')
 generateBarcode()
-setImageMode('crop')
 setFormatAction('视频转换')
 activateModule('pdf', defaultSelections.pdf)
 verifyPreloadBridge()

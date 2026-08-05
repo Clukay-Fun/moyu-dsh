@@ -405,10 +405,10 @@
                   </div>
                 </div>
 
-                <!-- ══ 旧实现：保留但不可达，U4 迁移完成后由 U6 删除 ══
-                     DOM 全部保留是有意为之：现有 renderer 仍持有这些 id 的引用，
-                     此阶段只摘除导航可达性，不动逻辑。 -->
-                <div id="legacy-board-controls" hidden aria-hidden="true">
+                <!-- 画布控件：命令栏与对象工具栏委托到这里，不直接对用户可见。
+                     保留为隐藏 DOM 而非内联到命令栏，是因为控制器按 id 绑定，
+                     两者合并属于独立重构，不在本轮范围。 -->
+                <div id="board-controls" hidden aria-hidden="true">
                   <div class="board-toolbar">
                     <button class="gbtn" id="board-open" type="button">打开</button>
                     <button class="gbtn" id="board-save" type="button">保存</button>
@@ -451,24 +451,14 @@
                       <button class="gbtn danger" id="board-edge-delete" type="button">删除连线</button>
                     </div>
                     <button class="gbtn danger" id="board-delete" type="button" disabled>删除</button>
+                    <!-- 导出只有 PNG / JPG，范围只有全部/选中；不提供视口与倍率（规格 8.2） -->
                     <div class="board-export-group">
                       <select id="board-export-range" aria-label="导出范围">
                         <option value="content">全部内容</option>
-                        <option value="viewport">当前视口</option>
                         <option value="selection">选中对象</option>
                       </select>
-                      <select id="board-export-scale" aria-label="导出倍率">
-                        <option value="1">1x</option>
-                        <option value="2">2x</option>
-                        <option value="3">3x</option>
-                      </select>
                       <button class="gbtn" id="board-export-png" type="button">导出 PNG</button>
-                      <select id="board-pdf-mode" aria-label="PDF 分页">
-                        <option value="fit-single">自适应单页</option>
-                        <option value="a4-landscape">A4 横向分页</option>
-                        <option value="a4-portrait">A4 竖向分页</option>
-                      </select>
-                      <button class="gbtn" id="board-export-pdf" type="button">导出 PDF</button>
+                      <button class="gbtn" id="board-export-jpg" type="button">导出 JPG</button>
                     </div>
                     <div class="board-view-group">
                       <button class="gbtn" id="board-undo" type="button" disabled>撤销</button>
@@ -482,177 +472,8 @@
                   </div>
                   <input type="file" id="board-file-input" accept="image/png,image/jpeg,image/webp" multiple hidden />
                 </div>
-                <div id="legacy-image-editor" hidden aria-hidden="true">
-                <div class="crumb">图片 › <b id="image-crumb">裁切</b></div>
-                <div class="image-editor" id="image-editor" data-mode="view">
-                  <div class="image-topbar">
-                    <button class="image-back" id="clear-image" type="button" aria-label="关闭当前图片">‹</button>
-                    <span class="image-filename" id="image-filename">尚未添加图片</span>
-                    <button class="gbtn compact" id="edit-image" type="button">编辑</button>
-                    <button class="gbtn compact" id="rotate-view-image" type="button">旋转</button>
-                    <button class="gbtn compact" id="delete-image" type="button">删除</button>
-                    <div class="image-history" aria-label="图片编辑历史">
-                      <button id="undo-image" type="button" aria-label="撤销" data-name="撤销">↶</button>
-                      <button id="redo-image" type="button" aria-label="重做" data-name="重做">↷</button>
-                    </div>
-                    <div class="image-tools">
-                      <button class="image-tool on" type="button" data-image-mode="crop" data-name="裁切">⌑</button>
-                      <button class="image-tool" type="button" data-image-mode="transform" data-name="旋转翻转">↻</button>
-                      <button class="image-tool" type="button" data-image-mode="watermark" data-name="水印">T</button>
-                      <button class="image-tool" type="button" data-image-mode="draw" data-name="涂鸦">✎</button>
-                      <button class="image-tool" type="button" data-image-mode="adjust" data-name="调色与马赛克">☼</button>
-                      <button class="image-tool" type="button" data-image-mode="export" data-name="导出">⇩</button>
-                    </div>
-                    <div class="image-more-wrap">
-                      <button class="image-save" id="image-more" type="button">其他</button>
-                      <div class="image-more-menu" id="image-more-menu" hidden>
-                        <button id="quick-save-image" type="button">另存为 PNG</button>
-                        <button id="copy-image" type="button">复制图片</button>
-                        <button id="resize-image" type="button">调整图像大小</button>
-                      </div>
-                    </div>
-                    <button class="image-cancel" id="open-image" type="button">打开图片</button>
-                  </div>
-                  <div class="image-body">
-                    <div class="image-canvas" id="image-drop-zone">
-                      <div class="image-stage" id="image-stage">
-                        <canvas id="image-canvas-element"></canvas>
-                      </div>
-                      <div class="image-empty" id="image-empty">
-                        <b>添加图片开始编辑</b>
-                        <span>点击打开，或拖入 / 粘贴 PNG、JPG、WebP</span>
-                        <button class="gbtn" id="open-image-empty" type="button">＋ 添加图片</button>
-                      </div>
-                    </div>
-                    <aside class="image-side">
-                      <h3 id="image-panel-title">裁切</h3>
-                      <p id="image-panel-copy">拖动并缩放选框，再裁切原图。</p>
-                      <div id="image-panel-content"></div>
-                    </aside>
-                  </div>
-                  <div class="image-bottom">
-                    <span id="image-dimensions">尚未载入图片</span>
-                    <b id="image-status">支持拖拽与剪贴板粘贴</b>
-                    <div class="image-draw-tools" id="image-draw-tools" hidden>
-                      <button type="button" data-brush="pen" title="黑笔" aria-label="黑笔">✎</button>
-                      <button type="button" data-brush="highlight" title="荧光笔" aria-label="荧光笔">▰</button>
-                      <button type="button" data-brush="eraser" title="橡皮擦" aria-label="橡皮擦">◇</button>
-                      <button type="button" data-brush="mosaic" title="马赛克" aria-label="马赛克">▦</button>
-                    </div>
-                    <div class="image-view-zoom">
-                      <output id="image-zoom">100%</output>
-                      <input id="image-zoom-range" type="range" min="25" max="300" value="100" />
-                    </div>
-                  </div>
-                </div>
-                <input id="image-file-input" type="file" accept="image/png,image/jpeg,image/webp" hidden />
-                <div class="modal-layer" id="image-resize-dialog" hidden>
-                  <section class="glass-card image-resize-dialog" role="dialog" aria-modal="true" aria-labelledby="image-resize-title">
-                    <header><b id="image-resize-title">调整图像大小</b></header>
-                    <div class="image-resize-fields">
-                      <label>宽度（px）<input id="image-resize-width" type="number" min="1" max="30000" /></label>
-                      <label>高度（px）<input id="image-resize-height" type="number" min="1" max="30000" /></label>
-                      <label class="toggle-wrap"><input id="image-resize-ratio" type="checkbox" checked /><span class="toggle"></span>保持比例</label>
-                      <label>文件类型
-                        <select id="image-resize-format"><option value="png">PNG</option><option value="jpeg">JPG</option><option value="tiff">TIFF</option></select>
-                      </label>
-                      <label>质量 <output id="image-resize-quality-value">90%</output>
-                        <input id="image-resize-quality" type="range" min="30" max="100" value="90" />
-                      </label>
-                      <p id="image-resize-summary">尚未载入图片</p>
-                    </div>
-                    <footer>
-                      <button class="gbtn ghost" id="cancel-image-resize" type="button">取消</button>
-                      <button class="primary-btn" id="save-image-resize" type="button">保存</button>
-                    </footer>
-                  </section>
-                </div>
-                </div>
               </section>
 
-              <section class="page" id="page-screen" hidden aria-hidden="true">
-                <!-- 旧截图标注页：导航已移除，保留 DOM 供 U4 迁移参考，U6 删除 -->
-                <div class="crumb">截图 › <b id="screen-crumb">区域截图与标注</b></div>
-                <div class="screen-pane active" id="screen-pane-capture">
-                <div class="screenshot-editor">
-                  <div class="screenshot-toolbar">
-                    <button class="primary" id="start-screenshot" type="button">区域截图</button>
-                    <span class="toolbar-space"></span>
-                    <button class="primary" id="save-screenshot" type="button" disabled>保存 PNG</button>
-                    <div hidden>
-                      <button class="screenshot-annotation" data-screen-tool="rectangle" disabled></button>
-                      <button class="screenshot-annotation" data-screen-tool="arrow" disabled></button>
-                      <button class="screenshot-annotation" data-screen-tool="brush" disabled></button>
-                      <button class="screenshot-annotation" data-screen-tool="text" disabled></button>
-                      <button id="start-scroll-screenshot" type="button"></button>
-                      <button id="ocr-screenshot" type="button" disabled></button>
-                      <button id="pin-screenshot" type="button" disabled></button>
-                      <button id="copy-screenshot" type="button" disabled></button>
-                    </div>
-                  </div>
-                  <div class="glass-card screenshot-work">
-                    <div class="screenshot-stage" id="screenshot-stage">
-                      <canvas id="screenshot-canvas-element"></canvas>
-                    </div>
-                    <div class="empty" id="screenshot-empty">
-                      <div class="empty-icon">⌗</div>
-                      <div>截取屏幕区域后在这里标注</div>
-                      <small>矩形 / 箭头 / 画笔 / 文字</small>
-                    </div>
-                  </div>
-                  <div class="glass-card screenshot-status">
-                    <span class="result-dot" id="screenshot-status-dot"></span>
-                    <span id="screenshot-status-text">等待截图</span>
-                  </div>
-                </div>
-                <div class="scroll-spike-overlay" id="scroll-spike-overlay" hidden>
-                  <section class="glass-card scroll-spike-dialog" role="dialog" aria-modal="true" aria-labelledby="scroll-spike-title">
-                    <header>
-                      <div>
-                        <b id="scroll-spike-title">应用内滚动截图 Spike</b>
-                        <span>仅验证本软件可控滚动区域，不支持截取第三方应用。</span>
-                      </div>
-                      <button class="gbtn" id="cancel-scroll-screenshot" type="button">取消</button>
-                    </header>
-                    <div class="controlled-scroll-source" id="controlled-scroll-source">
-                      <div class="controlled-scroll-document">
-                        <div class="controlled-scroll-cover">
-                          <small>MOYU TOOLS · CAPTURE SPIKE</small>
-                          <h2>应用内长内容示例</h2>
-                          <p>滚动区域由本应用精确控制，可按帧截取并无缝拼接。</p>
-                        </div>
-                        <div class="controlled-scroll-list" id="controlled-scroll-list"></div>
-                        <footer>滚动截图技术验证 · 仅限应用内内容</footer>
-                      </div>
-                    </div>
-                    <footer class="scroll-spike-actions">
-                      <span>输出会载入截图编辑器，可继续标注、复制或保存。</span>
-                      <button class="primary" id="confirm-scroll-screenshot" type="button">生成应用内长图</button>
-                    </footer>
-                  </section>
-                </div>
-                <div class="ocr-overlay" id="ocr-overlay" hidden>
-                  <section class="glass-card ocr-dialog" role="dialog" aria-modal="true" aria-labelledby="ocr-title">
-                    <header>
-                      <div>
-                        <b id="ocr-title">截图文字识别</b>
-                        <span>本地 Tesseract.js · 简体中文 + English</span>
-                      </div>
-                      <button class="gbtn" id="close-ocr" type="button">关闭</button>
-                    </header>
-                    <div class="ocr-progress" id="ocr-progress">
-                      <div><span id="ocr-progress-fill"></span></div>
-                      <span id="ocr-progress-text">准备本地识别模型…</span>
-                    </div>
-                    <textarea id="ocr-result" aria-label="OCR 识别结果" placeholder="识别文字会显示在这里"></textarea>
-                    <footer>
-                      <span id="ocr-summary">识别结果可编辑后复制。</span>
-                      <button class="primary" id="copy-ocr-result" type="button" disabled>复制文字</button>
-                    </footer>
-                  </section>
-                </div>
-                </div>
-              </section>
 
               <section class="page" id="page-video">
                 <div class="crumb">格式工厂 › <b id="format-crumb">视频转换</b></div>
@@ -816,6 +637,35 @@
               <button class="gbtn ghost" id="pdf-cancel-page-organizer" type="button">取消</button>
               <button class="primary-btn" id="pdf-save-page-organizer" type="button">保存新 PDF</button>
             </div>
+          </footer>
+        </section>
+      </div>
+
+      <!-- 应用内滚动截图（实验能力，规格 6）。入口在命令栏截图下拉；
+           它是覆盖层而非页面内容，U6 删除旧截图页时提升为独立模态层。 -->
+      <div class="scroll-spike-overlay" id="scroll-spike-overlay" hidden>
+        <section class="glass-card scroll-spike-dialog" role="dialog" aria-modal="true" aria-labelledby="scroll-spike-title">
+          <header>
+            <div>
+              <b id="scroll-spike-title">应用内滚动截图</b>
+              <span>仅验证本软件可控滚动区域，不支持截取第三方应用。</span>
+            </div>
+            <button class="gbtn" id="cancel-scroll-screenshot" type="button">取消</button>
+          </header>
+          <div class="controlled-scroll-source" id="controlled-scroll-source">
+            <div class="controlled-scroll-document">
+              <div class="controlled-scroll-cover">
+                <small>MOYU TOOLS · CAPTURE</small>
+                <h2>应用内长内容示例</h2>
+                <p>滚动区域由本应用精确控制，可按帧截取并无缝拼接。</p>
+              </div>
+              <div class="controlled-scroll-list" id="controlled-scroll-list"></div>
+              <footer>滚动截图 · 仅限应用内内容</footer>
+            </div>
+          </div>
+          <footer class="scroll-spike-actions">
+            <span>生成的长图会作为普通图片对象加入画布。</span>
+            <button class="primary" id="confirm-scroll-screenshot" type="button">生成应用内长图</button>
           </footer>
         </section>
       </div>
