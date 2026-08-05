@@ -6,6 +6,7 @@ import { createQpdfRunner } from 'qpdf-run'
 import { parse as parseOpenType } from 'opentype.js'
 import { isRetailType, renderRetailBarcode, computeRetailGeometry } from './retailBarcode.js'
 import { BoardController } from './board/index.js'
+import { cleanIpcError, illustratorFailureHint, isComCancelled } from './comErrors.js'
 import {
   isGenericType, renderGenericBarcode, computeGenericGeometry, genericRasterSize, resolveGenericTypeName,
   GENERIC_DEFAULTS, CODE39_DEFAULTS, CODABAR_DEFAULTS, MSI_DEFAULTS
@@ -3337,6 +3338,7 @@ const saveBarcodeEpsButton = document.querySelector('#save-barcode-eps')
 const copyBarcodeVectorButton = document.querySelector('#copy-barcode-vector')
 const openBarcodeIllustratorButton = document.querySelector('#open-barcode-illustrator')
 const openBarcodePhotoshopButton = document.querySelector('#open-barcode-photoshop')
+const copyBarcodeUngroupedButton = document.querySelector('#copy-barcode-ungrouped')
 const barcodeSingleTab = document.querySelector('#barcode-single-tab')
 const barcodeBatchTab = document.querySelector('#barcode-batch-tab')
 const barcodeSinglePane = document.querySelector('#barcode-single-pane')
@@ -3406,6 +3408,7 @@ function setBarcodeExportEnabled(enabled) {
   copyBarcodeVectorButton.disabled = !enabled
   openBarcodeIllustratorButton.disabled = !enabled
   openBarcodePhotoshopButton.disabled = !enabled
+  copyBarcodeUngroupedButton.disabled = !enabled
 }
 
 function setBarcodeBatchExportEnabled(enabled) {
@@ -4039,6 +4042,68 @@ function hasCurrentBarcode() {
   )
 }
 
+/**
+ * F-006：复制到 Illustrator（未编组）。
+ *
+ * 与 runBarcodeCom 分开写，原因有二：
+ *   · 本按钮有 loading 文案与统计回显，状态机与通用联动不同；
+ *   · 通用联动用 button.textContent 换文案，会破坏带子元素的按钮结构。
+ *
+ * UI 只暴露 copy 模式；inspect / roundtrip 仍保留在主进程供排障，不进 UI。
+ */
+async function copyBarcodeUngrouped() {
+  const button = copyBarcodeUngroupedButton
+  if (!hasCurrentBarcode()) {
+    setBarcodeMessage('内容已改变，请先重新生成条码。', 'error')
+    return
+  }
+  const originalLabel = button.textContent
+  button.disabled = true
+  button.textContent = '正在复制到 Illustrator…'
+  setBarcodeExportEnabled(false)
+
+  try {
+    const result = await window.api.illustratorUngroupedCopy({
+      data: serializeBarcodeSvg(),
+      mode: 'copy'
+    })
+    const fields = result?.fields || {}
+    const stats = [
+      ['顶层对象', fields.beforeTopLevel],
+      ['条形', fields.beforeBarLike],
+      ['字形', fields.beforeDigitLike]
+    ]
+      .filter(([, value]) => value !== undefined)
+      .map(([label, value]) => `${label} ${value}`)
+      .join(' · ')
+
+    if (result?.ungrouped === false) {
+      // 复制成功但结构不符预期：如实说明，不谎报"已未编组"
+      setBarcodeMessage(
+        `已复制，但检测到仍有 ${fields.beforeGroups} 个编组，粘贴后可能需要手动解组。${stats ? `（${stats}）` : ''}`,
+        'error'
+      )
+      showToast('已复制，但未完全解组')
+      return
+    }
+    setBarcodeMessage(`已复制到 Illustrator 剪贴板，粘贴即为未编组路径。${stats ? `（${stats}）` : ''}`, 'success')
+    showToast('已复制（未编组）')
+  } catch (error) {
+    const reason = cleanIpcError(error instanceof Error ? error.message : String(error))
+    // 取消不是失败，不按错误呈现
+    if (isComCancelled(reason)) {
+      setBarcodeMessage('已取消复制。')
+      return
+    }
+    setBarcodeMessage(`复制失败：${reason}`, 'error')
+    showToast(illustratorFailureHint(reason))
+  } finally {
+    button.textContent = originalLabel
+    setBarcodeExportEnabled(hasCurrentBarcode())
+    button.disabled = !hasCurrentBarcode()
+  }
+}
+
 async function runBarcodeCom(action, button) {
   if (!hasCurrentBarcode()) {
     setBarcodeMessage('内容已改变，请先重新生成条码。', 'error')
@@ -4363,6 +4428,7 @@ saveBarcodeEpsButton.addEventListener('click', () => runBarcodeCom('eps', saveBa
 copyBarcodeVectorButton.addEventListener('click', copyBarcodeVector)
 openBarcodeIllustratorButton.addEventListener('click', () => runBarcodeCom('illustrator', openBarcodeIllustratorButton))
 openBarcodePhotoshopButton.addEventListener('click', () => runBarcodeCom('photoshop', openBarcodePhotoshopButton))
+copyBarcodeUngroupedButton.addEventListener('click', () => void copyBarcodeUngrouped())
 barcodeSingleTab.addEventListener('click', () => setBarcodeMode('single'))
 barcodeBatchTab.addEventListener('click', () => setBarcodeMode('batch'))
 generateBarcodeBatchButton.addEventListener('click', generateBarcodeBatch)

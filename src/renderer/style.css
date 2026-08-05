@@ -4009,3 +4009,15 @@ input:focus-visible {
   gap: 6px;
   font-size: 12px;
 }
+
+.board-wide-button {
+  width: 100%;
+  margin-top: 8px;
+}
+
+.app-note {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted, #7b7f92);
+}
