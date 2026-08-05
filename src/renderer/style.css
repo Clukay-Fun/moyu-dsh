@@ -3953,3 +3953,52 @@ input:focus-visible {
   font-weight: 700;
   color: var(--accent, #6978e6);
 }
+
+.board-edge-style {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.board-edge-style label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.board-edge-style input[type='number'] {
+  width: 52px;
+}
+
+.board-edge-style input[type='color'] {
+  width: 32px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+}
+
+#board-connect[aria-pressed='true'] {
+  color: var(--accent, #6978e6);
+  font-weight: 600;
+}
+
+.board-connecting .board-stage {
+  cursor: crosshair;
+}
+
+.board-view-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+}
+
+#board-zoom-label {
+  min-width: 44px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}

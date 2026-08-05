@@ -13,6 +13,7 @@ import {
   setNodeText,
   setNodeMetrics,
   isTextNode,
+  edgePathPoints,
   NODE_TYPES
 } from './scene.js'
 
@@ -45,6 +46,32 @@ export class BoardCanvas {
     this.canvas.on('selection:cleared', () => this.#emitSelection())
     // 文本编辑结束：把内容与排版后的真实尺寸一并写回场景图
     this.canvas.on('text:editing:exited', (event) => this.#writeBackText(event?.target))
+    this.canvas.on('mouse:wheel', (opt) => {
+      const event = opt.e
+      event.preventDefault()
+      event.stopPropagation()
+      this.onWheelZoom?.(event.deltaY, { x: event.offsetX, y: event.offsetY })
+    })
+    // 中键或按住空格拖拽平移
+    this.spaceDown = false
+    this.panning = null
+    document.addEventListener('keydown', (e) => { if (e.code === 'Space') this.spaceDown = true })
+    document.addEventListener('keyup', (e) => { if (e.code === 'Space') this.spaceDown = false })
+    this.canvas.on('mouse:down', (opt) => {
+      if (opt.e.button === 1 || this.spaceDown) {
+        this.panning = { x: opt.e.clientX, y: opt.e.clientY }
+        this.canvas.selection = false
+      }
+    })
+    this.canvas.on('mouse:move', (opt) => {
+      if (!this.panning) return
+      this.pan(opt.e.clientX - this.panning.x, opt.e.clientY - this.panning.y)
+      this.panning = { x: opt.e.clientX, y: opt.e.clientY }
+    })
+    this.canvas.on('mouse:up', () => {
+      this.panning = null
+      this.canvas.selection = true
+    })
   }
 
   attach(scene, store) {
@@ -144,6 +171,17 @@ export class BoardCanvas {
       this.canvas.add(object)
     }
 
+    // 连接线画在所有节点之上，保证跨节点时不被遮住；本身不可选中不可拖动，
+    // 位置完全由两端节点决定（选中/删除通过端点节点或专用按钮完成）。
+    this.edgeObjects = []
+    for (const edge of this.scene.edges) {
+      const object = this.#createEdgeObject(edge)
+      if (!object) continue
+      object.boardEdgeId = edge.id
+      this.edgeObjects.push(object)
+      this.canvas.add(object)
+    }
+
     // 还原选中态
     const restore = [...this.objects.values()].filter((o) => selected.has(o.boardNodeId))
     if (restore.length === 1) {
@@ -233,6 +271,49 @@ export class BoardCanvas {
     return Promise.resolve(null)
   }
 
+  /** 连接线对象：折线用 Polyline，直线用 Line；箭头为独立三角形，组合成 Group。 */
+  #createEdgeObject(edge) {
+    const points = edgePathPoints(this.scene, edge)
+    const { stroke, strokeWidth, arrow } = edge.style
+    const parts = []
+    parts.push(new this.fabric.Polyline(points, {
+      fill: '',
+      stroke,
+      strokeWidth,
+      strokeLineJoin: 'round',
+      objectCaching: false
+    }))
+
+    const arrowAt = (tip, prev) => {
+      const angle = (Math.atan2(tip.y - prev.y, tip.x - prev.x) * 180) / Math.PI
+      const size = Math.max(8, strokeWidth * 4)
+      return new this.fabric.Triangle({
+        left: tip.x,
+        top: tip.y,
+        originX: 'center',
+        originY: 'center',
+        width: size,
+        height: size,
+        fill: stroke,
+        // fabric 三角形默认朝上，转成沿线方向
+        angle: angle + 90
+      })
+    }
+    if (arrow === 'end' || arrow === 'both') {
+      parts.push(arrowAt(points.at(-1), points.at(-2)))
+    }
+    if (arrow === 'both') {
+      parts.push(arrowAt(points[0], points[1]))
+    }
+
+    const group = new this.fabric.Group(parts, {
+      selectable: false,
+      evented: false,
+      hoverCursor: 'default'
+    })
+    return group
+  }
+
   /** 排版后量测：文本对象加入画布后其 width/height 才是真值，需回填场景图。 */
   measureTextNodes() {
     if (!this.scene) return false
@@ -260,6 +341,33 @@ export class BoardCanvas {
       this.canvas.setActiveObject(new this.fabric.ActiveSelection(objects, { canvas: this.canvas }))
     }
     this.canvas.requestRenderAll()
+  }
+
+  viewSize() {
+    return { width: this.canvas.getWidth(), height: this.canvas.getHeight() }
+  }
+
+  /** 以某点为中心缩放；不传中心则以视口中心缩放。 */
+  setZoom(zoom, center = null) {
+    const point = center
+      ? new this.fabric.Point(center.x, center.y)
+      : new this.fabric.Point(this.canvas.getWidth() / 2, this.canvas.getHeight() / 2)
+    this.canvas.zoomToPoint(point, zoom)
+    this.canvas.requestRenderAll()
+  }
+
+  setViewport(zoom, offset) {
+    this.canvas.setViewportTransform([zoom, 0, 0, zoom, offset.x, offset.y])
+    this.canvas.requestRenderAll()
+  }
+
+  resetViewport() {
+    this.canvas.setViewportTransform([1, 0, 0, 1, 0, 0])
+    this.canvas.requestRenderAll()
+  }
+
+  pan(dx, dy) {
+    this.canvas.relativePan(new this.fabric.Point(dx, dy))
   }
 
   resize(width, height) {

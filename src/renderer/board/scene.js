@@ -278,24 +278,47 @@ export function resizeNode(scene, id, { width, height, keepRatio = false }) {
 
 /**
  * 删除节点。
- * 资源按引用计数回收：最后一个引用被删除时才从 scene.assets 与仓库移除。
- * S3 接入后此处会级联删除相关连接线。
+ *
+ * 资源按引用计数从 **scene.assets 元数据**中移除，但**二进制留在仓库里**。
+ * 原因：撤销删除时必须能把图片放回去（S4）。仓库因此是会话级缓存，
+ * 未被引用的字节由 compactAssetStore() 在保存/导出前统一回收。
+ *
+ * 级联删除引用该节点的连接线。
  */
-export function removeNode(scene, store, id) {
+export function removeNode(scene, id) {
   const node = findNode(scene, id)
   scene.nodes = scene.nodes.filter((n) => n.id !== id)
-  // 级联删除引用该节点的连接线（S3 起生效；此时 edges 恒为空）
   scene.edges = scene.edges.filter((edge) => edge.from?.nodeId !== id && edge.to?.nodeId !== id)
   if (node.assetId && assetRefCount(scene, node.assetId) === 0) {
     delete scene.assets[node.assetId]
-    store?.delete(node.assetId)
   }
   normalizeZIndex(scene)
   return node
 }
 
-export function removeNodes(scene, store, ids) {
-  return ids.map((id) => removeNode(scene, store, id))
+export function removeNodes(scene, ids) {
+  return ids.map((id) => removeNode(scene, id))
+}
+
+/**
+ * 回收仓库中未被当前场景引用的二进制。
+ * **只应在保存 / 导出前调用**——一旦调用，之前的撤销步骤就无法还原被回收的图片。
+ */
+export function compactAssetStore(scene, store) {
+  const alive = new Set(Object.keys(scene.assets))
+  const removed = []
+  for (const assetId of [...store.bytes.keys()]) {
+    if (!alive.has(assetId)) {
+      store.delete(assetId)
+      removed.push(assetId)
+    }
+  }
+  return removed
+}
+
+/** 撤销还原后，把快照里出现、但仓库缺失的资源列出来（应恒为空）。 */
+export function missingAssets(scene, store) {
+  return Object.keys(scene.assets).filter((assetId) => !store.has(assetId))
 }
 
 // ── 层级 ────────────────────────────────────────────────────
@@ -393,5 +416,119 @@ export function validateScene(scene) {
       if (!Number.isFinite(node[key])) throw new Error(`节点 ${node.id} 的 ${key} 非有限数`)
     }
   }
+  const edgeIds = new Set()
+  for (const edge of scene.edges) {
+    if (edgeIds.has(edge.id)) throw new Error(`连接线 id 重复：${edge.id}`)
+    edgeIds.add(edge.id)
+    for (const side of ['from', 'to']) {
+      if (!edge[side]?.nodeId) throw new Error(`连接线 ${edge.id} 缺少 ${side}.nodeId`)
+      if (!ids.has(edge[side].nodeId)) {
+        throw new Error(`连接线 ${edge.id} 指向不存在的节点 ${edge[side].nodeId}`)
+      }
+      if (!EDGE_ANCHORS.includes(edge[side].anchor)) {
+        throw new Error(`连接线 ${edge.id} 的 ${side} 锚点无效：${edge[side].anchor}`)
+      }
+    }
+  }
   return scene
+}
+
+// ── 连接线（S3）──────────────────────────────────────────────
+//
+// 设计决策 D-3：只做五个固定锚点，自由锚点入冰箱。
+// 边不占 nodes，单独存在 scene.edges 里——它没有 z 序也不参与层级操作。
+
+export const EDGE_ANCHORS = ['top', 'right', 'bottom', 'left', 'center']
+
+export const EDGE_DEFAULTS = {
+  stroke: '#6978e6',
+  strokeWidth: 2,
+  arrow: 'end', // none | end | both
+  shape: 'line' // line | elbow
+}
+
+/**
+ * 锚点在画布上的绝对坐标。
+ * 五个公式各自独立，harness 会逐一断言。
+ */
+export function anchorPoint(node, anchor) {
+  if (!EDGE_ANCHORS.includes(anchor)) throw new Error(`未知锚点：${anchor}`)
+  const cx = node.x + node.width / 2
+  const cy = node.y + node.height / 2
+  switch (anchor) {
+    case 'top': return { x: cx, y: node.y }
+    case 'right': return { x: node.x + node.width, y: cy }
+    case 'bottom': return { x: cx, y: node.y + node.height }
+    case 'left': return { x: node.x, y: cy }
+    default: return { x: cx, y: cy }
+  }
+}
+
+export function addEdge(scene, { fromNodeId, fromAnchor = 'right', toNodeId, toAnchor = 'left', style = {} }) {
+  if (fromNodeId === toNodeId) throw new Error('连接线不能连到自身')
+  findNode(scene, fromNodeId)
+  findNode(scene, toNodeId)
+  for (const anchor of [fromAnchor, toAnchor]) {
+    if (!EDGE_ANCHORS.includes(anchor)) throw new Error(`未知锚点：${anchor}`)
+  }
+  const merged = { ...EDGE_DEFAULTS, ...style }
+  if (!['none', 'end', 'both'].includes(merged.arrow)) {
+    throw new Error(`未知箭头样式：${merged.arrow}`)
+  }
+  if (!['line', 'elbow'].includes(merged.shape)) {
+    throw new Error(`未知连线形状：${merged.shape}`)
+  }
+  const edge = {
+    id: nextBoardId('e'),
+    from: { nodeId: fromNodeId, anchor: fromAnchor },
+    to: { nodeId: toNodeId, anchor: toAnchor },
+    style: merged
+  }
+  scene.edges.push(edge)
+  return edge
+}
+
+export function removeEdge(scene, id) {
+  const at = scene.edges.findIndex((edge) => edge.id === id)
+  if (at < 0) throw new Error(`连接线不存在：${id}`)
+  return scene.edges.splice(at, 1)[0]
+}
+
+export function setEdgeStyle(scene, id, patch) {
+  const edge = scene.edges.find((e) => e.id === id)
+  if (!edge) throw new Error(`连接线不存在：${id}`)
+  const next = { ...edge.style, ...patch }
+  if (!['none', 'end', 'both'].includes(next.arrow)) throw new Error(`未知箭头样式：${next.arrow}`)
+  if (!['line', 'elbow'].includes(next.shape)) throw new Error(`未知连线形状：${next.shape}`)
+  edge.style = next
+  return edge
+}
+
+/** 求某条边当前的两个端点坐标。节点移动/缩放后调用即可得到新位置。 */
+export function edgeEndpoints(scene, edge) {
+  const from = scene.nodes.find((n) => n.id === edge.from.nodeId)
+  const to = scene.nodes.find((n) => n.id === edge.to.nodeId)
+  if (!from || !to) throw new Error(`连接线 ${edge.id} 端点节点缺失`)
+  return { start: anchorPoint(from, edge.from.anchor), end: anchorPoint(to, edge.to.anchor) }
+}
+
+/**
+ * 折线路径点。直线为两点，折线为 Z 字形三段（水平-垂直-水平的中点折返）。
+ */
+export function edgePathPoints(scene, edge) {
+  const { start, end } = edgeEndpoints(scene, edge)
+  if (edge.style.shape !== 'elbow') return [start, end]
+  const midX = (start.x + end.x) / 2
+  return [start, { x: midX, y: start.y }, { x: midX, y: end.y }, end]
+}
+
+/** 引用某节点的全部边。 */
+export function edgesOfNode(scene, nodeId) {
+  return scene.edges.filter((edge) => edge.from.nodeId === nodeId || edge.to.nodeId === nodeId)
+}
+
+/** 悬空引用检查：边的两端必须都指向存在的节点。 */
+export function danglingEdges(scene) {
+  const ids = new Set(scene.nodes.map((n) => n.id))
+  return scene.edges.filter((edge) => !ids.has(edge.from.nodeId) || !ids.has(edge.to.nodeId))
 }

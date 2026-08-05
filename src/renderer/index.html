@@ -581,6 +581,7 @@
                     <button class="gbtn" id="board-add-file" type="button">添加图片文件</button>
                     <button class="gbtn" id="board-add-text" type="button">插入文字</button>
                     <button class="gbtn" id="board-add-textbox" type="button">插入文本框</button>
+                    <button class="gbtn" id="board-connect" type="button" aria-pressed="false" disabled>连接</button>
                     <span class="toolbar-space"></span>
                     <div class="board-text-style" id="board-text-style" hidden>
                       <label>字号<input type="number" id="board-font-size" min="8" max="200" step="1" /></label>
@@ -598,7 +599,30 @@
                       <button class="gbtn" id="board-backward" type="button" disabled>下移</button>
                       <button class="gbtn" id="board-back" type="button" disabled>置底</button>
                     </div>
+                    <div class="board-edge-style" id="board-edge-style" hidden>
+                      <select id="board-edge-shape" aria-label="连线形状">
+                        <option value="line">直线</option>
+                        <option value="elbow">折线</option>
+                      </select>
+                      <select id="board-edge-arrow" aria-label="箭头">
+                        <option value="none">无箭头</option>
+                        <option value="end">单向</option>
+                        <option value="both">双向</option>
+                      </select>
+                      <label>线宽<input type="number" id="board-edge-width" min="1" max="12" step="1" /></label>
+                      <label>颜色<input type="color" id="board-edge-color" /></label>
+                      <button class="gbtn danger" id="board-edge-delete" type="button">删除连线</button>
+                    </div>
                     <button class="gbtn danger" id="board-delete" type="button" disabled>删除</button>
+                    <div class="board-view-group">
+                      <button class="gbtn" id="board-undo" type="button" disabled>撤销</button>
+                      <button class="gbtn" id="board-redo" type="button" disabled>重做</button>
+                      <button class="gbtn" id="board-zoom-out" type="button">−</button>
+                      <span id="board-zoom-label">100%</span>
+                      <button class="gbtn" id="board-zoom-in" type="button">＋</button>
+                      <button class="gbtn" id="board-zoom-fit" type="button">适应</button>
+                      <button class="gbtn" id="board-zoom-reset" type="button">100%</button>
+                    </div>
                   </div>
                   <div class="glass-card board-work">
                     <div class="board-stage" id="board-stage">
