@@ -14,11 +14,14 @@
 //   也不冒充任何应用规范。UI 必须明示"不作生产合规承诺"。
 //
 // 产品默认值来源：本项目 F-007 规范来源矩阵 S4 档，已由项目负责人拍板。
-import CODE128Module from 'jsbarcode/bin/barcodes/CODE128/index.js'
-import CODE39Module from 'jsbarcode/bin/barcodes/CODE39/index.js'
-import ITFModule from 'jsbarcode/bin/barcodes/ITF/index.js'
-import CodabarModule from 'jsbarcode/bin/barcodes/codabar/index.js'
-import MSIModule from 'jsbarcode/bin/barcodes/MSI/index.js'
+// 这些入口只有命名导出，没有 default。必须用 namespace import：
+// Vite 开发态会把 default import 预先解包成 `module.default`，结果得到
+// undefined；生产构建的 CommonJS interop 恰好会掩盖该问题。
+import * as CODE128Module from 'jsbarcode/bin/barcodes/CODE128/index.js'
+import * as CODE39Module from 'jsbarcode/bin/barcodes/CODE39/index.js'
+import * as ITFModule from 'jsbarcode/bin/barcodes/ITF/index.js'
+import * as CodabarModule from 'jsbarcode/bin/barcodes/codabar/index.js'
+import * as MSIModule from 'jsbarcode/bin/barcodes/MSI/index.js'
 
 const CODE128Bundle = CODE128Module.default || CODE128Module
 const CODE39 = (CODE39Module.default || CODE39Module).CODE39
