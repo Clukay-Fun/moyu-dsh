@@ -49,19 +49,11 @@ export class BoardCanvas {
       this.onObjectMoved?.()
     })
     // 拖动过程中实时吸附：把 fabric 的临时位置换算成世界包围盒交给上层。
-    //
-    // ⚠ 必须用**变换后的四角**，不能用 left/top + 未旋转的 width×height。
-    //   后者对旋转对象给出的是错的框（45° 时差得最明显），
-    //   与场景侧旋转感知的 nodeBounds() 口径也对不上，
-    //   于是对齐线画在一处、实际吸附到另一处。
+    // 用 sceneAabb() 而非 getBoundingRect()，理由见该方法注释。
     this.canvas.on('object:moving', (event) => {
       const object = event.target
       if (!object?.boardNodeId || !this.onObjectMoving) return
-      object.setCoords()
-      const rect = object.getBoundingRect(true, true)
-      const snap = this.onObjectMoving(object.boardNodeId, {
-        x: rect.left, y: rect.top, width: rect.width, height: rect.height
-      })
+      const snap = this.onObjectMoving(object.boardNodeId, this.sceneAabb(object))
       if (snap && (snap.dx || snap.dy)) {
         object.set({ left: object.left + snap.dx, top: object.top + snap.dy })
         object.setCoords()
@@ -122,6 +114,38 @@ export class BoardCanvas {
   }
 
   /**
+   * 求对象的世界包围盒，口径与场景侧 nodeBounds() **完全一致**。
+   *
+   * 不能用 fabric 的 getBoundingRect()：它把**描边**算进包围盒。
+   * 45° 旋转时误差是 strokeWidth×(|cos|+|sin|)/2——边框 10px 就有
+   * 7.07px，已经超过 6px 吸附阈值，带边框的文本框会吸附到错位置，
+   * 或者该吸附时吸不上。padding、控制点同理。
+   *
+   * 这里按场景的同一套公式算（中心 + 未描边宽高 + 旋转），
+   * 两套口径从构造上就不可能分叉。
+   * 走 calcTransformMatrix 而非手算三角函数，是为了让多选嵌套
+   * （子对象坐标相对选区）也自动正确。
+   */
+  sceneAabb(object) {
+    object.setCoords()
+    const width = object.width * (object.scaleX || 1)
+    const height = object.height * (object.scaleY || 1)
+    const matrix = object.calcTransformMatrix()
+    const xs = []
+    const ys = []
+    for (const [dx, dy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+      const point = this.fabric.util.transformPoint(
+        new this.fabric.Point(dx * width / 2, dy * height / 2), matrix
+      )
+      xs.push(point.x)
+      ys.push(point.y)
+    }
+    const left = Math.min(...xs)
+    const top = Math.min(...ys)
+    return { x: left, y: top, width: Math.max(...xs) - left, height: Math.max(...ys) - top }
+  }
+
+  /**
    * 把对象改成**绕中心旋转**，与场景模型对齐。
    *
    * 所有 #createObject 出来的对象都要过这一道；创建时写的
@@ -151,9 +175,15 @@ export class BoardCanvas {
   /** 交互结果写回场景图。fabric 用 left/top/scale，场景图用 x/y/width/height。 */
   #writeBack(event) {
     if (!this.scene || this.suspendSync) return
-    const targets = event?.target?.type === 'activeSelection'
+    const isMultiSelect = event?.target?.type === 'activeSelection'
+    const targets = isMultiSelect
       ? event.target.getObjects()
       : [event?.target].filter(Boolean)
+    // ⚠ 只有多选时才存在"选区缩放"这一层。
+    //   单对象时 event.target 就是 object 本身，再乘一次等于把缩放算两遍
+    //   （视觉 150% 会写成 225%）。
+    const groupScaleX = isMultiSelect ? (event.target.scaleX ?? 1) : 1
+    const groupScaleY = isMultiSelect ? (event.target.scaleY ?? 1) : 1
 
     for (const object of targets) {
       const nodeId = object.boardNodeId
@@ -161,8 +191,8 @@ export class BoardCanvas {
       const sceneNode = this.scene.nodes.find((n) => n.id === nodeId)
       // 锁定对象在多选变换中自动跳过（规格 3.2）
       if (isNodeLocked(sceneNode)) continue
-      const width = object.width * object.scaleX * (event?.target?.scaleX ?? 1)
-      const height = object.height * object.scaleY * (event?.target?.scaleY ?? 1)
+      const width = object.width * (object.scaleX || 1) * groupScaleX
+      const height = object.height * (object.scaleY || 1) * groupScaleY
 
       // 多选时 fabric 的子对象坐标是相对于选区的，必须换算成画布绝对坐标。
       // 对象原点已是中心，所以矩阵的平移分量就是绝对中心。
@@ -172,7 +202,7 @@ export class BoardCanvas {
       setNodePosition(this.scene, nodeId, center.x - width / 2, center.y - height / 2)
 
       // 旋转角度写回（多选时 fabric 的子对象 angle 是相对选区的）
-      const angle = (object.angle || 0) + (event?.target?.type === 'activeSelection' ? (event.target.angle || 0) : 0)
+      const angle = (object.angle || 0) + (isMultiSelect ? (event.target.angle || 0) : 0)
       if (Number.isFinite(angle)) setNodeRotation(this.scene, nodeId, angle)
 
       if (width > 0 && height > 0) {
