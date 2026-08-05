@@ -180,6 +180,7 @@ export class BoardController {
     if (commit) {
       this.history.push(this.scene)
       this.dirty = true
+      this.#reportDirty()
     }
     await this.canvas.render()
     this.#syncControls()
@@ -470,12 +471,15 @@ export class BoardController {
   // ── 项目文件 ────────────────────────────────────────────
   /**
    * 保存。
-   * ⚠ 保存前会 compactAssetStore 回收未引用二进制——
-   * 这会让"撤销已删除的图片"不再可行，故只在此处调用。
+   *
+   * 顺序很重要：**打包 → 写入成功 → 才回收资源并重置历史**。
+   * packBoard 只读 scene.assets，未被引用的字节本来就不会进文件，
+   * 所以保存前不需要压缩仓库。
+   * 若在弹对话框之前就 compact，用户一旦取消保存或写入失败，
+   * 已删除图片的二进制就没了，而历史栈还在——之后撤销能恢复节点却恢复不了图片。
    */
   async save(asNew = false) {
     try {
-      compactAssetStore(this.scene, this.store)
       const bytes = packBoard(this.scene, this.store)
       const result = await window.api.saveBoard({
         data: bytes,
@@ -483,16 +487,22 @@ export class BoardController {
         path: this.filePath,
         overwrite: Boolean(this.filePath) && !asNew
       })
+      // 取消或未成功：**不动仓库、不动历史**，保持可撤销
       if (result.status !== 'saved') return false
+
       this.filePath = result.path
       this.dirty = false
-      // compact 会使更早的删除无法撤销，历史栈从当前状态重新开始
+      // 确认写入成功后才回收未引用二进制；这会让更早的删除无法再撤销，
+      // 因此历史栈同步从当前状态重新开始。
+      compactAssetStore(this.scene, this.store)
       this.history.reset(this.scene)
       this.#syncControls()
       this.#syncStatus()
+      this.#reportDirty()
       this.onStatus({ saved: result.path, bytes: result.bytes })
       return true
     } catch (error) {
+      // 抛错路径同样不得回收资源
       this.onStatus({ error: error instanceof Error ? error.message : '保存失败' })
       return false
     }
@@ -519,6 +529,7 @@ export class BoardController {
       this.filePath = result.path
       this.dirty = false
       this.history.reset(this.scene)
+      this.#reportDirty()
       await this.#afterChange(false)
       this.resetZoom()
       this.onStatus({ opened: result.path })
@@ -629,6 +640,15 @@ export class BoardController {
 
   hasUnsavedChanges() {
     return this.dirty
+  }
+
+  /**
+   * 把未保存状态告知主进程。
+   * 关闭确认必须由主进程窗口 close 事件负责——renderer 的 beforeunload 是同步的，
+   * 没法在里面等一个对话框，也拦不住"退出应用"这类路径。
+   */
+  #reportDirty() {
+    window.api?.setBoardDirty?.(this.dirty)
   }
 
   /** 只读场景快照，供状态展示与后续切片（保存/导出）使用。 */

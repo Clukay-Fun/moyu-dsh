@@ -1230,6 +1230,28 @@ function createWindow() {
   mainWindow.once('ready-to-show', () => {
     mainWindow.show()
   })
+
+  // 未保存的汇总画布：关闭前确认。
+  // 用 forceClose 标记避免 destroy 后再次触发本处理器造成递归。
+  let forceClose = false
+  mainWindow.on('close', (event) => {
+    if (forceClose || !boardHasUnsavedChanges) return
+    event.preventDefault()
+    const choice = dialog.showMessageBoxSync(mainWindow, {
+      type: 'warning',
+      buttons: ['取消', '不保存并退出'],
+      defaultId: 0,
+      cancelId: 0,
+      title: '有未保存的画布',
+      message: '汇总画布有未保存的改动',
+      detail: '直接退出会丢失这些改动。可先取消，回到「截图 › 汇总画布」保存。'
+    })
+    if (choice === 1) {
+      forceClose = true
+      boardHasUnsavedChanges = false
+      mainWindow.destroy()
+    }
+  })
   mainWindow.on('closed', () => {
     mainWindow = null
     pinnedScreenshotSessions.forEach((session) => session.window.close())
@@ -2550,6 +2572,18 @@ ipcMain.handle('screenshot:cancel', (_event, sessionId) => {
 
 // ── 汇总画布项目文件 .moyuboard（F-009 S5）────────────────────
 const MOYUBOARD_MAX_BYTES = 512 * 1024 * 1024
+
+/**
+ * 汇总画布是否有未保存改动。
+ * 由 renderer 上报——关闭确认必须在主进程做：renderer 的 beforeunload 是同步的，
+ * 无法在其中等待对话框，也拦不住"退出应用"这条路径。
+ */
+let boardHasUnsavedChanges = false
+
+ipcMain.on('board:dirty', (event, dirty) => {
+  if (event.sender !== mainWindow?.webContents) return
+  boardHasUnsavedChanges = Boolean(dirty)
+})
 
 ipcMain.handle('board:save', async (event, payload) => {
   assertMainWindowSender(event)

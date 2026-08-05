@@ -115,9 +115,11 @@ export class BoardCanvas {
         }
       }
     }
+    // 只通知，不在这里再画一次。
+    // onChange 会走到 controller 的 #afterChange，那里已经 await canvas.render()；
+    // 若此处再直接 render，图片是异步加载的，两次渲染会交错，
+    // 可能出现闪烁、选中态错乱或旧渲染覆盖新渲染。
     this.onChange('transform')
-    // 写回后按场景图重画一次，确保 fabric 与真值一致（消除累积误差）
-    this.render()
   }
 
   #writeBackText(object) {
@@ -129,8 +131,8 @@ export class BoardCanvas {
       width: object.width * (object.scaleX || 1),
       height: object.height * (object.scaleY || 1)
     })
+    // 同 #writeBack：渲染统一由 #afterChange 负责，此处不再直接 render
     this.onChange('text')
-    this.render()
   }
 
   #assetUrl(assetId) {
