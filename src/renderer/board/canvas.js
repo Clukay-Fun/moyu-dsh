@@ -48,14 +48,19 @@ export class BoardCanvas {
       this.#writeBack(event)
       this.onObjectMoved?.()
     })
-    // 拖动过程中实时吸附：把 fabric 的临时位置换算成世界包围盒交给上层
+    // 拖动过程中实时吸附：把 fabric 的临时位置换算成世界包围盒交给上层。
+    //
+    // ⚠ 必须用**变换后的四角**，不能用 left/top + 未旋转的 width×height。
+    //   后者对旋转对象给出的是错的框（45° 时差得最明显），
+    //   与场景侧旋转感知的 nodeBounds() 口径也对不上，
+    //   于是对齐线画在一处、实际吸附到另一处。
     this.canvas.on('object:moving', (event) => {
       const object = event.target
       if (!object?.boardNodeId || !this.onObjectMoving) return
-      const width = object.width * (object.scaleX || 1)
-      const height = object.height * (object.scaleY || 1)
+      object.setCoords()
+      const rect = object.getBoundingRect(true, true)
       const snap = this.onObjectMoving(object.boardNodeId, {
-        x: object.left, y: object.top, width, height
+        x: rect.left, y: rect.top, width: rect.width, height: rect.height
       })
       if (snap && (snap.dx || snap.dy)) {
         object.set({ left: object.left + snap.dx, top: object.top + snap.dy })

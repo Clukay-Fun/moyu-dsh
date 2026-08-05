@@ -123,7 +123,17 @@ export class ImageEditorModal {
    *   canRestore   是否可恢复原图
    *   context      调用方自带的上下文，原样回传给 onCommit
    */
+  /**
+   * @returns {boolean} 是否真的打开。已打开时返回 false 而不是叠一个新实例——
+   *   连续双击或「搜索直达 + 双击」可能几乎同时完成两次图片解码，
+   *   若无条件新建，第二次会覆盖 this.canvas 而把第一个实例永久泄漏在
+   *   同一个 <canvas> 元素上。
+   */
   open(request) {
+    if (this.isOpen) {
+      this.onStatus('图片编辑器已打开')
+      return false
+    }
     const { image, assetId, originNodeId = null, origin = 'canvas', tool = null } = request
     this.session = new EditorSession({
       sourceAssetId: assetId,
@@ -133,11 +143,13 @@ export class ImageEditorModal {
     })
     this.context = request.context ?? null
     this.activeTool = null
+    /** 按需加载原图字节的回调；没有原图可恢复时为 null */
+    this.loadOriginal = request.loadOriginal ?? null
 
     this.root.hidden = false
     this.root.setAttribute('aria-hidden', 'false')
     this.titleEl.textContent = origin === 'capture' ? '标注截图' : '编辑图片'
-    this.restoreBtn.hidden = !request.canRestore
+    this.restoreBtn.hidden = !request.canRestore || !this.loadOriginal
 
     // 懒创建：只有真正打开编辑器时才多出第二个 fabric 实例
     this.canvas = new FullscreenImageEditorCanvas('image-editor-canvas', {
@@ -148,6 +160,7 @@ export class ImageEditorModal {
     this.canvas.load(image, buildRenderPlan(this.session), this.#stageSize())
     this.#selectTool(tool)
     this.#syncBar()
+    return true
   }
 
   #stageSize() {
@@ -165,6 +178,7 @@ export class ImageEditorModal {
     this.canvas = null
     this.session = null
     this.context = null
+    this.loadOriginal = null
     this.activeTool = null
     this.panel.replaceChildren()
     this.root.hidden = true
@@ -202,12 +216,38 @@ export class ImageEditorModal {
     if (this.session?.redo()) this.#rerender()
   }
 
-  /** 「恢复原图」= 清空本轮全部编辑；对象层面的原图恢复由调用方处理。 */
-  #restoreOriginal() {
-    if (!this.session) return
-    while (this.session.undo()) { /* 退到未编辑状态 */ }
-    this.#rerender()
-    this.onStatus('已回到未编辑状态')
+  /**
+   * 「恢复原图」：真正换回**最初导入/截取的那张图**，而不只是撤销本轮操作。
+   *
+   * 当前对象可能已经历多轮编辑（原图 → A → B），此时撤销只能回到 B，
+   * 回不到原图。所以这里重新载入 originalAssetId 的字节，
+   * 并把会话重建到那张图上——操作栈一并清空，因为它描述的是旧源图。
+   *
+   * 主历史仍只在「完成」时落一条，恢复本身不单独提交。
+   */
+  async #restoreOriginal() {
+    if (!this.session || !this.loadOriginal) return
+    if (this.session.isDirty() && !this.confirmDiscard()) return
+    this.restoreBtn.disabled = true
+    try {
+      const original = await this.loadOriginal()
+      if (!this.session) return // 期间被关掉了
+      this.session = new EditorSession({
+        sourceAssetId: original.assetId,
+        sourceSize: { width: original.image.width, height: original.image.height },
+        originNodeId: this.session.originNodeId,
+        origin: this.session.origin
+      })
+      this.canvas.load(original.image, buildRenderPlan(this.session), this.#stageSize())
+      this.#syncBar()
+      this.#renderPanel()
+      this.restoreBtn.hidden = true // 已经是原图了，没得再恢复
+      this.onStatus('已恢复到最初的原图')
+    } catch (error) {
+      this.onStatus(`恢复原图失败：${error.message}`)
+    } finally {
+      this.restoreBtn.disabled = false
+    }
   }
 
   #rerender() {
@@ -457,10 +497,13 @@ export class ImageEditorModal {
     try {
       const blob = await this.canvas.toBlob('image/png')
       const size = this.session.resultSize()
-      const payload = { blob, size, context: this.context, session: this.session }
+      // ⚠ 必须**先**等外部事务（登记资源 → 换节点 → 落历史）全部成功，
+      //   才允许 teardown。反过来的话，事务一失败用户的编辑就没了，
+      //   而且连重试的机会都没有——操作栈已随会话一起销毁。
+      await this.onCommit({ blob, size, context: this.context, session: this.session })
       this.#teardown()
-      await this.onCommit(payload)
     } catch (error) {
+      // 保留编辑器与操作栈，用户可以改一下再试，或者取消
       this.onStatus(`保存编辑结果失败：${error.message}`)
     } finally {
       this.commitBtn.disabled = false

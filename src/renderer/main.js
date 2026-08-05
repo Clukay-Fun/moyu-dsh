@@ -2570,19 +2570,16 @@ function ensureImageEditor() {
     onCancel: () => {
       // 取消什么都不做：场景、资源、主历史逐字段不变（规格 5.2）
     },
+    // ⚠ 不在这里 catch：失败必须传回模态，让它保持打开、保住操作栈。
+    //   吞掉异常会让模态以为提交成功并关闭，用户的编辑就没了。
     onCommit: async ({ blob, size, context }) => {
-      try {
-        const bytes = new Uint8Array(await blob.arrayBuffer())
-        if (context?.nodeId) {
-          await boardController.replaceNodeImage(context.nodeId, {
-            bytes, mime: 'image/png', size
-          })
-        } else {
-          // 截图入口：标注结果作为新对象落到画布
-          await boardController.addImage(bytes, 'image/png')
-        }
-      } catch (error) {
-        showToast(`应用编辑结果失败：${error.message}`)
+      const bytes = new Uint8Array(await blob.arrayBuffer())
+      if (context?.nodeId) {
+        await boardController.replaceNodeImage(context.nodeId, {
+          bytes, mime: 'image/png', size
+        })
+      } else {
+        await boardController.addImage(bytes, 'image/png')
       }
     }
   })
@@ -2595,35 +2592,66 @@ function ensureImageEditor() {
  * 两个入口共用：画布双击/工具按钮传 image（含 nodeId），
  * 截图入口传 { bytes, mime } 且不带 nodeId。
  */
-async function openImageEditor(image, tool) {
-  if (!image?.bytes) {
-    showToast('图片数据不可用')
-    return false
-  }
-  const url = URL.createObjectURL(new Blob([image.bytes], { type: image.mime || 'image/png' }))
+/** 把字节解码成 <img>。解码完成后 objectURL 立刻回收。 */
+async function decodeImageBytes(bytes, mime = 'image/png') {
+  const url = URL.createObjectURL(new Blob([bytes], { type: mime }))
   try {
-    const bitmap = await new Promise((resolve, reject) => {
+    return await new Promise((resolve, reject) => {
       const probe = new Image()
       probe.addEventListener('load', () => resolve(probe))
       probe.addEventListener('error', () => reject(new Error('图片无法解码')))
       probe.src = url
     })
-    ensureImageEditor().open({
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
+
+/**
+ * 编辑器只有一个实例，同一时刻只能开一张图。
+ * 这个令牌挡住「解码还没回来又发起了第二次打开」——否则两次解码
+ * 先后完成时会各自调 open()，第二次覆盖掉第一次的 fabric 实例。
+ */
+let imageEditorOpening = false
+
+async function openImageEditor(image, tool) {
+  if (!image?.bytes) {
+    showToast('图片数据不可用')
+    return false
+  }
+  const editor = ensureImageEditor()
+  if (imageEditorOpening || editor.isOpen) {
+    showToast('图片编辑器已打开')
+    return false
+  }
+  imageEditorOpening = true
+  try {
+    const bitmap = await decodeImageBytes(image.bytes, image.mime)
+    return editor.open({
       image: bitmap,
       assetId: image.assetId || 'capture',
       originNodeId: image.nodeId || null,
       origin: image.nodeId ? 'canvas' : 'capture',
       canRestore: Boolean(image.canRestore),
       context: { nodeId: image.nodeId || null },
+      // 「恢复原图」按需取原图字节：不预先解码，没点就不付这个代价
+      loadOriginal: image.canRestore && image.nodeId
+        ? async () => {
+            const original = boardController.getNodeOriginalImage(image.nodeId)
+            if (!original?.bytes) throw new Error('原图数据已不可用')
+            return {
+              assetId: original.assetId,
+              image: await decodeImageBytes(original.bytes, original.mime)
+            }
+          }
+        : null,
       tool
     })
-    return true
   } catch (error) {
     showToast(`打开编辑器失败：${error.message}`)
     return false
   } finally {
-    // 位图已解码进内存，URL 可以立刻回收
-    URL.revokeObjectURL(url)
+    imageEditorOpening = false
   }
 }
 
@@ -3316,12 +3344,21 @@ window.api.onScreenshotOcrProgress((progress) => {
 
 window.api.onScreenshotCaptured((result) => {
   screenshotState.busy = false
-  // U4：从统一画布发起的截图直接进同一个全屏编辑器做即时标注。
-  // 完成后落到画布；取消则丢弃。旧截图页仅在 U6 删除前作为兜底保留。
+  // 从统一画布发起的截图**直接成为画布上的普通图片对象**。
+  // 不自动打开编辑器——编辑是双击才发生的事（冻结需求）。
   if (captureTargetsCanvas) {
     captureTargetsCanvas = false
-    openImageEditor({ bytes: result.data, mime: 'image/png' }, 'rect')
-      .catch((error) => showToast(`标注截图失败：${error.message}`))
+    ;(async () => {
+      const controller = ensureBoardController()
+      controller.beginAddTransaction()
+      try {
+        await controller.addImage(new Uint8Array(result.data), 'image/png')
+      } catch (error) {
+        showToast(`截图加入画布失败：${error.message}`)
+      } finally {
+        controller.endAddTransaction()
+      }
+    })()
     return
   }
   loadScreenshotResult(result).catch((error) => {

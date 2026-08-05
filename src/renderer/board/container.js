@@ -16,10 +16,14 @@
 // 半个场景比打不开更危险——用户会以为文件只是"少了几张图"，
 // 然后在残缺状态上继续编辑并保存，把原文件彻底覆盖掉。
 
-import { validateScene } from './scene.js'
+import { validateScene, migrateScene } from './scene.js'
 
 export const MOYUBOARD_MAGIC = 'MOYUBOARD\0'
-export const MOYUBOARD_VERSION = 1
+/**
+ * 容器版本。随场景版本一起升到 2（U2 引入 locked/rotation/scale/originalAssetId）。
+ * 低版本文件仍可打开——旧场景在 validateScene 之前先过 migrateScene()。
+ */
+export const MOYUBOARD_VERSION = 2
 const HEADER_BYTES = 16
 /** 单个文件上限，防止误开超大文件把内存打满 */
 export const MOYUBOARD_MAX_BYTES = 512 * 1024 * 1024
@@ -168,7 +172,10 @@ export function unpackBoard(bytes) {
   }
 
   const { assetOrder: _order, ...sceneRest } = payload
-  const scene = validateScene({ ...sceneRest, assets: sceneAssets })
+  // 先迁移再严格校验：validateScene 用的是版本**严格相等**，
+  // 老工程不先升版就会被自己的校验挡在门外。
+  const migrated = migrateScene({ ...sceneRest, assets: sceneAssets })
+  const scene = validateScene(migrated)
   return { scene, assets }
 }
 

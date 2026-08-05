@@ -661,6 +661,19 @@ export class BoardController {
     }
   }
 
+  /** 取该对象最初导入/截取的原图字节，供编辑器的「恢复原图」使用。 */
+  getNodeOriginalImage(nodeId) {
+    const node = this.scene.nodes.find((n) => n.id === nodeId)
+    if (!node || node.type !== 'image' || !node.originalAssetId) return null
+    const bytes = this.store.get(node.originalAssetId)
+    if (!bytes) return null
+    return {
+      assetId: node.originalAssetId,
+      bytes,
+      mime: this.scene.assets[node.originalAssetId]?.mime || 'image/png'
+    }
+  }
+
   /**
    * 「完成」：登记新资源 → 换 assetId → 保持中心与显示宽度 → **一条**历史。
    *
