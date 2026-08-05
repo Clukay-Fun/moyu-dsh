@@ -16,6 +16,8 @@ import {
   edgesOfNode,
   isTextNode,
   missingAssets,
+  compactAssetStore,
+  validateScene,
   removeNodes,
   bringToFront,
   sendToBack,
@@ -26,6 +28,7 @@ import {
 } from './scene.js'
 import { BoardCanvas } from './canvas.js'
 import { BoardHistory } from './history.js'
+import { packBoard, unpackBoard } from './container.js'
 
 /** 单张图片上限，与主进程截图上限口径一致。 */
 const MAX_IMAGE_BYTES = 100 * 1024 * 1024
@@ -47,6 +50,10 @@ export class BoardController {
     this.history = new BoardHistory(this.scene)
     /** 视口：缩放与平移 */
     this.zoom = 1
+    /** 当前项目文件路径；null 表示尚未保存过 */
+    this.filePath = null
+    /** 自上次保存以来是否有改动 */
+    this.dirty = false
     this.ready = false
   }
 
@@ -108,6 +115,9 @@ export class BoardController {
     dom.zoomOut.addEventListener('click', () => this.zoomBy(1 / 1.25))
     dom.zoomFit.addEventListener('click', () => this.fitToContent())
     dom.zoomReset.addEventListener('click', () => this.resetZoom())
+    dom.save.addEventListener('click', () => this.save(false))
+    dom.saveAs.addEventListener('click', () => this.save(true))
+    dom.open.addEventListener('click', () => this.open())
 
     // Delete / Backspace 删除选中，但在文本编辑态下不拦截
     this.keyHandler = (event) => {
@@ -157,7 +167,10 @@ export class BoardController {
    * 否则会把还原动作又压进栈里。
    */
   async #afterChange(commit = true) {
-    if (commit) this.history.push(this.scene)
+    if (commit) {
+      this.history.push(this.scene)
+      this.dirty = true
+    }
     await this.canvas.render()
     this.#syncControls()
     this.#syncStatus()
@@ -345,9 +358,12 @@ export class BoardController {
     this.dom.redo.disabled = !this.history.canRedo()
     this.dom.zoomLabel.textContent = `${Math.round(this.zoom * 100)}%`
     const edges = this.scene.edges.length
+    const fileLabel = this.filePath
+      ? `${this.filePath.split(/[\\/]/).pop()}${this.dirty ? ' *' : ''}`
+      : this.dirty ? '未保存 *' : ''
     this.dom.statusText.textContent = count
-      ? `${count} 个对象${edges ? ` · ${edges} 条连线` : ''} · 内容范围 ${Math.round(bounds.width)} × ${Math.round(bounds.height)} px`
-      : '画布为空'
+      ? `${count} 个对象${edges ? ` · ${edges} 条连线` : ''} · 内容范围 ${Math.round(bounds.width)} × ${Math.round(bounds.height)} px${fileLabel ? ` · ${fileLabel}` : ''}`
+      : `画布为空${fileLabel ? ` · ${fileLabel}` : ''}`
     this.dom.statusDot.className = `result-dot${count ? ' ok' : ''}`
     this.onStatus({ count })
   }
@@ -441,6 +457,81 @@ export class BoardController {
     }
   }
 
+  // ── 项目文件 ────────────────────────────────────────────
+  /**
+   * 保存。
+   * ⚠ 保存前会 compactAssetStore 回收未引用二进制——
+   * 这会让"撤销已删除的图片"不再可行，故只在此处调用。
+   */
+  async save(asNew = false) {
+    try {
+      compactAssetStore(this.scene, this.store)
+      const bytes = packBoard(this.scene, this.store)
+      const result = await window.api.saveBoard({
+        data: bytes,
+        name: this.#suggestedName(),
+        path: this.filePath,
+        overwrite: Boolean(this.filePath) && !asNew
+      })
+      if (result.status !== 'saved') return false
+      this.filePath = result.path
+      this.dirty = false
+      // compact 会使更早的删除无法撤销，历史栈从当前状态重新开始
+      this.history.reset(this.scene)
+      this.#syncControls()
+      this.#syncStatus()
+      this.onStatus({ saved: result.path, bytes: result.bytes })
+      return true
+    } catch (error) {
+      this.onStatus({ error: error instanceof Error ? error.message : '保存失败' })
+      return false
+    }
+  }
+
+  async open() {
+    if (this.dirty && !window.confirm('当前画布有未保存的改动，打开新文件会丢弃它们。继续？')) {
+      return false
+    }
+    try {
+      const result = await window.api.openBoard()
+      if (result.status !== 'opened') return false
+      const { scene, assets } = unpackBoard(new Uint8Array(result.data))
+      validateScene(scene)
+      // 整体替换：先清空仓库再灌入，避免旧文件的资源残留
+      this.store.bytes.clear()
+      for (const [assetId, bytes] of assets) this.store.put(assetId, bytes)
+      this.scene.version = scene.version
+      this.scene.nodes = scene.nodes
+      this.scene.edges = scene.edges
+      this.scene.assets = scene.assets
+      this.selection = []
+      this.selectedEdge = null
+      this.filePath = result.path
+      this.dirty = false
+      this.history.reset(this.scene)
+      await this.#afterChange(false)
+      this.resetZoom()
+      this.onStatus({ opened: result.path })
+      return true
+    } catch (error) {
+      this.onStatus({ error: error instanceof Error ? error.message : '打开失败' })
+      return false
+    }
+  }
+
+  #suggestedName() {
+    if (this.filePath) {
+      return this.filePath.split(/[\\/]/).pop().replace(/\.moyuboard$/i, '')
+    }
+    const now = new Date()
+    const pad = (n) => String(n).padStart(2, '0')
+    return `画布-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`
+  }
+
+  hasUnsavedChanges() {
+    return this.dirty
+  }
+
   /** 只读场景快照，供状态展示与后续切片（保存/导出）使用。 */
   getSceneSnapshot() {
     return snapshotScene(this.scene)
@@ -454,7 +545,8 @@ export class BoardController {
     return Object.freeze({
       getScene: () => this.getSceneSnapshot(),
       getSelection: () => [...this.selection],
-      getHistory: () => (this.history ? this.history.stats() : { undo: 0, redo: 0 })
+      getHistory: () => (this.history ? this.history.stats() : { undo: 0, redo: 0 }),
+      getFileState: () => ({ path: this.filePath, dirty: this.dirty })
     })
   }
 }

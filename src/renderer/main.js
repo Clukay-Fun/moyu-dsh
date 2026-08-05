@@ -2479,6 +2479,8 @@ function ensureBoardController() {
     fabric,
     onStatus: (info) => {
       if (info?.error) showToast(info.error)
+      if (info?.saved) showToast(`已保存：${info.saved.split(/[\\/]/).pop()}`)
+      if (info?.opened) showToast(`已打开：${info.opened.split(/[\\/]/).pop()}`)
     }
   })
   boardController.mount({
@@ -2510,6 +2512,9 @@ function ensureBoardController() {
     zoomFit: document.querySelector('#board-zoom-fit'),
     zoomReset: document.querySelector('#board-zoom-reset'),
     zoomLabel: document.querySelector('#board-zoom-label'),
+    open: document.querySelector('#board-open'),
+    save: document.querySelector('#board-save'),
+    saveAs: document.querySelector('#board-save-as'),
     fileInput: document.querySelector('#board-file-input'),
     deleteButton: document.querySelector('#board-delete'),
     front: document.querySelector('#board-front'),

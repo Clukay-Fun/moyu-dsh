@@ -2548,6 +2548,48 @@ ipcMain.handle('screenshot:cancel', (_event, sessionId) => {
   return { status: 'cancelled' }
 })
 
+// ── 汇总画布项目文件 .moyuboard（F-009 S5）────────────────────
+const MOYUBOARD_MAX_BYTES = 512 * 1024 * 1024
+
+ipcMain.handle('board:save', async (event, payload) => {
+  assertMainWindowSender(event)
+  const data = payload?.data instanceof Uint8Array ? Buffer.from(payload.data) : null
+  if (!data || !data.byteLength) throw new Error('画布数据为空')
+  if (data.byteLength > MOYUBOARD_MAX_BYTES) {
+    throw new Error(`画布文件超过 ${MOYUBOARD_MAX_BYTES / 1024 / 1024} MB`)
+  }
+  const ownerWindow = BrowserWindow.fromWebContents(event.sender)
+  const defaultName = `${sanitizeFileBaseName(payload?.name, 'board')}.moyuboard`
+  const target = payload?.path && payload.overwrite
+    ? { canceled: false, filePath: payload.path }
+    : await dialog.showSaveDialog(ownerWindow, {
+      title: '保存汇总画布',
+      defaultPath: defaultName,
+      filters: [{ name: '摸鱼画布', extensions: ['moyuboard'] }]
+    })
+  if (target.canceled || !target.filePath) return { status: 'cancelled' }
+  await writeFile(target.filePath, data)
+  return { status: 'saved', path: target.filePath, bytes: data.byteLength }
+})
+
+ipcMain.handle('board:open', async (event) => {
+  assertMainWindowSender(event)
+  const ownerWindow = BrowserWindow.fromWebContents(event.sender)
+  const result = await dialog.showOpenDialog(ownerWindow, {
+    title: '打开汇总画布',
+    properties: ['openFile'],
+    filters: [{ name: '摸鱼画布', extensions: ['moyuboard'] }]
+  })
+  if (result.canceled || !result.filePaths?.length) return { status: 'cancelled' }
+  const filePath = result.filePaths[0]
+  const stats = await stat(filePath)
+  if (stats.size > MOYUBOARD_MAX_BYTES) {
+    throw new Error(`画布文件超过 ${MOYUBOARD_MAX_BYTES / 1024 / 1024} MB`)
+  }
+  const data = await readFile(filePath)
+  return { status: 'opened', path: filePath, data: new Uint8Array(data) }
+})
+
 ipcMain.handle('screenshot:save', async (event, payload) => {
   const data = payload?.data instanceof Uint8Array ? Buffer.from(payload.data) : null
   if (!data || data.byteLength > 100 * 1024 * 1024) {

@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld(
       ipcRenderer.invoke('barcode:illustrator-ungrouped-copy', payload),
     openBarcodeInIllustrator: (payload) => ipcRenderer.invoke('barcode:open-illustrator', payload),
     openBarcodeInPhotoshop: (payload) => ipcRenderer.invoke('barcode:open-photoshop', payload),
+    saveBoard: (payload) => ipcRenderer.invoke('board:save', payload),
+    openBoard: () => ipcRenderer.invoke('board:open'),
     saveImageFile: (payload) => ipcRenderer.invoke('image:save-file', payload),
     pickIllustratorFiles: () => ipcRenderer.invoke('illustrator:pick-files'),
     pickIllustratorFolder: () => ipcRenderer.invoke('illustrator:pick-folder'),
