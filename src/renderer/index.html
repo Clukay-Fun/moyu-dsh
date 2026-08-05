@@ -52,7 +52,6 @@
             <button class="nav-ic" type="button" data-module="ai" data-tip="Illustrator" aria-label="Illustrator">Ai</button>
             <button class="nav-ic" type="button" data-module="bc" data-tip="条码" aria-label="条码">▥</button>
             <button class="nav-ic" type="button" data-module="image" data-tip="图片" aria-label="图片">▧</button>
-            <button class="nav-ic" type="button" data-module="aimg" data-tip="AI 图像（本版封印）" aria-label="AI 图像（本版封印）" disabled>✦</button>
             <button class="nav-ic" type="button" data-module="screen" data-tip="截图" aria-label="截图">⌗</button>
             <button class="nav-ic" type="button" data-module="video" data-tip="格式工厂" aria-label="格式工厂">▶</button>
             <div class="rail-spacer"></div>
@@ -408,92 +407,6 @@
                       <button class="primary-btn" id="save-image-resize" type="button">保存</button>
                     </footer>
                   </section>
-                </div>
-              </section>
-
-              <section class="page" id="page-aimg">
-                <div class="crumb">AI 图像 › <b id="aimg-crumb">智能抠图</b></div>
-                <div class="toolbar toolbar-wrap">
-                  <button class="gbtn" id="ai-pick-images" type="button">＋ 添加图片</button>
-                  <button class="gbtn" id="ai-pick-folder" type="button">＋ 文件夹</button>
-                  <button class="gbtn ghost" id="ai-clear-inputs" type="button">清空</button>
-                  <span class="toolbar-space"></span>
-                  <span class="ai-runtime-state" id="ai-runtime-state"><i></i>检查运行环境…</span>
-                </div>
-
-                <div class="ai-workspace">
-                  <section class="glass-card ai-input-panel">
-                    <header>
-                      <b>待处理图片</b>
-                      <span id="ai-input-count">0 / 100</span>
-                    </header>
-                    <div class="ai-input-list" id="ai-input-list"></div>
-                    <div class="ai-input-empty" id="ai-input-empty">
-                      <b>添加 PNG、JPG 或 WebP</b>
-                      <span>单张不超过 50 MB</span>
-                    </div>
-                  </section>
-
-                  <section class="glass-card ai-preview-panel">
-                    <header class="ai-preview-tabs">
-                      <button class="on" id="ai-preview-source-tab" type="button">原图</button>
-                      <button id="ai-preview-result-tab" type="button" disabled>结果</button>
-                    </header>
-                    <div class="ai-preview-stage checkerboard">
-                      <img id="ai-preview-image" alt="AI 图像预览" hidden />
-                      <canvas id="ai-mask-canvas" aria-label="图像修补遮罩" hidden></canvas>
-                      <div class="ai-preview-empty" id="ai-preview-empty">
-                        <span>✦</span>
-                        <b>选择图片开始处理</b>
-                        <small>模型只在本机运行，首次使用会下载并校验。</small>
-                      </div>
-                    </div>
-                    <footer>
-                      <span id="ai-preview-meta">尚未选择图片</span>
-                      <span class="ai-preview-actions">
-                        <button class="gbtn" id="ai-export-psd" type="button" disabled>导出分层 PSD</button>
-                        <button class="gbtn" id="ai-save-results" type="button" disabled>保存结果</button>
-                      </span>
-                    </footer>
-                  </section>
-
-                  <aside class="glass-card ai-control-panel">
-                    <div class="ai-control-copy">
-                      <span class="ai-mode-mark" id="ai-mode-mark">BG</span>
-                      <div><b id="ai-mode-title">智能抠图</b><p id="ai-mode-copy">自动识别主体并导出透明 PNG。</p></div>
-                    </div>
-                    <div class="ai-id-options" id="ai-id-options" hidden>
-                      <label>证件照尺寸
-                        <select id="ai-id-preset">
-                          <option value="295x413">一寸 · 295 × 413</option>
-                          <option value="413x579">二寸 · 413 × 579</option>
-                          <option value="358x441">小一寸 · 358 × 441</option>
-                        </select>
-                      </label>
-                      <label>背景颜色
-                        <span class="ai-color-row">
-                          <input id="ai-id-color" type="color" value="#438edb" />
-                          <input id="ai-id-color-text" value="#438EDB" maxlength="7" aria-label="证件照背景色" />
-                        </span>
-                      </label>
-                    </div>
-                    <div class="ai-repair-options" id="ai-repair-options" hidden>
-                      <label>修补画笔 <b id="ai-brush-size-value">36 px</b>
-                        <input id="ai-brush-size" type="range" min="8" max="120" value="36" />
-                      </label>
-                      <button class="gbtn" id="ai-clear-mask" type="button">清空涂抹区域</button>
-                      <small>在原图上涂白需要移除的物体或瑕疵。</small>
-                    </div>
-                    <div class="ai-model-card">
-                      <span>本地模型</span>
-                      <b id="ai-model-name">RMBG-1.4</b>
-                      <small id="ai-model-status">等待检查</small>
-                      <div class="ai-progress"><span id="ai-progress-fill"></span></div>
-                    </div>
-                    <p class="ai-license-note" id="ai-license-note">仅限自用学习 · RMBG-1.4 非商业许可。模型首次使用时下载，不随安装包分发。</p>
-                    <button class="primary ai-run" id="ai-run-task" type="button" disabled>开始智能抠图</button>
-                    <span class="ai-task-status" id="ai-task-status">添加图片后可开始</span>
-                  </aside>
                 </div>
               </section>
 

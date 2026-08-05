@@ -25,13 +25,6 @@ contextBridge.exposeInMainWorld(
     pickOfficeFile: (kind) => ipcRenderer.invoke('office:pick-file', kind),
     convertOfficeToPdf: (payload) => ipcRenderer.invoke('office:to-pdf', payload),
     showComResult: (resultId) => ipcRenderer.invoke('com:show-result', resultId),
-    getAiStatus: () => ipcRenderer.invoke('ai:get-status'),
-    pickAiImages: (payload) => ipcRenderer.invoke('ai:pick-images', payload),
-    pickAiFolder: () => ipcRenderer.invoke('ai:pick-folder'),
-    removeAiInputs: (inputIds) => ipcRenderer.invoke('ai:remove-inputs', inputIds),
-    runAiTask: (payload) => ipcRenderer.invoke('ai:run', payload),
-    saveAiResults: (resultIds) => ipcRenderer.invoke('ai:save-results', resultIds),
-    exportAiPsd: (resultId) => ipcRenderer.invoke('ai:export-psd', resultId),
     getFormatStatus: () => ipcRenderer.invoke('format:get-status'),
     pickFormatFiles: (payload) => ipcRenderer.invoke('format:pick-files', payload),
     pickFormatFolder: (payload) => ipcRenderer.invoke('format:pick-folder', payload),
@@ -72,16 +65,6 @@ contextBridge.exposeInMainWorld(
       const listener = (_event, progress) => callback(progress)
       ipcRenderer.on('pdf:save-progress', listener)
       return () => ipcRenderer.removeListener('pdf:save-progress', listener)
-    },
-    onAiModelProgress: (callback) => {
-      const listener = (_event, progress) => callback(progress)
-      ipcRenderer.on('ai:model-progress', listener)
-      return () => ipcRenderer.removeListener('ai:model-progress', listener)
-    },
-    onAiTaskProgress: (callback) => {
-      const listener = (_event, progress) => callback(progress)
-      ipcRenderer.on('ai:task-progress', listener)
-      return () => ipcRenderer.removeListener('ai:task-progress', listener)
     },
     onFormatProgress: (callback) => {
       const listener = (_event, progress) => callback(progress)
