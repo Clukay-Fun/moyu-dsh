@@ -9,10 +9,22 @@
 //     与 .moyuboard 容器（D-1 方案 A）都能成立的前提。
 //   · zIndex 始终规范化为 0..n-1 的连续整数，不留空洞。
 
-export const BOARD_SCENE_VERSION = 1
+export const BOARD_SCENE_VERSION = 2
 
-/** 节点类型。S3 加 edge（边单独存在 scene.edges，不占 nodes）。 */
+/**
+ * 场景版本历史
+ *   v1 → v2（U2）：文本节点显式 scaleX/scaleY；所有节点显式 locked；
+ *                  text 与 textbox 合并为单一 textbox；图片补 originalAssetId。
+ *   v2 的 background / guides / grid 由 U5 补齐，仍走同一条 v1→v2 迁移。
+ */
+
+/**
+ * 节点类型。
+ * ⚠ `TEXT` 自 v2 起**只作为历史类型存在**：迁移会把它并入 TEXTBOX，
+ *   新建入口不再产生 text 节点。保留常量是为了让迁移代码可读。
+ */
 export const NODE_TYPES = { IMAGE: 'image', TEXT: 'text', TEXTBOX: 'textbox' }
+const LIVE_NODE_TYPES = new Set([NODE_TYPES.IMAGE, NODE_TYPES.TEXTBOX])
 
 /** 文本默认样式，两类文本节点共用。 */
 export const TEXT_DEFAULTS = {
@@ -148,6 +160,9 @@ export function addImageNode(scene, { assetId, x = 0, y = 0, width, height }) {
     width: width ?? asset.width,
     height: height ?? asset.height,
     rotation: 0,
+    locked: false,
+    // 多次编辑后始终能回到首次导入/截图的原图（规格 5.3）
+    originalAssetId: assetId,
     zIndex: scene.nodes.length
   }
   scene.nodes.push(node)
@@ -156,31 +171,13 @@ export function addImageNode(scene, { assetId, x = 0, y = 0, width, height }) {
 }
 
 /**
- * 纯文字节点：无边框无底色，宽高由文本内容决定（由渲染层量测后回填）。
+ * 文本框节点（v2 起是唯一的文本对象）。
+ *
+ * width/height 存的是 **100% 时的基础排版量测值**；缩放只改 scaleX/scaleY，
+ * 不动基础字号与基础宽高。这样"重置缩放"才有可回到的基准，
+ * 包围盒也只有一处口径（width × scaleX）。
  */
-export function addTextNode(scene, { text = '双击编辑文字', x = 0, y = 0, style = {} }) {
-  const node = {
-    id: nextBoardId('t'),
-    type: NODE_TYPES.TEXT,
-    text: String(text),
-    x,
-    y,
-    // 初始尺寸为估算值，渲染层量测后会通过 setNodeMetrics 回填真实值
-    width: Math.max(1, String(text).length * (style.fontSize ?? TEXT_DEFAULTS.fontSize) * 0.6),
-    height: (style.fontSize ?? TEXT_DEFAULTS.fontSize) * 1.4,
-    rotation: 0,
-    zIndex: scene.nodes.length,
-    style: { ...TEXT_DEFAULTS, ...style }
-  }
-  scene.nodes.push(node)
-  normalizeZIndex(scene)
-  return node
-}
-
-/**
- * 文本框节点：有边框/底色/内边距，宽度由用户设定，高度随换行增长。
- */
-export function addTextBoxNode(scene, { text = '双击编辑文本框', x = 0, y = 0, width, style = {} }) {
+export function addTextBoxNode(scene, { text = '双击编辑文本', x = 0, y = 0, width, style = {} }) {
   const merged = { ...TEXT_DEFAULTS, ...TEXTBOX_DEFAULTS, ...style }
   const node = {
     id: nextBoardId('tb'),
@@ -190,7 +187,10 @@ export function addTextBoxNode(scene, { text = '双击编辑文本框', x = 0, y
     y,
     width: width ?? TEXTBOX_DEFAULT_WIDTH,
     height: merged.fontSize * 1.4 + merged.padding * 2,
+    scaleX: 1,
+    scaleY: 1,
     rotation: 0,
+    locked: false,
     zIndex: scene.nodes.length,
     style: merged
   }
@@ -239,8 +239,50 @@ export function setNodeMetrics(scene, id, { width, height }) {
   return node
 }
 
+/**
+ * 设置文本框缩放。角点等比缩放时 scaleX 与 scaleY 必须相等——
+ * 校验器会拒绝不等的情况，因此这里统一入口。
+ */
+export function setNodeScale(scene, id, scale) {
+  const node = findNode(scene, id)
+  if (!isTextNode(node)) throw new Error(`节点 ${id} 不是文本节点`)
+  const value = Number(scale)
+  if (!Number.isFinite(value) || value <= 0) throw new Error('缩放比例必须为正有限数')
+  node.scaleX = value
+  node.scaleY = value
+  return node
+}
+
+/** 重置文本框缩放到 100%。 */
+export function resetNodeScale(scene, id) {
+  return setNodeScale(scene, id, 1)
+}
+
+/** 锁定 / 解锁。锁定对象仍可选中查看，但禁止移动、缩放、旋转、删除与双击编辑。 */
+export function setNodeLocked(scene, id, locked) {
+  const node = findNode(scene, id)
+  node.locked = Boolean(locked)
+  return node
+}
+
+export function isNodeLocked(node) {
+  return node?.locked === true
+}
+
+/** 旋转（度）。锁定对象不可旋转。 */
+export function setNodeRotation(scene, id, degrees) {
+  const node = findNode(scene, id)
+  if (isNodeLocked(node)) throw new Error(`节点 ${id} 已锁定，不能旋转`)
+  const value = Number(degrees)
+  if (!Number.isFinite(value)) throw new Error('旋转角度必须为有限数')
+  // 归一到 [0, 360)，避免历史里堆积成 720°、-1080° 这类值
+  node.rotation = ((value % 360) + 360) % 360
+  return node
+}
+
 export function setNodePosition(scene, id, x, y) {
   const node = findNode(scene, id)
+  if (isNodeLocked(node)) return node
   node.x = x
   node.y = y
   return node
@@ -248,6 +290,7 @@ export function setNodePosition(scene, id, x, y) {
 
 export function moveNode(scene, id, dx, dy) {
   const node = findNode(scene, id)
+  if (isNodeLocked(node)) return node // 锁定对象在多选变换中自动跳过，不报错
   node.x += dx
   node.y += dy
   return node
@@ -287,6 +330,7 @@ export function resizeNode(scene, id, { width, height, keepRatio = false }) {
  */
 export function removeNode(scene, id) {
   const node = findNode(scene, id)
+  if (isNodeLocked(node)) throw new Error(`节点 ${id} 已锁定，不能删除`)
   scene.nodes = scene.nodes.filter((n) => n.id !== id)
   scene.edges = scene.edges.filter((edge) => edge.from?.nodeId !== id && edge.to?.nodeId !== id)
   if (node.assetId && assetRefCount(scene, node.assetId) === 0) {
@@ -356,21 +400,87 @@ export function sendBackward(scene, id) {
   return normalizeZIndex(scene)
 }
 
-// ── 包围盒（S6 导出会复用）───────────────────────────────────
+// ── 包围盒 ──────────────────────────────────────────────────
+//
+// ⚠ 这是**唯一**的包围盒实现。选择框、适应窗口、默认导出、零边距裁切
+//   全部走这里；Fabric 层不得再维护第二套公式，否则旋转对象会被裁掉。
 
-export function sceneBounds(scene) {
-  if (!scene.nodes.length) return { x: 0, y: 0, width: 0, height: 0, empty: true }
+/**
+ * 节点的显示尺寸。
+ * 图片直接用 width/height；文本框的 width/height 存的是 100% 时的基础
+ * 排版量测值，实际显示要乘 scaleX/scaleY。
+ */
+export function nodeDisplaySize(node) {
+  if (isTextNode(node)) {
+    return {
+      width: node.width * (node.scaleX ?? 1),
+      height: node.height * (node.scaleY ?? 1)
+    }
+  }
+  return { width: node.width, height: node.height }
+}
+
+/**
+ * 单个节点的旋转感知包围盒。
+ * 以对象中心为旋转中心，对四个角应用 rotation，再取四角 min/max。
+ */
+export function nodeBounds(node) {
+  const { width, height } = nodeDisplaySize(node)
+  const rotation = Number(node.rotation) || 0
+  if (rotation === 0) {
+    return { x: node.x, y: node.y, width, height }
+  }
+  const radians = (rotation * Math.PI) / 180
+  const cos = Math.cos(radians)
+  const sin = Math.sin(radians)
+  const centerX = node.x + width / 2
+  const centerY = node.y + height / 2
+  const halfW = width / 2
+  const halfH = height / 2
   let minX = Infinity
   let minY = Infinity
   let maxX = -Infinity
   let maxY = -Infinity
-  for (const node of scene.nodes) {
-    minX = Math.min(minX, node.x)
-    minY = Math.min(minY, node.y)
-    maxX = Math.max(maxX, node.x + node.width)
-    maxY = Math.max(maxY, node.y + node.height)
+  for (const [dx, dy] of [[-halfW, -halfH], [halfW, -halfH], [halfW, halfH], [-halfW, halfH]]) {
+    const x = centerX + dx * cos - dy * sin
+    const y = centerY + dx * sin + dy * cos
+    minX = Math.min(minX, x)
+    minY = Math.min(minY, y)
+    maxX = Math.max(maxX, x)
+    maxY = Math.max(maxY, y)
+  }
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY }
+}
+
+/** 一组节点的联合包围盒。 */
+export function unionBounds(nodes) {
+  if (!nodes.length) return { x: 0, y: 0, width: 0, height: 0, empty: true }
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (const node of nodes) {
+    const box = nodeBounds(node)
+    minX = Math.min(minX, box.x)
+    minY = Math.min(minY, box.y)
+    maxX = Math.max(maxX, box.x + box.width)
+    maxY = Math.max(maxY, box.y + box.height)
   }
   return { x: minX, y: minY, width: maxX - minX, height: maxY - minY, empty: false }
+}
+
+export function sceneBounds(scene) {
+  return unionBounds(scene.nodes)
+}
+
+/** 两个包围盒是否相交（用于自动排版避让）。 */
+export function boundsIntersect(a, b, gap = 0) {
+  return !(
+    a.x + a.width + gap <= b.x ||
+    b.x + b.width + gap <= a.x ||
+    a.y + a.height + gap <= b.y ||
+    b.y + b.height + gap <= a.y
+  )
 }
 
 // ── 序列化 ──────────────────────────────────────────────────
@@ -381,6 +491,66 @@ export function sceneBounds(scene) {
  */
 export function snapshotScene(scene) {
   return JSON.parse(JSON.stringify(scene))
+}
+
+/**
+ * 场景迁移链。
+ *
+ * ⚠ 调用顺序是硬约束：**必须先 migrateScene()，再 validateScene()**。
+ *   validateScene 用的是严格版本相等，直接拿 v1 数据去校验会当场被拒，
+ *   老工程就永远打不开了。
+ *
+ * @param {object} rawScene 未校验的原始场景
+ * @param {number} fromVersion 文件里声明的版本
+ */
+export function migrateScene(rawScene, fromVersion = rawScene?.version) {
+  if (!rawScene || typeof rawScene !== 'object') throw new Error('场景数据无效')
+  let version = Number(fromVersion)
+  if (!Number.isInteger(version) || version < 1) {
+    throw new Error(`无法识别的场景版本：${fromVersion}`)
+  }
+  if (version > BOARD_SCENE_VERSION) {
+    throw new Error(`场景版本 ${version} 高于本程序支持的 ${BOARD_SCENE_VERSION}`)
+  }
+  // 深拷贝后再改，不污染调用方传入的对象
+  let scene = JSON.parse(JSON.stringify(rawScene))
+
+  if (version === 1) {
+    scene = migrateV1toV2(scene)
+    version = 2
+  }
+
+  scene.version = BOARD_SCENE_VERSION
+  return scene
+}
+
+/** v1 → v2：补齐 U2 引入的字段，并把 text 并入 textbox。 */
+function migrateV1toV2(scene) {
+  scene.nodes = (scene.nodes || []).map((node) => {
+    const next = { ...node }
+    // 所有节点显式 locked
+    if (typeof next.locked !== 'boolean') next.locked = false
+    if (!Number.isFinite(next.rotation)) next.rotation = 0
+
+    if (next.type === NODE_TYPES.IMAGE) {
+      // 老工程没有原图关系，视首次资源为原图
+      if (!next.originalAssetId) next.originalAssetId = next.assetId
+      return next
+    }
+
+    // text 与 textbox 合并为单一 textbox，保留内容、样式、基础宽高与旋转
+    if (next.type === NODE_TYPES.TEXT || next.type === NODE_TYPES.TEXTBOX) {
+      next.type = NODE_TYPES.TEXTBOX
+      if (!Number.isFinite(next.scaleX) || next.scaleX <= 0) next.scaleX = 1
+      if (!Number.isFinite(next.scaleY) || next.scaleY <= 0) next.scaleY = 1
+      // 纯文字节点原本没有边框/底色/内边距，补成文本框默认值
+      next.style = { ...TEXT_DEFAULTS, ...TEXTBOX_DEFAULTS, ...(next.style || {}) }
+    }
+    return next
+  })
+  scene.edges = scene.edges || []
+  scene.assets = scene.assets || {}
+  return scene
 }
 
 /** 校验场景图结构，用于打开文件与还原快照时挡住坏数据。 */
@@ -400,20 +570,42 @@ export function validateScene(scene) {
     if (node.type === NODE_TYPES.IMAGE && !scene.assets[node.assetId]) {
       throw new Error(`节点 ${node.id} 引用了不存在的资源 ${node.assetId}`)
     }
+    if (typeof node.locked !== 'boolean') {
+      throw new Error(`节点 ${node.id} 缺少 locked`)
+    }
+    if (node.type === NODE_TYPES.IMAGE && !node.originalAssetId) {
+      throw new Error(`图片节点 ${node.id} 缺少 originalAssetId`)
+    }
     if (isTextNode(node)) {
       if (typeof node.text !== 'string') throw new Error(`节点 ${node.id} 的 text 非字符串`)
       if (!node.style || typeof node.style !== 'object') {
         throw new Error(`节点 ${node.id} 缺少 style`)
       }
+      for (const key of ['scaleX', 'scaleY']) {
+        if (!Number.isFinite(node[key]) || node[key] <= 0) {
+          throw new Error(`节点 ${node.id} 的 ${key} 必须为正有限数`)
+        }
+      }
+      // 角点等比缩放，两者必须相等；不得依赖 Fabric 临时对象的 scale 作为真值
+      if (node.scaleX !== node.scaleY) {
+        throw new Error(`文本框 ${node.id} 的 scaleX 与 scaleY 必须相等`)
+      }
       for (const key of Object.keys(node.style)) {
         if (!TEXT_STYLE_KEYS.has(key)) throw new Error(`节点 ${node.id} 含不支持的样式 ${key}`)
       }
     }
-    if (!Object.values(NODE_TYPES).includes(node.type)) {
-      throw new Error(`节点 ${node.id} 类型未知：${node.type}`)
+    if (!LIVE_NODE_TYPES.has(node.type)) {
+      throw new Error(
+        node.type === NODE_TYPES.TEXT
+          ? `节点 ${node.id} 仍是历史 text 类型，应先经 migrateScene() 迁移`
+          : `节点 ${node.id} 类型未知：${node.type}`
+      )
     }
-    for (const key of ['x', 'y', 'width', 'height', 'zIndex']) {
+    for (const key of ['x', 'y', 'width', 'height', 'zIndex', 'rotation']) {
       if (!Number.isFinite(node[key])) throw new Error(`节点 ${node.id} 的 ${key} 非有限数`)
+    }
+    for (const key of ['width', 'height']) {
+      if (node[key] <= 0) throw new Error(`节点 ${node.id} 的 ${key} 必须为正`)
     }
   }
   const edgeIds = new Set()

@@ -3734,3 +3734,66 @@ input:focus-visible {
   background: linear-gradient(to top, var(--panel), transparent);
   pointer-events: none;
 }
+
+/* ── 跟随对象的竖向工具栏（U2 / 规格 2.1）──────────────────
+   屏幕固定尺寸：绝对定位在画布外壳上，尺寸不随画布缩放变化。 */
+.object-toolbar {
+  position: absolute;
+  z-index: 14;
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+.object-toolbar[hidden] { display: none; }
+
+.object-toolbar .obj-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--card);
+  box-shadow: var(--shadow-small);
+  backdrop-filter: blur(20px) saturate(150%);
+}
+.object-toolbar.collapsed .obj-group { display: none; }
+
+.obj-btn {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--muted);
+  background: transparent;
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    color 130ms ease,
+    background-color 130ms ease,
+    transform 160ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+@media (hover: hover) and (pointer: fine) {
+  .obj-btn:hover { color: var(--accent); background: var(--accent-10); }
+}
+.obj-btn:active { transform: scale(0.94); }
+.obj-btn[aria-pressed="true"] { color: var(--accent); background: var(--accent-10); }
+
+.object-toolbar > .obj-btn[data-obj="collapse"] {
+  width: 18px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--card);
+  backdrop-filter: blur(20px);
+  font-size: 11px;
+}
+/* 翻到左侧时收起箭头方向反转 */
+.object-toolbar.flipped { flex-direction: row-reverse; }
+.object-toolbar.flipped > .obj-btn[data-obj="collapse"] { transform: scaleX(-1); }
+.object-toolbar.flipped > .obj-btn[data-obj="collapse"]:active { transform: scaleX(-1) scale(0.94); }
+
+.object-toolbar #object-more-menu { top: auto; bottom: 0; right: calc(100% + 6px); }
+.object-toolbar.flipped #object-more-menu { right: auto; left: calc(100% + 6px); }

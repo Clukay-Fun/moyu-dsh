@@ -7,7 +7,6 @@ import {
   AssetStore,
   registerAsset,
   addImageNode,
-  addTextNode,
   addTextBoxNode,
   setNodeStyle,
   setEdgeStyle,
@@ -24,12 +23,17 @@ import {
   bringForward,
   sendBackward,
   sceneBounds,
-  snapshotScene
+  snapshotScene,
+  unionBounds,
+  setNodeLocked,
+  isNodeLocked,
+  nodeBounds
 } from './scene.js'
 import { BoardCanvas } from './canvas.js'
 import { BoardHistory } from './history.js'
 import { packBoard, unpackBoard } from './container.js'
 import { exportBounds, planExport, planPdfPages, describePlan } from './export.js'
+import { defaultImageSize, placeNodes, LAYOUT } from './layout.js'
 
 /** 单张图片上限，与主进程截图上限口径一致。 */
 const MAX_IMAGE_BYTES = 100 * 1024 * 1024
@@ -37,6 +41,9 @@ const MAX_IMAGE_BYTES = 100 * 1024 * 1024
 export class BoardController {
   static ZOOM_MIN = 0.1
   static ZOOM_MAX = 4
+
+  /** @type {Array<object>} */
+  #batchPlaced = []
 
   constructor({ fabric, onStatus }) {
     this.fabric = fabric
@@ -55,6 +62,14 @@ export class BoardController {
     this.filePath = null
     /** 自上次保存以来是否有改动 */
     this.dirty = false
+    /**
+     * 加入事务期间冻结的可视世界矩形。
+     * 规格 3.1：事务中不得因逐张渲染、滚动或异步解码重新取值，
+     * 否则同一批图片在不同时序下会落到不同位置。
+     */
+    this.layoutViewport = null
+    /** 本事务已放置的节点，参与后续避让 */
+    this.#batchPlaced = []
     this.ready = false
   }
 
@@ -73,6 +88,7 @@ export class BoardController {
         const related = ids.length === 1 ? edgesOfNode(this.scene, ids[0]) : []
         this.selectedEdge = related.length ? related[0].id : null
         this.#syncControls()
+        this.#syncObjectToolbar()
       }
     })
     this.canvas.attach(this.scene, this.store)
@@ -119,6 +135,20 @@ export class BoardController {
     dom.save.addEventListener('click', () => this.save(false))
     dom.saveAs.addEventListener('click', () => this.save(true))
     dom.open.addEventListener('click', () => this.open())
+
+    dom.objectToolbar?.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-obj]')
+      if (!button) return
+      event.stopPropagation()
+      this.#onObjectAction(button.dataset.obj)
+    })
+    dom.objectMoreMenu?.addEventListener('click', (event) => {
+      const item = event.target.closest('[data-more]')
+      if (!item) return
+      event.stopPropagation()
+      dom.objectMoreMenu.hidden = true
+      this.#onObjectAction(item.dataset.more)
+    })
     dom.exportPng.addEventListener('click', () => this.exportPng({
       range: dom.exportRange.value,
       scale: Number(dom.exportScale.value)
@@ -185,6 +215,7 @@ export class BoardController {
     await this.canvas.render()
     this.#syncControls()
     this.#syncStatus()
+    this.#syncObjectToolbar()
   }
 
   undo() {
@@ -223,6 +254,7 @@ export class BoardController {
     this.zoom = clamped
     this.canvas.setZoom(clamped, center)
     this.#syncStatus()
+    this.#syncObjectToolbar()
     return clamped
   }
 
@@ -319,6 +351,75 @@ export class BoardController {
     this.#afterChange()
   }
 
+  /**
+   * 让工具栏跟随选中对象。
+   *
+   * 位置用**屏幕坐标**算：对象包围盒经视口变换换算到屏幕，
+   * 工具栏本身尺寸固定，不随画布缩放（规格 2.1）。
+   * 右侧空间不足时翻到左侧；上下钳制在可视区域内。
+   */
+  #syncObjectToolbar() {
+    const toolbar = this.dom.objectToolbar
+    if (!toolbar) return
+    const ids = this.selection
+    if (!ids.length) { toolbar.hidden = true; return }
+
+    const nodes = ids
+      .map((id) => this.scene.nodes.find((n) => n.id === id))
+      .filter(Boolean)
+    if (!nodes.length) { toolbar.hidden = true; return }
+
+    const box = unionBounds(nodes)
+    const view = this.canvas.toScreenRect(box)
+    const stage = this.dom.stage.getBoundingClientRect()
+    const size = toolbar.getBoundingClientRect()
+    const width = size.width || 40
+    const height = size.height || 120
+    const gap = 8
+
+    // 右侧放不下就翻到左侧
+    const flip = view.x + view.width + gap + width > stage.width
+    const left = flip
+      ? Math.max(gap, view.x - width - gap)
+      : Math.min(stage.width - width - gap, view.x + view.width + gap)
+    // 纵向居中并钳制在可视区域内
+    const top = Math.min(
+      Math.max(gap, view.y + view.height / 2 - height / 2),
+      Math.max(gap, stage.height - height - gap)
+    )
+
+    toolbar.classList.toggle('flipped', flip)
+    toolbar.style.left = `${Math.round(left)}px`
+    toolbar.style.top = `${Math.round(top)}px`
+
+    const single = nodes.length === 1
+    const locked = nodes.some((n) => isNodeLocked(n))
+    const isImage = single && nodes[0].type === 'image'
+
+    // 锁定：只提供解锁与只读信息；多选：只提供复制/删除/锁定/置顶/置底
+    for (const button of toolbar.querySelectorAll('[data-obj]')) {
+      const key = button.dataset.obj
+      if (key === 'collapse') continue
+      const allowed =
+        key === 'lock' ? true
+          : key === 'copy' ? !locked
+            : key === 'more' ? true
+              : single && isImage && !locked
+      button.hidden = !allowed
+    }
+    toolbar.querySelector('[data-obj="lock"]')?.setAttribute('aria-pressed', String(locked))
+    toolbar.querySelector('[data-obj="lock"]')?.setAttribute('title', locked ? '解锁' : '锁定')
+    // 「更多」里的 OCR / 钉住只对单选未锁定图片开放
+    const moreMenu = this.dom.objectMoreMenu
+    if (moreMenu) {
+      for (const item of moreMenu.querySelectorAll('[data-more]')) {
+        const key = item.dataset.more
+        item.hidden = (key === 'ocr' || key === 'pin') ? !(isImage && !locked) : false
+      }
+    }
+    toolbar.hidden = false
+  }
+
   #syncControls() {
     if (!this.dom) return
     const has = this.selection.length > 0
@@ -385,6 +486,33 @@ export class BoardController {
     this.#afterChange()
   }
 
+  #onObjectAction(action) {
+    const ids = [...this.selection]
+    if (!ids.length && action !== 'collapse') return
+    const nodes = ids.map((id) => this.scene.nodes.find((n) => n.id === id)).filter(Boolean)
+    switch (action) {
+      case 'collapse':
+        this.dom.objectToolbar.classList.toggle('collapsed')
+        return
+      case 'lock': {
+        const nextLocked = !nodes.some((n) => isNodeLocked(n))
+        for (const node of nodes) setNodeLocked(this.scene, node.id, nextLocked)
+        this.#afterChange()
+        return
+      }
+      case 'more':
+        this.dom.objectMoreMenu.hidden = !this.dom.objectMoreMenu.hidden
+        return
+      case 'front': this.#applyLayer(bringToFront); return
+      case 'back': this.#applyLayer(sendToBack); return
+      case 'delete': this.deleteSelected(); return
+      default:
+        // edit / crop / original / copy / ocr / pin 依赖全屏编辑器与 IPC，
+        // 由 U4 接入；此处不静默失败。
+        this.onStatus({ error: `“${action}”将在 U4 接入` })
+    }
+  }
+
   deleteSelected() {
     if (!this.selection.length) return
     removeNodes(this.scene, [...this.selection])
@@ -419,19 +547,19 @@ export class BoardController {
         width: size.width,
         height: size.height
       })
-      // 新节点按内容右侧顺延摆放，避免叠在一起
-      const bounds = sceneBounds(this.scene)
-      const placeX = bounds.empty ? 40 : bounds.x + bounds.width + 24
-      const placeY = bounds.empty ? 40 : bounds.y
-      // 超大图先按最长边 720px 落位，用户可再放大
-      const scale = Math.min(1, 720 / Math.max(size.width, size.height))
+      const viewport = this.layoutViewport ?? this.canvas.viewportRect()
+      const display = defaultImageSize(size.width, size.height, viewport)
+      // 事务内已放的对象也要参与避让
+      const existing = [...this.scene.nodes, ...this.#batchPlaced]
+      const [spot] = placeNodes([display], existing, viewport)
       const node = addImageNode(this.scene, {
         assetId,
-        x: placeX,
-        y: placeY,
-        width: size.width * scale,
-        height: size.height * scale
+        x: spot.x,
+        y: spot.y,
+        width: display.width,
+        height: display.height
       })
+      this.#batchPlaced.push(node)
       await this.#afterChange()
       return node
     } finally {
@@ -444,9 +572,8 @@ export class BoardController {
     const bounds = sceneBounds(this.scene)
     const x = bounds.empty ? 40 : bounds.x + bounds.width + 24
     const y = bounds.empty ? 40 : bounds.y
-    const node = kind === 'textbox'
-      ? addTextBoxNode(this.scene, { x, y })
-      : addTextNode(this.scene, { x, y })
+    // U2：只保留一种文本对象，kind 参数保留仅为兼容旧调用
+    const node = addTextBoxNode(this.scene, { x, y })
     this.#afterChange().then(() => {
       this.selection = [node.id]
       this.canvas.selectNodes([node.id])
@@ -455,9 +582,21 @@ export class BoardController {
     return node
   }
 
+  /** 开始一次加入事务：冻结视口，清空本批记录。 */
+  beginAddTransaction() {
+    this.layoutViewport = this.canvas.viewportRect()
+    this.#batchPlaced = []
+  }
+
+  endAddTransaction() {
+    this.layoutViewport = null
+    this.#batchPlaced = []
+  }
+
   async #onFilesPicked() {
     const files = [...(this.dom.fileInput.files || [])]
     this.dom.fileInput.value = ''
+    this.beginAddTransaction()
     let added = 0
     for (const file of files) {
       try {
@@ -468,6 +607,7 @@ export class BoardController {
         this.onStatus({ error: `${file.name}：${error.message}` })
       }
     }
+    this.endAddTransaction()
     // 导入结束信号：成功数为 0 时同样要通知，调用方据此清理 pending
     this.onStatus({ imported: added })
   }

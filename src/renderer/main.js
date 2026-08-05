@@ -2491,6 +2491,8 @@ function ensureBoardController() {
     open: document.querySelector('#board-open'),
     save: document.querySelector('#board-save'),
     saveAs: document.querySelector('#board-save-as'),
+    objectToolbar: document.querySelector('#object-toolbar'),
+    objectMoreMenu: document.querySelector('#object-more-menu'),
     exportRange: document.querySelector('#board-export-range'),
     exportScale: document.querySelector('#board-export-scale'),
     exportPng: document.querySelector('#board-export-png'),

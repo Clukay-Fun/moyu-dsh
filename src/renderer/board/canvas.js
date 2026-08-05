@@ -13,6 +13,10 @@ import {
   setNodeText,
   setNodeMetrics,
   isTextNode,
+  isNodeLocked,
+  setNodeRotation,
+  setNodeScale,
+  nodeDisplaySize,
   edgePathPoints,
   NODE_TYPES
 } from './scene.js'
@@ -98,18 +102,26 @@ export class BoardCanvas {
     for (const object of targets) {
       const nodeId = object.boardNodeId
       if (!nodeId) continue
+      const sceneNode = this.scene.nodes.find((n) => n.id === nodeId)
+      // 锁定对象在多选变换中自动跳过（规格 3.2）
+      if (isNodeLocked(sceneNode)) continue
       // 多选时 fabric 的子对象坐标是相对于选区的，必须换算成画布绝对坐标
       const matrix = object.calcTransformMatrix()
       const point = new this.fabric.Point(-object.width / 2, -object.height / 2)
       const absolute = this.fabric.util.transformPoint(point, matrix)
       setNodePosition(this.scene, nodeId, absolute.x, absolute.y)
 
+      // 旋转角度写回（多选时 fabric 的子对象 angle 是相对选区的）
+      const angle = (object.angle || 0) + (event?.target?.type === 'activeSelection' ? (event.target.angle || 0) : 0)
+      if (Number.isFinite(angle)) setNodeRotation(this.scene, nodeId, angle)
+
       const width = object.width * object.scaleX * (event?.target?.scaleX ?? 1)
       const height = object.height * object.scaleY * (event?.target?.scaleY ?? 1)
       if (width > 0 && height > 0) {
-        // 文本节点用 setNodeMetrics（量测口径），图片用 resizeNode（缩放口径）
-        if (isTextNode(this.scene.nodes.find((n) => n.id === nodeId))) {
-          setNodeMetrics(this.scene, nodeId, { width, height })
+        if (isTextNode(sceneNode)) {
+          // 文本框：缩放只改 scale，不动基础字号与基础宽高（规格 4）
+          const scale = width / (sceneNode.width || 1)
+          if (Number.isFinite(scale) && scale > 0) setNodeScale(this.scene, nodeId, scale)
         } else {
           resizeNode(this.scene, nodeId, { width, height })
         }
@@ -189,7 +201,11 @@ export class BoardCanvas {
     if (restore.length === 1) {
       this.canvas.setActiveObject(restore[0])
     } else if (restore.length > 1) {
-      this.canvas.setActiveObject(new this.fabric.ActiveSelection(restore, { canvas: this.canvas }))
+      const selection = new this.fabric.ActiveSelection(restore, { canvas: this.canvas })
+      // 规格 2.1：多选只允许整体移动与等比缩放，不允许整体旋转
+      selection.set({ lockRotation: true, lockUniScaling: true })
+      selection.setControlsVisibility({ mtr: false })
+      this.canvas.setActiveObject(selection)
     }
 
     this.canvas.requestRenderAll()
@@ -206,6 +222,7 @@ export class BoardCanvas {
           (image) => {
             if (!image) return resolve(null)
             const asset = this.scene.assets[node.assetId]
+            const locked = isNodeLocked(node)
             image.set({
               left: node.x,
               top: node.y,
@@ -214,10 +231,22 @@ export class BoardCanvas {
               scaleX: node.width / (asset?.width || image.width || 1),
               scaleY: node.height / (asset?.height || image.height || 1),
               angle: node.rotation || 0,
-              // S1 只做等比缩放：关掉四条边的中点手柄，只留角柄
-              lockUniScaling: true
+              // 规格 2.1：单选图片提供 8 个缩放点 + 正上方旋转柄
+              lockUniScaling: false,
+              hasControls: !locked,
+              lockMovementX: locked,
+              lockMovementY: locked,
+              lockRotation: locked,
+              lockScalingX: locked,
+              lockScalingY: locked,
+              selectable: true,
+              hoverCursor: locked ? 'not-allowed' : 'move'
             })
-            image.setControlsVisibility({ ml: false, mr: false, mt: false, mb: false })
+            image.setControlsVisibility({
+              tl: true, tr: true, bl: true, br: true,
+              ml: true, mr: true, mt: true, mb: true,
+              mtr: !locked
+            })
             resolve(image)
           },
           { crossOrigin: 'anonymous' }
@@ -245,10 +274,17 @@ export class BoardCanvas {
     }
 
     if (node.type === NODE_TYPES.TEXTBOX) {
+      const lockedText = isNodeLocked(node)
       const object = new this.fabric.Textbox(node.text, {
         left: node.x,
         top: node.y,
         width: node.width,
+        scaleX: node.scaleX ?? 1,
+        scaleY: node.scaleY ?? 1,
+        hasControls: !lockedText,
+        lockMovementX: lockedText,
+        lockMovementY: lockedText,
+        lockRotation: lockedText,
         originX: 'left',
         originY: 'top',
         angle: node.rotation || 0,
@@ -262,11 +298,15 @@ export class BoardCanvas {
         strokeWidth: node.style.borderWidth,
         // fabric.Textbox 无内边距概念，用 padding 属性做视觉留白
         padding: node.style.padding,
-        editable: true,
-        // 文本框只允许横向拉宽，高度随换行自动增长
-        lockScalingY: true
+        editable: !lockedText,
+        // 角点等比缩放整个文本框（规格 4）；边中点保留横向拉宽
+        lockUniScaling: false
       })
-      object.setControlsVisibility({ mt: false, mb: false, tl: false, tr: false, bl: false, br: false })
+      object.setControlsVisibility({
+        tl: !lockedText, tr: !lockedText, bl: !lockedText, br: !lockedText,
+        ml: !lockedText, mr: !lockedText, mt: false, mb: false,
+        mtr: !lockedText
+      })
       return Promise.resolve(object)
     }
 
@@ -340,7 +380,10 @@ export class BoardCanvas {
     if (objects.length === 1) {
       this.canvas.setActiveObject(objects[0])
     } else if (objects.length > 1) {
-      this.canvas.setActiveObject(new this.fabric.ActiveSelection(objects, { canvas: this.canvas }))
+      const selection = new this.fabric.ActiveSelection(objects, { canvas: this.canvas })
+      selection.set({ lockRotation: true, lockUniScaling: true })
+      selection.setControlsVisibility({ mtr: false })
+      this.canvas.setActiveObject(selection)
     }
     this.canvas.requestRenderAll()
   }
@@ -404,6 +447,18 @@ export class BoardCanvas {
     const bytes = new Uint8Array(await blob.arrayBuffer())
     staticCanvas.dispose()
     return { bytes, width: element.width, height: element.height }
+  }
+
+  /** 世界坐标矩形 → 画布屏幕坐标矩形（用于让 DOM 工具栏跟随对象）。 */
+  toScreenRect(box) {
+    const vt = this.canvas.viewportTransform
+    const zoom = vt[0] || 1
+    return {
+      x: box.x * zoom + vt[4],
+      y: box.y * zoom + vt[5],
+      width: box.width * zoom,
+      height: box.height * zoom
+    }
   }
 
   /** 当前视口在场景坐标系中的矩形。 */
