@@ -458,14 +458,18 @@ export class BoardController {
   async #onFilesPicked() {
     const files = [...(this.dom.fileInput.files || [])]
     this.dom.fileInput.value = ''
+    let added = 0
     for (const file of files) {
       try {
         const bytes = new Uint8Array(await file.arrayBuffer())
         await this.addImage(bytes, file.type || 'image/png')
+        added += 1
       } catch (error) {
         this.onStatus({ error: `${file.name}：${error.message}` })
       }
     }
+    // 导入结束信号：成功数为 0 时同样要通知，调用方据此清理 pending
+    this.onStatus({ imported: added })
   }
 
   // ── 项目文件 ────────────────────────────────────────────

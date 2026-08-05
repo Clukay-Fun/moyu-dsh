@@ -202,15 +202,6 @@ const submenuData = {
       items: Object.entries(barcodeTypes).map(([name, type]) => [name, type.icon, type.color])
     }
   ],
-  screen: [
-    {
-      heading: '截图',
-      items: [
-        ['区域截图与标注', '⌗', '#6978e6'],
-        ['汇总画布', '▦', '#3c9a5e']
-      ]
-    }
-  ],
   video: [
     {
       heading: '视频',
@@ -253,7 +244,6 @@ const moduleLabels = {
   ai: 'Illustrator',
   bc: '条码',
   image: '图片',
-  screen: '截图',
   video: '格式工厂',
   more: '设置'
 }
@@ -295,14 +285,13 @@ const searchFeatures = [
   ['MSI 条码', '条码', 'bc', 'MSI', '库存 一维码'],
   ['Codabar 条码', '条码', 'bc', 'Codabar', '库德巴码 一维码'],
   ['自动格式条码', '条码', 'bc', 'Auto', 'Auto CODE128 一维码'],
-  ['区域截图与标注', '截图', 'screen', '区域截图与标注', '截图 标注 矩形 箭头 画笔 文字 OCR 钉住'],
-  ['汇总画布', '截图', 'screen', '汇总画布', '画布 汇总 拼图 多图 连接线 文本框 moyuboard'],
+  ['区域截图', '图片', 'image', 'capture', '截图 截屏 抓屏 屏幕 标注'],
   ['图片裁切', '图片', 'image', 'crop', '裁剪 编辑'],
   ['文字水印', '图片', 'image', 'watermark', '水印 编辑'],
   ['调色与马赛克', '图片', 'image', 'adjust', '亮度 对比度 饱和度 像素化'],
+  ['统一画布', '图片', 'image', '', '画布 拼图 多图 文本框 moyuboard 项目 区域'],
+  ['截图复制', '图片', 'image', '', '剪贴板 复制 PNG 截图'],
   ['图片导出', '图片', 'image', 'export', 'PNG JPG WebP TIFF'],
-  ['区域截图', '截图', 'screen', '', '屏幕 截屏 标注'],
-  ['截图复制', '截图', 'screen', '', '剪贴板 PNG'],
   ['视频转换', '格式工厂', 'video', '视频转换', 'FFmpeg MP4 MKV WebM'],
   ['视频压缩', '格式工厂', 'video', '视频压缩', 'FFmpeg CRF 体积'],
   ['抽取音频', '格式工厂', 'video', '抽取音频', '视频 MP3 WAV'],
@@ -311,13 +300,21 @@ const searchFeatures = [
   ['图片压缩', '格式工厂', 'video', '图片压缩', 'sharp 批量 质量'],
   ['主题与强调色', '设置', 'more', '', '外观 深色 浅色 颜色'],
   ['关于摸鱼工具箱', '设置', 'more', '', '版本 作者']
-].map(([name, group, module, action, keywords]) => ({
-  name,
-  group,
-  module,
-  action,
-  searchable: `${name} ${group} ${keywords}`.toLowerCase()
-}))
+].map(([name, group, module, action, keywords]) => {
+  // 守卫：搜索项引用了不存在的模块时，渲染期 moduleLabels[module] 会是 undefined，
+  // .slice() 抛错后既不显示结果也不显示"无匹配"——症状极具迷惑性。
+  // 这里在启动时就炸出来，避免又一次靠人肉排查。
+  if (!moduleLabels[module]) {
+    throw new Error(`搜索项「${name}」引用了不存在的模块：${module}`)
+  }
+  return {
+    name,
+    group,
+    module,
+    action,
+    searchable: `${name} ${group} ${keywords}`.toLowerCase()
+  }
+})
 
 const savedBarcodeStyle = (() => {
   try {
@@ -329,8 +326,7 @@ const savedBarcodeStyle = (() => {
 
 const state = {
   module: 'pdf',
-  selections: { ...defaultSelections,
-    screen: '区域截图与标注'
+  selections: { ...defaultSelections
   },
   activeSearchIndex: 0,
   searchMatches: [],
@@ -445,8 +441,10 @@ function activateModule(module, action = '') {
   } else if (module === 'bc') {
     document.querySelector('#bc-crumb').textContent = state.selections.bc
     if (action) selectBarcodeType(action, true)
-  } else if (module === 'image' && action) {
-    setImageMode(action)
+  } else if (module === 'image') {
+    // U1：image 即统一画布。搜索传来的 action 走工具路由，不再切旧编辑器模式。
+    activateUnifiedCanvas()
+    if (action) requestImageTool(action)
   } else if (module === 'video') {
     setFormatAction(state.selections.video)
   }
@@ -994,8 +992,6 @@ function chooseSubmenu(module, action) {
     updatePdfState(action)
   } else if (module === 'bc') {
     selectBarcodeType(action, true)
-  } else if (module === 'screen') {
-    setScreenPane(action)
   }
 }
 
@@ -2444,11 +2440,10 @@ const screenshotCanvas = new fabric.Canvas('screenshot-canvas-element', {
   selection: true
 })
 // ── 汇总画布（F-009）────────────────────────────────────────
-const screenPanes = {
-  '区域截图与标注': document.querySelector('#screen-pane-capture'),
-  '汇总画布': document.querySelector('#screen-pane-board')
-}
-const screenCrumb = document.querySelector('#screen-crumb')
+// U1：截图与图片合并为单一「图片」模块，统一画布挂在 #page-image。
+// 旧的 screen 双面板已退役，其 DOM 保留但不可达（U6 删除）。
+const canvasSurface = document.querySelector('#canvas-surface')
+const boardFileInput = document.querySelector('#board-file-input')
 
 let boardController = null
 
@@ -2461,10 +2456,11 @@ function ensureBoardController() {
       if (info?.saved) showToast(`已保存：${info.saved.split(/[\\/]/).pop()}`)
       if (info?.opened) showToast(`已打开：${info.opened.split(/[\\/]/).pop()}`)
       if (info?.warn) showToast(info.warn)
+      if (info?.imported !== undefined) consumePendingImageTool(info.imported > 0)
     }
   })
   boardController.mount({
-    pane: screenPanes['汇总画布'],
+    pane: canvasSurface,
     stage: document.querySelector('#board-stage'),
     empty: document.querySelector('#board-empty'),
     statusDot: document.querySelector('#board-status-dot'),
@@ -2534,19 +2530,194 @@ async function currentScreenshotBytes() {
   return new Uint8Array(await response.arrayBuffer())
 }
 
-function setScreenPane(action) {
-  const name = screenPanes[action] ? action : '区域截图与标注'
-  state.selections.screen = name
-  screenCrumb.textContent = name
-  for (const [key, pane] of Object.entries(screenPanes)) {
-    pane.classList.toggle('active', key === name)
+/** 进入图片模块时挂载统一画布。页面刚显示时尺寸才可测，故延后一帧 fit。 */
+function activateUnifiedCanvas() {
+  const controller = ensureBoardController()
+  canvasSurface.classList.add('active-surface')
+  requestAnimationFrame(() => controller.fit())
+  return controller
+}
+
+// ══ U1 · 统一画布命令栏与工具路由 ══════════════════════════
+
+/**
+ * 搜索直达图片工具时的一次性目标。
+ * 只在「无图 → 触发导入 → 导入成功」这条路径上短暂存在；
+ * 取消或失败必须清空，否则下次导入会被上一次的意图劫持。
+ */
+let pendingImageTool = null
+
+const IMAGE_TOOLS = new Set(['crop', 'watermark', 'adjust'])
+
+/**
+ * 打开全屏图片编辑器。
+ *
+ * ⚠ U1 阶段编辑器尚未实现（U4 交付）。这里是**唯一**的接入缝：
+ * 路由、pending 生命周期与锁定拦截都已是真实逻辑并可测，
+ * 只有这一步是占位。U4 把函数体换成真正的编辑器即可，调用方不动。
+ */
+function openImageEditor(node, tool) {
+  showToast(`全屏图片编辑器将在 U4 接入（工具：${tool}）`)
+  return false
+}
+
+/** 当前可编辑的单选图片；不满足条件时返回原因。 */
+function singleEditableImage() {
+  const controller = boardController
+  if (!controller) return { ok: false, reason: 'no-canvas' }
+  const scene = controller.getSceneSnapshot()
+  const ids = controller.inspector().getSelection()
+  if (ids.length !== 1) {
+    return { ok: false, reason: scene.nodes.some((n) => n.type === 'image') ? 'not-single' : 'no-image' }
   }
-  if (name === '汇总画布') {
-    const controller = ensureBoardController()
-    // 面板刚显示时尺寸才可测，必须在切换后再 fit 一次
-    requestAnimationFrame(() => controller.fit())
+  const node = scene.nodes.find((n) => n.id === ids[0])
+  if (!node || node.type !== 'image') return { ok: false, reason: 'not-image' }
+  if (node.locked) return { ok: false, reason: 'locked' }
+  return { ok: true, node }
+}
+
+/**
+ * 搜索直达图片工具的统一入口。
+ *
+ * · 已单选未锁定图片 → 直接打开编辑器并预选工具
+ * · 画布无可编辑图片 → 触发导入，用 pendingImageTool 记住意图
+ * · 选中的是锁定图片 → 提示解锁，不绕过锁定
+ */
+function requestImageTool(tool) {
+  if (tool === 'capture') {
+    startUnifiedCapture('region')
+    return
+  }
+  if (!IMAGE_TOOLS.has(tool)) return
+
+  const pick = singleEditableImage()
+  if (pick.ok) {
+    openImageEditor(pick.node, tool)
+    return
+  }
+  if (pick.reason === 'locked') {
+    showToast('该图片已锁定，请先解锁再编辑')
+    return
+  }
+  if (pick.reason === 'not-single') {
+    showToast('请先单选一张图片再使用该工具')
+    return
+  }
+  // 画布上没有可编辑图片：先导入，导入成功后再打开
+  pendingImageTool = tool
+  boardFileInput.click()
+}
+
+/** 导入结束后消费 pending；无论成功失败都必须清空。 */
+function consumePendingImageTool(imported) {
+  const tool = pendingImageTool
+  pendingImageTool = null
+  if (!tool) return
+  if (!imported) return // 用户取消或导入失败：不打开空编辑器，不污染历史
+  const pick = singleEditableImage()
+  if (pick.ok) openImageEditor(pick.node, tool)
+}
+
+/** 区域截图 / 应用内滚动截图统一入口。 */
+function startUnifiedCapture(kind) {
+  activateUnifiedCanvas()
+  if (kind === 'scroll') {
+    startScrollScreenshotButton?.click()
+    return
+  }
+  startScreenshotButton?.click()
+}
+
+// ── 命令栏：委托到既有实现，不复制第二套逻辑 ──
+const cmdCapture = document.querySelector('#cmd-capture')
+const cmdCaptureMenu = document.querySelector('#cmd-capture-menu')
+const captureMenu = document.querySelector('#capture-menu')
+const cmdImport = document.querySelector('#cmd-import')
+const cmdText = document.querySelector('#cmd-text')
+const cmdProject = document.querySelector('#cmd-project')
+const projectMenu = document.querySelector('#project-menu')
+const cmdBackground = document.querySelector('#cmd-background')
+const backgroundMenu = document.querySelector('#background-menu')
+
+/** 同一时刻只允许一个下拉打开。 */
+function closeAllCmdMenus(except = null) {
+  for (const [trigger, menu] of [
+    [cmdCaptureMenu, captureMenu],
+    [cmdProject, projectMenu],
+    [cmdBackground, backgroundMenu]
+  ]) {
+    if (menu === except) continue
+    menu.hidden = true
+    trigger.setAttribute('aria-expanded', 'false')
   }
 }
+
+function toggleCmdMenu(trigger, menu) {
+  const open = menu.hidden
+  closeAllCmdMenus(open ? menu : null)
+  menu.hidden = !open
+  trigger.setAttribute('aria-expanded', String(open))
+}
+
+cmdCapture.addEventListener('click', () => startUnifiedCapture('region'))
+cmdCaptureMenu.addEventListener('click', (event) => {
+  event.stopPropagation()
+  toggleCmdMenu(cmdCaptureMenu, captureMenu)
+})
+captureMenu.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-capture]')
+  if (!button) return
+  closeAllCmdMenus()
+  startUnifiedCapture(button.dataset.capture)
+})
+
+cmdImport.addEventListener('click', () => {
+  activateUnifiedCanvas()
+  boardFileInput.click()
+})
+cmdText.addEventListener('click', () => {
+  activateUnifiedCanvas()
+  ensureBoardController().addText('textbox')
+})
+
+cmdProject.addEventListener('click', (event) => {
+  event.stopPropagation()
+  toggleCmdMenu(cmdProject, projectMenu)
+})
+projectMenu.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-project]')
+  if (!button) return
+  closeAllCmdMenus()
+  const controller = ensureBoardController()
+  switch (button.dataset.project) {
+    case 'open': void controller.open(); break
+    case 'save': void controller.save(false); break
+    case 'save-as': void controller.save(true); break
+    case 'export-png': void controller.exportPng({ range: 'content', scale: 1 }); break
+    // 新建与导出 JPG 在 U5 / U6 接入；此处只保证入口存在且不静默失败
+    default: showToast(`“${button.textContent.trim()}”将在后续切片接入`)
+  }
+})
+
+cmdBackground.addEventListener('click', (event) => {
+  event.stopPropagation()
+  toggleCmdMenu(cmdBackground, backgroundMenu)
+})
+backgroundMenu.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-bg]')
+  if (!button) return
+  closeAllCmdMenus()
+  showToast('背景与网格将在 U3 / U6 接入')
+})
+
+// 取消文件选择时 change 不会触发，必须靠 cancel 清掉 pending，
+// 否则下次导入会被上一次的意图劫持。
+boardFileInput.addEventListener('cancel', () => consumePendingImageTool(false))
+
+document.addEventListener('click', () => closeAllCmdMenus())
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') closeAllCmdMenus()
+})
 
 const screenshotState = {
   sourceCanvas: null,

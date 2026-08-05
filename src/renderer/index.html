@@ -52,7 +52,6 @@
             <button class="nav-ic" type="button" data-module="ai" data-tip="Illustrator" aria-label="Illustrator">Ai</button>
             <button class="nav-ic" type="button" data-module="bc" data-tip="条码" aria-label="条码">▥</button>
             <button class="nav-ic" type="button" data-module="image" data-tip="图片" aria-label="图片">▧</button>
-            <button class="nav-ic" type="button" data-module="screen" data-tip="截图" aria-label="截图">⌗</button>
             <button class="nav-ic" type="button" data-module="video" data-tip="格式工厂" aria-label="格式工厂">▶</button>
             <div class="rail-spacer"></div>
             <button class="nav-ic" type="button" data-module="more" data-tip="设置" aria-label="设置">⚙</button>
@@ -324,6 +323,139 @@
               </section>
 
               <section class="page" id="page-image">
+                <!-- ══ 统一画布（A 方案 · 顶部命令栏）══ -->
+                <div class="canvas-surface" id="canvas-surface">
+                  <div class="canvas-command-bar">
+                    <div class="split-button" id="capture-split">
+                      <button class="cbtn primary" id="cmd-capture" type="button">区域截图</button>
+                      <button class="cbtn primary split-arrow" id="cmd-capture-menu" type="button"
+                              aria-haspopup="true" aria-expanded="false" aria-label="截图方式">▾</button>
+                      <div class="cmd-menu" id="capture-menu" role="menu" hidden>
+                        <button type="button" role="menuitem" data-capture="region">区域截图</button>
+                        <button type="button" role="menuitem" data-capture="scroll">应用内滚动截图（实验）</button>
+                      </div>
+                    </div>
+                    <button class="cbtn" id="cmd-import" type="button">导入图片</button>
+                    <button class="cbtn" id="cmd-text" type="button">文本框</button>
+                    <div class="menu-wrap">
+                      <button class="cbtn" id="cmd-project" type="button"
+                              aria-haspopup="true" aria-expanded="false">项目 ▾</button>
+                      <div class="cmd-menu" id="project-menu" role="menu" hidden>
+                        <button type="button" role="menuitem" data-project="new">新建</button>
+                        <button type="button" role="menuitem" data-project="open">打开项目</button>
+                        <button type="button" role="menuitem" data-project="save">保存项目</button>
+                        <button type="button" role="menuitem" data-project="save-as">另存为</button>
+                        <hr />
+                        <button type="button" role="menuitem" data-project="export-png">导出 PNG</button>
+                        <button type="button" role="menuitem" data-project="export-jpg">导出 JPG</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="canvas-shell" id="board-stage">
+                    <canvas id="board-canvas-element"></canvas>
+                    <div class="canvas-actions">
+                      <button class="cbtn ghost" id="cmd-background" type="button"
+                              aria-haspopup="true" aria-expanded="false">背景</button>
+                      <div class="cmd-menu align-right" id="background-menu" role="menu" hidden>
+                        <button type="button" role="menuitem" data-bg="transparent">透明</button>
+                        <button type="button" role="menuitem" data-bg="custom">自定义颜色…</button>
+                        <hr />
+                        <button type="button" role="menuitem" data-bg="grid">显示网格</button>
+                        <button type="button" role="menuitem" data-bg="snap">吸附网格</button>
+                      </div>
+                    </div>
+                    <div class="canvas-empty" id="board-empty">
+                      <div class="empty-icon">▦</div>
+                      <div>截图、导入或粘贴图片，都会落到这块画布上</div>
+                      <small>单击编排 · 双击编辑图片</small>
+                    </div>
+                    <!-- 状态条不占布局高度，叠在画布底边且不拦截鼠标 -->
+                    <div class="canvas-status">
+                      <span class="result-dot" id="board-status-dot"></span>
+                      <span id="board-status-text">画布为空</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- ══ 旧实现：保留但不可达，U4 迁移完成后由 U6 删除 ══
+                     DOM 全部保留是有意为之：现有 renderer 仍持有这些 id 的引用，
+                     此阶段只摘除导航可达性，不动逻辑。 -->
+                <div id="legacy-board-controls" hidden aria-hidden="true">
+                  <div class="board-toolbar">
+                    <button class="gbtn" id="board-open" type="button">打开</button>
+                    <button class="gbtn" id="board-save" type="button">保存</button>
+                    <button class="gbtn" id="board-save-as" type="button">另存为</button>
+                    <span class="toolbar-space"></span>
+                    <button class="primary" id="board-add-capture" type="button">添加截图</button>
+                    <button class="gbtn" id="board-add-file" type="button">添加图片文件</button>
+                    <button class="gbtn" id="board-add-text" type="button">插入文字</button>
+                    <button class="gbtn" id="board-add-textbox" type="button">插入文本框</button>
+                    <button class="gbtn" id="board-connect" type="button" aria-pressed="false" disabled hidden>连接</button>
+                    <span class="toolbar-space"></span>
+                    <div class="board-text-style" id="board-text-style" hidden>
+                      <label>字号<input type="number" id="board-font-size" min="8" max="200" step="1" /></label>
+                      <label>颜色<input type="color" id="board-font-color" /></label>
+                      <button class="gbtn" id="board-font-bold" type="button" aria-pressed="false">粗体</button>
+                      <select id="board-text-align" aria-label="对齐">
+                        <option value="left">左对齐</option>
+                        <option value="center">居中</option>
+                        <option value="right">右对齐</option>
+                      </select>
+                    </div>
+                    <div class="board-layer-group">
+                      <button class="gbtn" id="board-front" type="button" disabled>置顶</button>
+                      <button class="gbtn" id="board-forward" type="button" disabled>上移</button>
+                      <button class="gbtn" id="board-backward" type="button" disabled>下移</button>
+                      <button class="gbtn" id="board-back" type="button" disabled>置底</button>
+                    </div>
+                    <div class="board-edge-style" id="board-edge-style" hidden>
+                      <select id="board-edge-shape" aria-label="连线形状">
+                        <option value="line">直线</option>
+                        <option value="elbow">折线</option>
+                      </select>
+                      <select id="board-edge-arrow" aria-label="箭头">
+                        <option value="none">无箭头</option>
+                        <option value="end">单向</option>
+                        <option value="both">双向</option>
+                      </select>
+                      <label>线宽<input type="number" id="board-edge-width" min="1" max="12" step="1" /></label>
+                      <label>颜色<input type="color" id="board-edge-color" /></label>
+                      <button class="gbtn danger" id="board-edge-delete" type="button">删除连线</button>
+                    </div>
+                    <button class="gbtn danger" id="board-delete" type="button" disabled>删除</button>
+                    <div class="board-export-group">
+                      <select id="board-export-range" aria-label="导出范围">
+                        <option value="content">全部内容</option>
+                        <option value="viewport">当前视口</option>
+                        <option value="selection">选中对象</option>
+                      </select>
+                      <select id="board-export-scale" aria-label="导出倍率">
+                        <option value="1">1x</option>
+                        <option value="2">2x</option>
+                        <option value="3">3x</option>
+                      </select>
+                      <button class="gbtn" id="board-export-png" type="button">导出 PNG</button>
+                      <select id="board-pdf-mode" aria-label="PDF 分页">
+                        <option value="fit-single">自适应单页</option>
+                        <option value="a4-landscape">A4 横向分页</option>
+                        <option value="a4-portrait">A4 竖向分页</option>
+                      </select>
+                      <button class="gbtn" id="board-export-pdf" type="button">导出 PDF</button>
+                    </div>
+                    <div class="board-view-group">
+                      <button class="gbtn" id="board-undo" type="button" disabled>撤销</button>
+                      <button class="gbtn" id="board-redo" type="button" disabled>重做</button>
+                      <button class="gbtn" id="board-zoom-out" type="button">−</button>
+                      <span id="board-zoom-label">100%</span>
+                      <button class="gbtn" id="board-zoom-in" type="button">＋</button>
+                      <button class="gbtn" id="board-zoom-fit" type="button">适应</button>
+                      <button class="gbtn" id="board-zoom-reset" type="button">100%</button>
+                    </div>
+                  </div>
+                  <input type="file" id="board-file-input" accept="image/png,image/jpeg,image/webp" multiple hidden />
+                </div>
+                <div id="legacy-image-editor" hidden aria-hidden="true">
                 <div class="crumb">图片 › <b id="image-crumb">裁切</b></div>
                 <div class="image-editor" id="image-editor" data-mode="view">
                   <div class="image-topbar">
@@ -408,9 +540,11 @@
                     </footer>
                   </section>
                 </div>
+                </div>
               </section>
 
-              <section class="page" id="page-screen">
+              <section class="page" id="page-screen" hidden aria-hidden="true">
+                <!-- 旧截图标注页：导航已移除，保留 DOM 供 U4 迁移参考，U6 删除 -->
                 <div class="crumb">截图 › <b id="screen-crumb">区域截图与标注</b></div>
                 <div class="screen-pane active" id="screen-pane-capture">
                 <div class="screenshot-editor">
@@ -490,95 +624,6 @@
                     </footer>
                   </section>
                 </div>
-                </div>
-
-                <div class="screen-pane" id="screen-pane-board">
-                  <div class="board-toolbar">
-                    <button class="gbtn" id="board-open" type="button">打开</button>
-                    <button class="gbtn" id="board-save" type="button">保存</button>
-                    <button class="gbtn" id="board-save-as" type="button">另存为</button>
-                    <span class="toolbar-space"></span>
-                    <button class="primary" id="board-add-capture" type="button">添加截图</button>
-                    <button class="gbtn" id="board-add-file" type="button">添加图片文件</button>
-                    <button class="gbtn" id="board-add-text" type="button">插入文字</button>
-                    <button class="gbtn" id="board-add-textbox" type="button">插入文本框</button>
-                    <button class="gbtn" id="board-connect" type="button" aria-pressed="false" disabled>连接</button>
-                    <span class="toolbar-space"></span>
-                    <div class="board-text-style" id="board-text-style" hidden>
-                      <label>字号<input type="number" id="board-font-size" min="8" max="200" step="1" /></label>
-                      <label>颜色<input type="color" id="board-font-color" /></label>
-                      <button class="gbtn" id="board-font-bold" type="button" aria-pressed="false">粗体</button>
-                      <select id="board-text-align" aria-label="对齐">
-                        <option value="left">左对齐</option>
-                        <option value="center">居中</option>
-                        <option value="right">右对齐</option>
-                      </select>
-                    </div>
-                    <div class="board-layer-group">
-                      <button class="gbtn" id="board-front" type="button" disabled>置顶</button>
-                      <button class="gbtn" id="board-forward" type="button" disabled>上移</button>
-                      <button class="gbtn" id="board-backward" type="button" disabled>下移</button>
-                      <button class="gbtn" id="board-back" type="button" disabled>置底</button>
-                    </div>
-                    <div class="board-edge-style" id="board-edge-style" hidden>
-                      <select id="board-edge-shape" aria-label="连线形状">
-                        <option value="line">直线</option>
-                        <option value="elbow">折线</option>
-                      </select>
-                      <select id="board-edge-arrow" aria-label="箭头">
-                        <option value="none">无箭头</option>
-                        <option value="end">单向</option>
-                        <option value="both">双向</option>
-                      </select>
-                      <label>线宽<input type="number" id="board-edge-width" min="1" max="12" step="1" /></label>
-                      <label>颜色<input type="color" id="board-edge-color" /></label>
-                      <button class="gbtn danger" id="board-edge-delete" type="button">删除连线</button>
-                    </div>
-                    <button class="gbtn danger" id="board-delete" type="button" disabled>删除</button>
-                    <div class="board-export-group">
-                      <select id="board-export-range" aria-label="导出范围">
-                        <option value="content">全部内容</option>
-                        <option value="viewport">当前视口</option>
-                        <option value="selection">选中对象</option>
-                      </select>
-                      <select id="board-export-scale" aria-label="导出倍率">
-                        <option value="1">1x</option>
-                        <option value="2">2x</option>
-                        <option value="3">3x</option>
-                      </select>
-                      <button class="gbtn" id="board-export-png" type="button">导出 PNG</button>
-                      <select id="board-pdf-mode" aria-label="PDF 分页">
-                        <option value="fit-single">自适应单页</option>
-                        <option value="a4-landscape">A4 横向分页</option>
-                        <option value="a4-portrait">A4 竖向分页</option>
-                      </select>
-                      <button class="gbtn" id="board-export-pdf" type="button">导出 PDF</button>
-                    </div>
-                    <div class="board-view-group">
-                      <button class="gbtn" id="board-undo" type="button" disabled>撤销</button>
-                      <button class="gbtn" id="board-redo" type="button" disabled>重做</button>
-                      <button class="gbtn" id="board-zoom-out" type="button">−</button>
-                      <span id="board-zoom-label">100%</span>
-                      <button class="gbtn" id="board-zoom-in" type="button">＋</button>
-                      <button class="gbtn" id="board-zoom-fit" type="button">适应</button>
-                      <button class="gbtn" id="board-zoom-reset" type="button">100%</button>
-                    </div>
-                  </div>
-                  <div class="glass-card board-work">
-                    <div class="board-stage" id="board-stage">
-                      <canvas id="board-canvas-element"></canvas>
-                    </div>
-                    <div class="empty" id="board-empty">
-                      <div class="empty-icon">▦</div>
-                      <div>把多张截图汇总到一张画布</div>
-                      <small>拖动 / 缩放 / 层级 · 稍后支持文字与连接线</small>
-                    </div>
-                  </div>
-                  <div class="glass-card board-status">
-                    <span class="result-dot" id="board-status-dot"></span>
-                    <span id="board-status-text">画布为空</span>
-                  </div>
-                  <input type="file" id="board-file-input" accept="image/png,image/jpeg,image/webp" multiple hidden />
                 </div>
               </section>
 

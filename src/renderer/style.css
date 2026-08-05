@@ -3577,3 +3577,160 @@ input:focus-visible {
   line-height: 1.5;
   color: var(--muted, #7b7f92);
 }
+
+/* ═══════════════════════════════════════════════════════════
+   统一画布 · A 方案（顶部命令栏）
+   规格：v2.1.0-image-canvas-unification.md 第 2 节
+   ═══════════════════════════════════════════════════════════ */
+
+/* 画布页取消内容区内边距，让画布铺满 */
+.content:has(#canvas-surface.active-surface) { padding: 0; }
+#page-image { height: 100%; }
+
+.canvas-surface {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+/* ── 顶部命令栏：独立于画布，不是画布的一部分 ── */
+.canvas-command-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.cbtn {
+  padding: 7px 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-small);
+  color: var(--foreground);
+  background: var(--card-thin);
+  font: 13px var(--font);
+  cursor: pointer;
+  transition:
+    color 140ms ease,
+    background-color 140ms ease,
+    border-color 140ms ease,
+    transform 160ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+@media (hover: hover) and (pointer: fine) {
+  .cbtn:hover { border-color: var(--accent-28); color: var(--accent); }
+}
+.cbtn:active { transform: scale(0.97); }
+.cbtn.primary {
+  border-color: transparent;
+  color: #fff;
+  background: var(--accent);
+}
+@media (hover: hover) and (pointer: fine) {
+  .cbtn.primary:hover { color: #fff; background: rgb(95, 110, 222); }
+}
+.cbtn.ghost {
+  padding: 5px 10px;
+  font-size: 12px;
+  background: var(--card);
+  backdrop-filter: blur(18px) saturate(150%);
+}
+
+/* 截图分裂按钮：视觉是一个整体 */
+.split-button { position: relative; display: flex; }
+.split-button .cbtn:first-child {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.split-button .split-arrow {
+  padding: 7px 8px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left: 1px solid rgba(255, 255, 255, 0.28);
+}
+
+.menu-wrap { position: relative; }
+
+.cmd-menu {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 168px;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--card);
+  box-shadow: var(--shadow-panel);
+  backdrop-filter: blur(24px) saturate(150%);
+}
+.cmd-menu.align-right { left: auto; right: 0; }
+.cmd-menu[hidden] { display: none; }
+.cmd-menu button {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--foreground);
+  background: transparent;
+  font: 13px var(--font);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 110ms ease, color 110ms ease;
+}
+@media (hover: hover) and (pointer: fine) {
+  .cmd-menu button:hover { color: var(--accent); background: var(--accent-10); }
+}
+.cmd-menu button[aria-checked="true"]::after { content: " ✓"; color: var(--accent); }
+.cmd-menu hr { margin: 5px 6px; border: 0; border-top: 1px solid var(--hairline); }
+
+/* ── 画布外壳：无边框、无圆角、无卡片背景，铺满剩余空间 ── */
+.canvas-shell {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.canvas-shell canvas { display: block; }
+
+/* 画布右上角独立操作区 */
+.canvas-actions {
+  position: absolute;
+  z-index: 12;
+  top: 10px;
+  right: 12px;
+}
+
+.canvas-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 6px;
+  color: var(--muted);
+  text-align: center;
+  pointer-events: none;
+}
+.canvas-empty .empty-icon { font-size: 26px; opacity: 0.5; }
+.canvas-empty small { color: var(--faint); font-size: 12px; }
+
+/* 状态条：叠在画布底边，不占布局高度，不拦截鼠标 */
+.canvas-status {
+  position: absolute;
+  z-index: 12;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  color: var(--muted);
+  font-size: 12px;
+  background: linear-gradient(to top, var(--panel), transparent);
+  pointer-events: none;
+}
