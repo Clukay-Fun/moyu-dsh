@@ -579,7 +579,19 @@
                   <div class="board-toolbar">
                     <button class="primary" id="board-add-capture" type="button">添加截图</button>
                     <button class="gbtn" id="board-add-file" type="button">添加图片文件</button>
+                    <button class="gbtn" id="board-add-text" type="button">插入文字</button>
+                    <button class="gbtn" id="board-add-textbox" type="button">插入文本框</button>
                     <span class="toolbar-space"></span>
+                    <div class="board-text-style" id="board-text-style" hidden>
+                      <label>字号<input type="number" id="board-font-size" min="8" max="200" step="1" /></label>
+                      <label>颜色<input type="color" id="board-font-color" /></label>
+                      <button class="gbtn" id="board-font-bold" type="button" aria-pressed="false">粗体</button>
+                      <select id="board-text-align" aria-label="对齐">
+                        <option value="left">左对齐</option>
+                        <option value="center">居中</option>
+                        <option value="right">右对齐</option>
+                      </select>
+                    </div>
                     <div class="board-layer-group">
                       <button class="gbtn" id="board-front" type="button" disabled>置顶</button>
                       <button class="gbtn" id="board-forward" type="button" disabled>上移</button>

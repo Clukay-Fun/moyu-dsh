@@ -3921,3 +3921,35 @@ input:focus-visible {
 .gbtn.danger {
   color: #c0392b;
 }
+
+.board-text-style {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.board-text-style label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.board-text-style input[type='number'] {
+  width: 56px;
+}
+
+.board-text-style input[type='color'] {
+  width: 32px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+}
+
+.board-text-style button[aria-pressed='true'] {
+  font-weight: 700;
+  color: var(--accent, #6978e6);
+}

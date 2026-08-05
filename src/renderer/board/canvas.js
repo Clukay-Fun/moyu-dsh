@@ -10,6 +10,9 @@ import {
   nodesByZ,
   setNodePosition,
   resizeNode,
+  setNodeText,
+  setNodeMetrics,
+  isTextNode,
   NODE_TYPES
 } from './scene.js'
 
@@ -40,6 +43,8 @@ export class BoardCanvas {
     this.canvas.on('selection:created', () => this.#emitSelection())
     this.canvas.on('selection:updated', () => this.#emitSelection())
     this.canvas.on('selection:cleared', () => this.#emitSelection())
+    // 文本编辑结束：把内容与排版后的真实尺寸一并写回场景图
+    this.canvas.on('text:editing:exited', (event) => this.#writeBackText(event?.target))
   }
 
   attach(scene, store) {
@@ -75,11 +80,29 @@ export class BoardCanvas {
       const width = object.width * object.scaleX * (event?.target?.scaleX ?? 1)
       const height = object.height * object.scaleY * (event?.target?.scaleY ?? 1)
       if (width > 0 && height > 0) {
-        resizeNode(this.scene, nodeId, { width, height })
+        // 文本节点用 setNodeMetrics（量测口径），图片用 resizeNode（缩放口径）
+        if (isTextNode(this.scene.nodes.find((n) => n.id === nodeId))) {
+          setNodeMetrics(this.scene, nodeId, { width, height })
+        } else {
+          resizeNode(this.scene, nodeId, { width, height })
+        }
       }
     }
     this.onChange('transform')
     // 写回后按场景图重画一次，确保 fabric 与真值一致（消除累积误差）
+    this.render()
+  }
+
+  #writeBackText(object) {
+    if (!this.scene || !object?.boardNodeId || this.suspendSync) return
+    setNodeText(this.scene, object.boardNodeId, object.text ?? '')
+    // 文本真实宽高只有排版后才知道，必须回填，否则包围盒、连接线锚点、
+    // 导出尺寸都会用估算值。
+    setNodeMetrics(this.scene, object.boardNodeId, {
+      width: object.width * (object.scaleX || 1),
+      height: object.height * (object.scaleY || 1)
+    })
+    this.onChange('text')
     this.render()
   }
 
@@ -131,6 +154,8 @@ export class BoardCanvas {
 
     this.canvas.requestRenderAll()
     this.suspendSync = false
+    // 量测只回填数据，不再触发重画，避免与 render 互相递归
+    this.measureTextNodes()
   }
 
   #createObject(node) {
@@ -159,7 +184,71 @@ export class BoardCanvas {
         )
       })
     }
+
+    if (node.type === NODE_TYPES.TEXT) {
+      const object = new this.fabric.IText(node.text, {
+        left: node.x,
+        top: node.y,
+        originX: 'left',
+        originY: 'top',
+        angle: node.rotation || 0,
+        fontSize: node.style.fontSize,
+        fill: node.style.fill,
+        fontWeight: node.style.fontWeight,
+        textAlign: node.style.textAlign,
+        fontFamily: node.style.fontFamily,
+        // 纯文字：无边框、无底色
+        backgroundColor: '',
+        editable: true
+      })
+      return Promise.resolve(object)
+    }
+
+    if (node.type === NODE_TYPES.TEXTBOX) {
+      const object = new this.fabric.Textbox(node.text, {
+        left: node.x,
+        top: node.y,
+        width: node.width,
+        originX: 'left',
+        originY: 'top',
+        angle: node.rotation || 0,
+        fontSize: node.style.fontSize,
+        fill: node.style.fill,
+        fontWeight: node.style.fontWeight,
+        textAlign: node.style.textAlign,
+        fontFamily: node.style.fontFamily,
+        backgroundColor: node.style.backgroundColor,
+        stroke: node.style.borderColor,
+        strokeWidth: node.style.borderWidth,
+        // fabric.Textbox 无内边距概念，用 padding 属性做视觉留白
+        padding: node.style.padding,
+        editable: true,
+        // 文本框只允许横向拉宽，高度随换行自动增长
+        lockScalingY: true
+      })
+      object.setControlsVisibility({ mt: false, mb: false, tl: false, tr: false, bl: false, br: false })
+      return Promise.resolve(object)
+    }
+
     return Promise.resolve(null)
+  }
+
+  /** 排版后量测：文本对象加入画布后其 width/height 才是真值，需回填场景图。 */
+  measureTextNodes() {
+    if (!this.scene) return false
+    let changed = false
+    for (const node of this.scene.nodes) {
+      if (!isTextNode(node)) continue
+      const object = this.objects.get(node.id)
+      if (!object) continue
+      const width = object.width * (object.scaleX || 1)
+      const height = object.height * (object.scaleY || 1)
+      if (Math.abs(node.width - width) > 0.01 || Math.abs(node.height - height) > 0.01) {
+        setNodeMetrics(this.scene, node.id, { width, height })
+        changed = true
+      }
+    }
+    return changed
   }
 
   selectNodes(ids) {

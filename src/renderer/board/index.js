@@ -7,6 +7,10 @@ import {
   AssetStore,
   registerAsset,
   addImageNode,
+  addTextNode,
+  addTextBoxNode,
+  setNodeStyle,
+  isTextNode,
   removeNodes,
   bringToFront,
   sendToBack,
@@ -50,6 +54,18 @@ export class BoardController {
     dom.forward.addEventListener('click', () => this.#applyLayer(bringForward))
     dom.backward.addEventListener('click', () => this.#applyLayer(sendBackward))
     dom.back.addEventListener('click', () => this.#applyLayer(sendToBack))
+    dom.addText.addEventListener('click', () => this.addText('text'))
+    dom.addTextBox.addEventListener('click', () => this.addText('textbox'))
+    dom.fontSize.addEventListener('change', () =>
+      this.#applyTextStyle({ fontSize: Number(dom.fontSize.value) }))
+    dom.fontColor.addEventListener('change', () =>
+      this.#applyTextStyle({ fill: dom.fontColor.value }))
+    dom.fontBold.addEventListener('click', () => {
+      const on = dom.fontBold.getAttribute('aria-pressed') === 'true'
+      this.#applyTextStyle({ fontWeight: on ? 'normal' : 'bold' })
+    })
+    dom.textAlign.addEventListener('change', () =>
+      this.#applyTextStyle({ textAlign: dom.textAlign.value }))
 
     // Delete / Backspace 删除选中，但在文本编辑态下不拦截
     this.keyHandler = (event) => {
@@ -87,11 +103,35 @@ export class BoardController {
     this.#syncStatus()
   }
 
+  /** 当前选中的文本节点（多选时取全部文本节点）。 */
+  #selectedTextNodes() {
+    return this.selection
+      .map((id) => this.scene.nodes.find((n) => n.id === id))
+      .filter((node) => isTextNode(node))
+  }
+
+  #applyTextStyle(patch) {
+    const nodes = this.#selectedTextNodes()
+    if (!nodes.length) return
+    for (const node of nodes) setNodeStyle(this.scene, node.id, patch)
+    this.#afterChange()
+  }
+
   #syncControls() {
     if (!this.dom) return
     const has = this.selection.length > 0
     const single = this.selection.length === 1
     this.dom.deleteButton.disabled = !has
+    // 文本样式栏只在选中文本节点时出现，避免出现改不动的控件
+    const textNodes = this.#selectedTextNodes()
+    this.dom.textStyle.hidden = textNodes.length === 0
+    if (textNodes.length) {
+      const first = textNodes[0]
+      this.dom.fontSize.value = String(first.style.fontSize)
+      this.dom.fontColor.value = first.style.fill
+      this.dom.fontBold.setAttribute('aria-pressed', String(first.style.fontWeight === 'bold'))
+      this.dom.textAlign.value = first.style.textAlign
+    }
     // 层级操作一次只作用于一个节点，多选时不提供（避免相对顺序歧义）
     for (const button of [this.dom.front, this.dom.forward, this.dom.backward, this.dom.back]) {
       button.disabled = !single
@@ -164,6 +204,22 @@ export class BoardController {
     } finally {
       URL.revokeObjectURL(url)
     }
+  }
+
+  /** 在内容右侧插入文本节点。 */
+  addText(kind) {
+    const bounds = sceneBounds(this.scene)
+    const x = bounds.empty ? 40 : bounds.x + bounds.width + 24
+    const y = bounds.empty ? 40 : bounds.y
+    const node = kind === 'textbox'
+      ? addTextBoxNode(this.scene, { x, y })
+      : addTextNode(this.scene, { x, y })
+    this.#afterChange().then(() => {
+      this.selection = [node.id]
+      this.canvas.selectNodes([node.id])
+      this.#syncControls()
+    })
+    return node
   }
 
   async #onFilesPicked() {

@@ -11,8 +11,28 @@
 
 export const BOARD_SCENE_VERSION = 1
 
-/** 节点类型。S2 会加 text / textbox，S3 加 edge。 */
-export const NODE_TYPES = { IMAGE: 'image' }
+/** 节点类型。S3 加 edge（边单独存在 scene.edges，不占 nodes）。 */
+export const NODE_TYPES = { IMAGE: 'image', TEXT: 'text', TEXTBOX: 'textbox' }
+
+/** 文本默认样式，两类文本节点共用。 */
+export const TEXT_DEFAULTS = {
+  fontSize: 20,
+  fill: '#171820',
+  fontWeight: 'normal',
+  textAlign: 'left',
+  fontFamily: 'system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif'
+}
+
+/** 文本框特有样式。纯文字节点无边框无底色。 */
+export const TEXTBOX_DEFAULTS = {
+  backgroundColor: '#ffffff',
+  borderColor: '#d8dae5',
+  borderWidth: 1,
+  padding: 10
+}
+
+/** 文本框默认宽度。这是**节点尺寸**不是样式，故不放进 style。 */
+export const TEXTBOX_DEFAULT_WIDTH = 260
 
 let idCounter = 0
 /** 生成场景内唯一 id。测试可通过 resetBoardIds() 复位以获得确定性输出。 */
@@ -132,6 +152,90 @@ export function addImageNode(scene, { assetId, x = 0, y = 0, width, height }) {
   }
   scene.nodes.push(node)
   normalizeZIndex(scene)
+  return node
+}
+
+/**
+ * 纯文字节点：无边框无底色，宽高由文本内容决定（由渲染层量测后回填）。
+ */
+export function addTextNode(scene, { text = '双击编辑文字', x = 0, y = 0, style = {} }) {
+  const node = {
+    id: nextBoardId('t'),
+    type: NODE_TYPES.TEXT,
+    text: String(text),
+    x,
+    y,
+    // 初始尺寸为估算值，渲染层量测后会通过 setNodeMetrics 回填真实值
+    width: Math.max(1, String(text).length * (style.fontSize ?? TEXT_DEFAULTS.fontSize) * 0.6),
+    height: (style.fontSize ?? TEXT_DEFAULTS.fontSize) * 1.4,
+    rotation: 0,
+    zIndex: scene.nodes.length,
+    style: { ...TEXT_DEFAULTS, ...style }
+  }
+  scene.nodes.push(node)
+  normalizeZIndex(scene)
+  return node
+}
+
+/**
+ * 文本框节点：有边框/底色/内边距，宽度由用户设定，高度随换行增长。
+ */
+export function addTextBoxNode(scene, { text = '双击编辑文本框', x = 0, y = 0, width, style = {} }) {
+  const merged = { ...TEXT_DEFAULTS, ...TEXTBOX_DEFAULTS, ...style }
+  const node = {
+    id: nextBoardId('tb'),
+    type: NODE_TYPES.TEXTBOX,
+    text: String(text),
+    x,
+    y,
+    width: width ?? TEXTBOX_DEFAULT_WIDTH,
+    height: merged.fontSize * 1.4 + merged.padding * 2,
+    rotation: 0,
+    zIndex: scene.nodes.length,
+    style: merged
+  }
+  scene.nodes.push(node)
+  normalizeZIndex(scene)
+  return node
+}
+
+export function isTextNode(node) {
+  return node?.type === NODE_TYPES.TEXT || node?.type === NODE_TYPES.TEXTBOX
+}
+
+/** 改文本内容。宽高由渲染层量测后经 setNodeMetrics 回填。 */
+export function setNodeText(scene, id, text) {
+  const node = findNode(scene, id)
+  if (!isTextNode(node)) throw new Error(`节点 ${id} 不是文本节点`)
+  node.text = String(text)
+  return node
+}
+
+/** 改文本样式（只允许白名单字段，避免把任意属性写进场景图）。 */
+const TEXT_STYLE_KEYS = new Set([
+  'fontSize', 'fill', 'fontWeight', 'textAlign', 'fontFamily',
+  'backgroundColor', 'borderColor', 'borderWidth', 'padding'
+])
+
+export function setNodeStyle(scene, id, patch) {
+  const node = findNode(scene, id)
+  if (!isTextNode(node)) throw new Error(`节点 ${id} 不是文本节点`)
+  for (const [key, value] of Object.entries(patch)) {
+    if (!TEXT_STYLE_KEYS.has(key)) throw new Error(`不支持的文本样式：${key}`)
+    node.style[key] = value
+  }
+  return node
+}
+
+/**
+ * 渲染层量测回填。
+ * 文本的真实宽高只有排版后才知道，量测结果必须写回场景图，
+ * 否则包围盒、连接线锚点、导出尺寸都会用错值。
+ */
+export function setNodeMetrics(scene, id, { width, height }) {
+  const node = findNode(scene, id)
+  if (Number.isFinite(width) && width > 0) node.width = width
+  if (Number.isFinite(height) && height > 0) node.height = height
   return node
 }
 
@@ -272,6 +376,18 @@ export function validateScene(scene) {
     ids.add(node.id)
     if (node.type === NODE_TYPES.IMAGE && !scene.assets[node.assetId]) {
       throw new Error(`节点 ${node.id} 引用了不存在的资源 ${node.assetId}`)
+    }
+    if (isTextNode(node)) {
+      if (typeof node.text !== 'string') throw new Error(`节点 ${node.id} 的 text 非字符串`)
+      if (!node.style || typeof node.style !== 'object') {
+        throw new Error(`节点 ${node.id} 缺少 style`)
+      }
+      for (const key of Object.keys(node.style)) {
+        if (!TEXT_STYLE_KEYS.has(key)) throw new Error(`节点 ${node.id} 含不支持的样式 ${key}`)
+      }
+    }
+    if (!Object.values(NODE_TYPES).includes(node.type)) {
+      throw new Error(`节点 ${node.id} 类型未知：${node.type}`)
     }
     for (const key of ['x', 'y', 'width', 'height', 'zIndex']) {
       if (!Number.isFinite(node[key])) throw new Error(`节点 ${node.id} 的 ${key} 非有限数`)
