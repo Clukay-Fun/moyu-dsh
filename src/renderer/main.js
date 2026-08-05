@@ -3686,7 +3686,7 @@ function renderBarcodeSpecReport(typeName) {
 
   const rows = [
     pending
-      ? ['合规状态', '待定 · 符号外首位数字水平位置尚待规范确认，当前为版式实现值，暂不标注生产合规']
+      ? ['合规状态', '待定 · 符号外首位数字水平位置需 ISO/IEC 15420 确认（本版未采购该规范），当前为版式实现值，不标注生产合规']
       : ['规范', 'GS1 GenSpecs 26.0.0 · Table 5-44 · 零售 POS'],
     ...(pending ? [['已锁定依据', 'GS1 GenSpecs 26.0.0 · Table 5-44（条空、静区、条高、Table 5-10 补偿）']] : []),
     ['放大系数', '标准 100%'],

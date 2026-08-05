@@ -136,6 +136,10 @@ const RETAIL_SPECS = {
       // 因此**不设 outsideMaxInkWidthX / outsideEdgeGapX**（那是 UPC-A 专有值），
       // 下面是**版式实现值，不是规范值**；在锁定前 EAN-13 不标生产合规。
       outsideFirstProvisionalOffsetX: 5,
+      // 符号外首位数字的水平位置由 ISO/IEC 15420 规定，GS1 GenSpecs 未涵盖。
+      // 本版**明确决定不采购该规范**，故此项长期保持待定：
+      // 其余参数（条空、静区、条高、Table 5-10 补偿）均已按 GS1 锁定，
+      // 只有这一项不作生产合规声明。不得用商业软件反推的实测值解除。
       placementPending: true
     }
   },
