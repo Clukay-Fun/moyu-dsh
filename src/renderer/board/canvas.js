@@ -44,7 +44,24 @@ export class BoardCanvas {
       selection: true
     })
 
-    this.canvas.on('object:modified', (event) => this.#writeBack(event))
+    this.canvas.on('object:modified', (event) => {
+      this.#writeBack(event)
+      this.onObjectMoved?.()
+    })
+    // 拖动过程中实时吸附：把 fabric 的临时位置换算成世界包围盒交给上层
+    this.canvas.on('object:moving', (event) => {
+      const object = event.target
+      if (!object?.boardNodeId || !this.onObjectMoving) return
+      const width = object.width * (object.scaleX || 1)
+      const height = object.height * (object.scaleY || 1)
+      const snap = this.onObjectMoving(object.boardNodeId, {
+        x: object.left, y: object.top, width, height
+      })
+      if (snap && (snap.dx || snap.dy)) {
+        object.set({ left: object.left + snap.dx, top: object.top + snap.dy })
+        object.setCoords()
+      }
+    })
     this.canvas.on('selection:created', () => this.#emitSelection())
     this.canvas.on('selection:updated', () => this.#emitSelection())
     this.canvas.on('selection:cleared', () => this.#emitSelection())
@@ -413,6 +430,7 @@ export class BoardCanvas {
 
   pan(dx, dy) {
     this.canvas.relativePan(new this.fabric.Point(dx, dy))
+    this.onViewportChanged?.()
   }
 
   resize(width, height) {

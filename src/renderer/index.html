@@ -365,7 +365,14 @@
                         <button type="button" role="menuitem" data-bg="snap">吸附网格</button>
                       </div>
                     </div>
-                    <!-- 跟随选中对象的竖向工具栏：屏幕固定尺寸，不随画布缩放 -->
+                    <!-- 辅助层：标尺 / 网格 / 参考线 / 对齐线。
+                   全部画在视口层，不进场景、不进包围盒、不参与导出。 -->
+              <canvas id="board-overlay" class="board-overlay"></canvas>
+              <div class="ruler ruler-x" id="ruler-x"></div>
+              <div class="ruler ruler-y" id="ruler-y"></div>
+              <div class="ruler-corner"></div>
+
+              <!-- 跟随选中对象的竖向工具栏：屏幕固定尺寸，不随画布缩放 -->
               <div class="object-toolbar" id="object-toolbar" hidden>
                 <button class="obj-btn" data-obj="collapse" type="button" title="收起">‹</button>
                 <div class="obj-group" id="obj-actions">

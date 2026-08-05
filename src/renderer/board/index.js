@@ -34,6 +34,11 @@ import { BoardHistory } from './history.js'
 import { packBoard, unpackBoard } from './container.js'
 import { exportBounds, planExport, planPdfPages, describePlan } from './export.js'
 import { defaultImageSize, placeNodes, LAYOUT } from './layout.js'
+import { BoardOverlay } from './overlay.js'
+import {
+  createGuide, moveGuide, removeGuide, shouldDropGuide, validateGuides,
+  computeSnap, RULER, GRID
+} from './guides.js'
 
 /** 单张图片上限，与主进程截图上限口径一致。 */
 const MAX_IMAGE_BYTES = 100 * 1024 * 1024
@@ -68,6 +73,13 @@ export class BoardController {
      * 否则同一批图片在不同时序下会落到不同位置。
      */
     this.layoutViewport = null
+    /** 参考线（世界坐标），随工程保存但不导出 */
+    this.guides = []
+    /** 网格两个开关互相独立，默认关闭 */
+    this.showGrid = false
+    this.snapGrid = false
+    /** 拖动期间的临时对齐线 */
+    this.alignLines = []
     /** 本事务已放置的节点，参与后续避让 */
     this.#batchPlaced = []
     this.ready = false
@@ -92,6 +104,18 @@ export class BoardController {
       }
     })
     this.canvas.attach(this.scene, this.store)
+
+    // 辅助层：标尺 / 网格 / 参考线 / 对齐线
+    this.overlay = new BoardOverlay({
+      overlayCanvas: dom.overlay,
+      rulerX: dom.rulerX,
+      rulerY: dom.rulerY
+    })
+    this.#bindRulerDrag()
+    // 拖动时实时吸附并显示对齐线
+    this.canvas.onObjectMoving = (nodeId, bounds) => this.#applySnap(nodeId, bounds)
+    this.canvas.onObjectMoved = () => { this.alignLines = []; this.renderOverlay() }
+    this.canvas.onViewportChanged = () => this.renderOverlay()
     this.canvas.onWheelZoom = (deltaY, point) => {
       this.zoomBy(deltaY > 0 ? 1 / 1.1 : 1.1, point)
     }
@@ -199,6 +223,7 @@ export class BoardController {
     const rect = this.dom.stage.getBoundingClientRect()
     if (rect.width < 1 || rect.height < 1) return
     this.canvas.resize(Math.round(rect.width), Math.round(rect.height))
+    this.renderOverlay()
   }
 
   /**
@@ -216,6 +241,7 @@ export class BoardController {
     this.#syncControls()
     this.#syncStatus()
     this.#syncObjectToolbar()
+    this.renderOverlay()
   }
 
   undo() {
@@ -255,6 +281,7 @@ export class BoardController {
     this.canvas.setZoom(clamped, center)
     this.#syncStatus()
     this.#syncObjectToolbar()
+    this.renderOverlay()
     return clamped
   }
 
@@ -358,6 +385,90 @@ export class BoardController {
    * 工具栏本身尺寸固定，不随画布缩放（规格 2.1）。
    * 右侧空间不足时翻到左侧；上下钳制在可视区域内。
    */
+  /** 重绘辅助层。视口、缩放、参考线、网格变化时调用。 */
+  renderOverlay() {
+    if (!this.overlay || !this.dom) return
+    const rect = this.dom.stage.getBoundingClientRect()
+    this.overlay.render({
+      viewport: this.canvas.viewportRect(),
+      zoom: this.zoom,
+      guides: this.guides,
+      alignLines: this.alignLines,
+      showGrid: this.showGrid,
+      stage: { width: rect.width, height: rect.height }
+    })
+  }
+
+  /** 拖动中计算吸附并回写位移。 */
+  #applySnap(nodeId, bounds) {
+    const others = this.scene.nodes.filter((n) => n.id !== nodeId)
+    const snap = computeSnap({
+      movingBounds: bounds,
+      others,
+      guides: this.guides,
+      zoom: this.zoom,
+      snapGrid: this.snapGrid
+    })
+    this.alignLines = snap.lines
+    this.renderOverlay()
+    return snap
+  }
+
+  /** 从标尺拖出参考线；拖回标尺即删除。 */
+  #bindRulerDrag() {
+    const start = (axis) => (event) => {
+      event.preventDefault()
+      const rect = this.dom.stage.getBoundingClientRect()
+      const viewport = this.canvas.viewportRect()
+      const orientation = axis === 'x' ? 'horizontal' : 'vertical'
+      const guide = createGuide(orientation, 0)
+      this.guides.push(guide)
+
+      const move = (moveEvent) => {
+        const screen = axis === 'x'
+          ? moveEvent.clientY - rect.top
+          : moveEvent.clientX - rect.left
+        const world = axis === 'x'
+          ? viewport.y + (screen - RULER.sizeY) / this.zoom
+          : viewport.x + (screen - RULER.sizeX) / this.zoom
+        moveGuide(this.guides, guide.id, world)
+        this.renderOverlay()
+      }
+      const end = (upEvent) => {
+        document.removeEventListener('pointermove', move)
+        document.removeEventListener('pointerup', end)
+        const screen = axis === 'x'
+          ? upEvent.clientY - rect.top
+          : upEvent.clientX - rect.left
+        // 拖回标尺栏内即删除
+        if (shouldDropGuide(orientation, screen)) {
+          removeGuide(this.guides, guide.id)
+        }
+        this.renderOverlay()
+        this.#markDirty()
+      }
+      document.addEventListener('pointermove', move)
+      document.addEventListener('pointerup', end)
+    }
+    this.dom.rulerX?.addEventListener('pointerdown', start('x'))
+    this.dom.rulerY?.addEventListener('pointerdown', start('y'))
+  }
+
+  #markDirty() {
+    this.dirty = true
+    this.#reportDirty()
+    this.#syncStatus()
+  }
+
+  setShowGrid(value) {
+    this.showGrid = Boolean(value)
+    this.renderOverlay()
+  }
+
+  setSnapGrid(value) {
+    this.snapGrid = Boolean(value)
+  }
+
   #syncObjectToolbar() {
     const toolbar = this.dom.objectToolbar
     if (!toolbar) return

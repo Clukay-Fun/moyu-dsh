@@ -2491,6 +2491,9 @@ function ensureBoardController() {
     open: document.querySelector('#board-open'),
     save: document.querySelector('#board-save'),
     saveAs: document.querySelector('#board-save-as'),
+    overlay: document.querySelector('#board-overlay'),
+    rulerX: document.querySelector('#ruler-x'),
+    rulerY: document.querySelector('#ruler-y'),
     objectToolbar: document.querySelector('#object-toolbar'),
     objectMoreMenu: document.querySelector('#object-more-menu'),
     exportRange: document.querySelector('#board-export-range'),
@@ -2709,7 +2712,21 @@ backgroundMenu.addEventListener('click', (event) => {
   const button = event.target.closest('[data-bg]')
   if (!button) return
   closeAllCmdMenus()
-  showToast('背景与网格将在 U3 / U6 接入')
+  const controller = ensureBoardController()
+  const key = button.dataset.bg
+  if (key === 'grid') {
+    const next = button.getAttribute('aria-checked') !== 'true'
+    button.setAttribute('aria-checked', String(next))
+    controller.setShowGrid(next)
+    return
+  }
+  if (key === 'snap') {
+    const next = button.getAttribute('aria-checked') !== 'true'
+    button.setAttribute('aria-checked', String(next))
+    controller.setSnapGrid(next)
+    return
+  }
+  showToast('背景颜色将在 U6 接入')
 })
 
 // 取消文件选择时 change 不会触发，必须靠 cancel 清掉 pending，
