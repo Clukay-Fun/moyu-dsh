@@ -5,6 +5,7 @@ import { getDocument, GlobalWorkerOptions, ImageKind, OPS } from 'pdfjs-dist'
 import { createQpdfRunner } from 'qpdf-run'
 import { parse as parseOpenType } from 'opentype.js'
 import { isRetailType, renderRetailBarcode, computeRetailGeometry } from './retailBarcode.js'
+import { BoardController } from './board/index.js'
 import {
   isGenericType, renderGenericBarcode, computeGenericGeometry, genericRasterSize, resolveGenericTypeName,
   GENERIC_DEFAULTS, CODE39_DEFAULTS, CODABAR_DEFAULTS, MSI_DEFAULTS
@@ -211,6 +212,15 @@ const submenuData = {
       ]
     }
   ],
+  screen: [
+    {
+      heading: '截图',
+      items: [
+        ['区域截图与标注', '⌗', '#6978e6'],
+        ['汇总画布', '▦', '#3c9a5e']
+      ]
+    }
+  ],
   video: [
     {
       heading: '视频',
@@ -297,6 +307,8 @@ const searchFeatures = [
   ['MSI 条码', '条码', 'bc', 'MSI', '库存 一维码'],
   ['Codabar 条码', '条码', 'bc', 'Codabar', '库德巴码 一维码'],
   ['自动格式条码', '条码', 'bc', 'Auto', 'Auto CODE128 一维码'],
+  ['区域截图与标注', '截图', 'screen', '区域截图与标注', '截图 标注 矩形 箭头 画笔 文字 OCR 钉住'],
+  ['汇总画布', '截图', 'screen', '汇总画布', '画布 汇总 拼图 多图 连接线 文本框 moyuboard'],
   ['图片裁切', '图片', 'image', 'crop', '裁剪 编辑'],
   ['文字水印', '图片', 'image', 'watermark', '水印 编辑'],
   ['调色与马赛克', '图片', 'image', 'adjust', '亮度 对比度 饱和度 像素化'],
@@ -329,7 +341,9 @@ const savedBarcodeStyle = (() => {
 
 const state = {
   module: 'pdf',
-  selections: { ...defaultSelections },
+  selections: { ...defaultSelections,
+    screen: '区域截图与标注'
+  },
   activeSearchIndex: 0,
   searchMatches: [],
   barcodeMode: 'single',
@@ -1001,6 +1015,8 @@ function chooseSubmenu(module, action) {
     selectBarcodeType(action, true)
   } else if (module === 'aimg') {
     setAiMode(action)
+  } else if (module === 'screen') {
+    setScreenPane(action)
   }
 }
 
@@ -2448,6 +2464,79 @@ const screenshotCanvas = new fabric.Canvas('screenshot-canvas-element', {
   preserveObjectStacking: true,
   selection: true
 })
+// ── 汇总画布（F-009）────────────────────────────────────────
+const screenPanes = {
+  '区域截图与标注': document.querySelector('#screen-pane-capture'),
+  '汇总画布': document.querySelector('#screen-pane-board')
+}
+const screenCrumb = document.querySelector('#screen-crumb')
+
+let boardController = null
+
+function ensureBoardController() {
+  if (boardController) return boardController
+  boardController = new BoardController({
+    fabric,
+    onStatus: (info) => {
+      if (info?.error) showToast(info.error)
+    }
+  })
+  boardController.mount({
+    pane: screenPanes['汇总画布'],
+    stage: document.querySelector('#board-stage'),
+    empty: document.querySelector('#board-empty'),
+    statusDot: document.querySelector('#board-status-dot'),
+    statusText: document.querySelector('#board-status-text'),
+    addCapture: document.querySelector('#board-add-capture'),
+    addFile: document.querySelector('#board-add-file'),
+    fileInput: document.querySelector('#board-file-input'),
+    deleteButton: document.querySelector('#board-delete'),
+    front: document.querySelector('#board-front'),
+    forward: document.querySelector('#board-forward'),
+    backward: document.querySelector('#board-backward'),
+    back: document.querySelector('#board-back')
+  })
+  // 只读检视接口：仅暴露读取方法，无法修改画布状态
+  window.__moyuBoard = boardController.inspector()
+
+  // 「添加截图」把当前标注面板的成果送进画布
+  document.querySelector('#board-add-capture').addEventListener('click', async () => {
+    try {
+      const bytes = await currentScreenshotBytes()
+      if (!bytes) {
+        showToast('还没有截图，请先在「区域截图与标注」中截取')
+        return
+      }
+      await boardController.addImage(bytes, 'image/png')
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '添加截图失败')
+    }
+  })
+  return boardController
+}
+
+/** 取当前截图编辑器的画面字节；无截图时返回 null。 */
+async function currentScreenshotBytes() {
+  if (!screenshotState?.sourceCanvas) return null
+  const dataUrl = screenshotCanvas.toDataURL({ format: 'png' })
+  const response = await fetch(dataUrl)
+  return new Uint8Array(await response.arrayBuffer())
+}
+
+function setScreenPane(action) {
+  const name = screenPanes[action] ? action : '区域截图与标注'
+  state.selections.screen = name
+  screenCrumb.textContent = name
+  for (const [key, pane] of Object.entries(screenPanes)) {
+    pane.classList.toggle('active', key === name)
+  }
+  if (name === '汇总画布') {
+    const controller = ensureBoardController()
+    // 面板刚显示时尺寸才可测，必须在切换后再 fit 一次
+    requestAnimationFrame(() => controller.fit())
+  }
+}
+
 const screenshotState = {
   sourceCanvas: null,
   width: 0,
