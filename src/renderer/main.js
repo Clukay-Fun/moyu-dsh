@@ -7,6 +7,7 @@ import { parse as parseOpenType } from 'opentype.js'
 import { isRetailType, renderRetailBarcode, computeRetailGeometry } from './retailBarcode.js'
 import { BoardController } from './board/index.js'
 import { ImageEditorModal } from './board/editor/modal.js'
+import { RecoveryScheduler } from './board/recovery.js'
 import { cleanIpcError, illustratorFailureHint, isComCancelled } from './comErrors.js'
 import {
   isGenericType, renderGenericBarcode, computeGenericGeometry, genericRasterSize, resolveGenericTypeName,
@@ -2463,6 +2464,25 @@ function ensureBoardController() {
   })
   // 双击图片与对象工具栏的 编辑/裁切 都走这里（U4）
   boardController.onEditImage = (image, tool) => openImageEditor(image, tool)
+
+  // 新建 / 打开 / 退出前的统一确认：保存 / 不保存 / 取消（规格 7.2）
+  boardController.onConfirmDiscard = (actionLabel) => {
+    const save = window.confirm(
+      `当前画布有未保存的改动。\n\n确定 = 先保存再${actionLabel}\n取消 = 不保存`)
+    if (save) return 'save'
+    return window.confirm(`不保存直接${actionLabel}？未保存的改动会丢失。`) ? 'discard' : 'cancel'
+  }
+
+  // 崩溃恢复：3 秒 debounce / 30 秒 max-wait（规格 7.3）
+  boardController.attachRecovery(new RecoveryScheduler({
+    write: async () => {
+      const bytes = boardController.packForRecovery()
+      await window.api.writeRecovery({ data: bytes, projectPath: boardController.filePath })
+    },
+    // 快照失败不能打断用户操作，只提示一次
+    onError: (error) => showToast(`恢复快照写入失败：${error.message}`)
+  }))
+
   boardController.mount({
     pane: canvasSurface,
     stage: document.querySelector('#board-stage'),
@@ -2540,10 +2560,53 @@ async function currentScreenshotBytes() {
 }
 
 /** 进入图片模块时挂载统一画布。页面刚显示时尺寸才可测，故延后一帧 fit。 */
+/**
+ * 启动时检查上次是否异常退出。
+ *
+ * 只在用户第一次进入画布时问一次：放弃后立即删除快照，
+ * 不能每次切页面都再弹一遍（规格 7.3）。
+ */
+let recoveryPrompted = false
+
+async function checkRecoverySnapshot(controller) {
+  if (recoveryPrompted) return
+  recoveryPrompted = true
+  let found
+  try {
+    found = await window.api.readRecovery()
+  } catch (error) {
+    showToast(`读取恢复快照失败：${error.message}`)
+    return
+  }
+  if (found?.status === 'corrupt') {
+    // 明确报错但**不覆盖正式工程**，也不静默吞掉
+    showToast(`上次的恢复快照不可用：${found.reason}`)
+    await window.api.clearRecovery().catch(() => {})
+    return
+  }
+  if (found?.status !== 'found') return
+
+  const when = new Date(found.savedAt).toLocaleString('zh-CN')
+  const name = found.projectPath ? found.projectPath.split(/[\\/]/).pop() : '未命名画布'
+  if (!window.confirm(`检测到上次异常退出时的画布（${name}，${when}）。\n\n恢复它吗？取消将丢弃。`)) {
+    await window.api.clearRecovery().catch(() => {})
+    showToast('已丢弃上次的恢复快照')
+    return
+  }
+  try {
+    await controller.loadRecovered(found.data, found.projectPath)
+    showToast('已恢复上次异常退出前的画布，仍需另行保存')
+  } catch (error) {
+    // 恢复失败也不能动用户的正式工程
+    showToast(`恢复失败：${error.message}`)
+  }
+}
+
 function activateUnifiedCanvas() {
   const controller = ensureBoardController()
   canvasSurface.classList.add('active-surface')
   requestAnimationFrame(() => controller.fit())
+  checkRecoverySnapshot(controller)
   return controller
 }
 

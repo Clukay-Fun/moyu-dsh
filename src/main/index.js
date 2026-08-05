@@ -23,6 +23,7 @@ import {
   readFile,
   readdir,
   rename,
+  rm,
   stat,
   unlink,
   writeFile
@@ -1884,6 +1885,97 @@ ipcMain.handle('board:open', async (event) => {
   }
   const data = await readFile(filePath)
   return { status: 'opened', path: filePath, data: new Uint8Array(data) }
+})
+
+// ── 崩溃恢复快照（U5 / 规格 7.3）─────────────────────────────
+//
+// 恢复文件放在 userData 下，**不覆盖用户的正式工程**。
+// 同时只维护当前画布一份。
+
+function recoveryFilePath() {
+  return join(app.getPath('userData'), 'board-recovery.moyuboard')
+}
+
+/**
+ * 原子写：先写同目录下的临时文件，fsync 后再 rename 覆盖。
+ *
+ * 直接写目标文件的话，进程在写到一半时被杀（而这正是恢复功能要应对的
+ * 场景）会留下半个文件，下次启动读到的是"看起来有、其实坏掉"的快照——
+ * 比没有快照更糟。rename 在同一文件系统内是原子的。
+ */
+async function writeFileAtomic(filePath, data) {
+  const temporary = `${filePath}.${process.pid}.tmp`
+  const handle = await open(temporary, 'w')
+  try {
+    await handle.writeFile(data)
+    await handle.sync()
+  } finally {
+    await handle.close()
+  }
+  await rename(temporary, filePath)
+}
+
+ipcMain.handle('recovery:write', async (event, payload) => {
+  assertMainWindowSender(event)
+  const data = payload?.data instanceof Uint8Array ? Buffer.from(payload.data) : null
+  if (!data || !data.byteLength) throw new Error('恢复数据为空')
+  if (data.byteLength > MOYUBOARD_MAX_BYTES) {
+    throw new Error(`恢复数据超过 ${MOYUBOARD_MAX_BYTES / 1024 / 1024} MB`)
+  }
+  const meta = Buffer.from(JSON.stringify({
+    version: 1,
+    savedAt: Date.now(),
+    projectPath: typeof payload?.projectPath === 'string' ? payload.projectPath : null,
+    byteLength: data.byteLength
+  }))
+  // 头 4 字节记元数据长度，随后是元数据 JSON，再是画布字节
+  const header = Buffer.alloc(4)
+  header.writeUInt32LE(meta.byteLength, 0)
+  await writeFileAtomic(recoveryFilePath(), Buffer.concat([header, meta, data]))
+  return { status: 'written', bytes: data.byteLength }
+})
+
+ipcMain.handle('recovery:read', async (event) => {
+  assertMainWindowSender(event)
+  const filePath = recoveryFilePath()
+  if (!existsSync(filePath)) return { status: 'none' }
+  const raw = await readFile(filePath)
+  // 任何不自洽都必须报错，绝不返回半份快照
+  if (raw.byteLength < 4) return { status: 'corrupt', reason: '恢复文件头不完整' }
+  const metaLength = raw.readUInt32LE(0)
+  if (metaLength <= 0 || 4 + metaLength > raw.byteLength) {
+    return { status: 'corrupt', reason: '恢复文件元数据长度越界' }
+  }
+  let meta
+  try {
+    meta = JSON.parse(raw.subarray(4, 4 + metaLength).toString('utf8'))
+  } catch {
+    return { status: 'corrupt', reason: '恢复文件元数据无法解析' }
+  }
+  if (!Number.isInteger(meta?.version) || meta.version < 1) {
+    return { status: 'corrupt', reason: '恢复文件版本无法识别' }
+  }
+  if (meta.version > 1) {
+    return { status: 'corrupt', reason: `恢复文件版本 ${meta.version} 高于本程序支持的 1` }
+  }
+  const board = raw.subarray(4 + metaLength)
+  if (!board.byteLength) return { status: 'corrupt', reason: '恢复文件缺少画布数据' }
+  if (meta.byteLength !== board.byteLength) {
+    return { status: 'corrupt', reason: '恢复文件已截断' }
+  }
+  return {
+    status: 'found',
+    savedAt: meta.savedAt,
+    projectPath: meta.projectPath,
+    data: new Uint8Array(board)
+  }
+})
+
+ipcMain.handle('recovery:clear', async (event) => {
+  assertMainWindowSender(event)
+  const filePath = recoveryFilePath()
+  if (existsSync(filePath)) await rm(filePath, { force: true })
+  return { status: 'cleared' }
 })
 
 ipcMain.handle('screenshot:save', async (event, payload) => {

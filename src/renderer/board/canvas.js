@@ -102,6 +102,18 @@ export class BoardCanvas {
   attach(scene, store) {
     this.scene = scene
     this.store = store
+    this.setBackground(scene.background)
+  }
+
+  /**
+   * 画布背景。透明时 fabric 背景置空，由 CSS 棋盘格透出来——
+   * 棋盘格只是"透明"的视觉表示，绝不能进 fabric 场景，
+   * 否则会被导出栅格化进 PNG（规格 7.1）。
+   */
+  setBackground(background) {
+    const transparent = !background || background.type === 'transparent'
+    this.canvas.backgroundColor = transparent ? '' : background.color
+    this.canvas.requestRenderAll()
   }
 
   #emitSelection() {
@@ -261,7 +273,7 @@ export class BoardCanvas {
     const selected = new Set(this.getSelectedIds())
     this.canvas.discardActiveObject()
     this.canvas.clear()
-    this.canvas.backgroundColor = '#ffffff'
+    this.setBackground(this.scene.background)
     this.objects.clear()
     this.#releaseUnusedUrls()
 

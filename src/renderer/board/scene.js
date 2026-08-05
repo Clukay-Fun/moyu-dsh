@@ -56,13 +56,46 @@ export function resetBoardIds() {
   idCounter = 0
 }
 
+/** 默认背景：透明。编辑区用棋盘格表示，棋盘格本身不进输出（规格 7.1）。 */
+export const DEFAULT_BACKGROUND = Object.freeze({ type: 'transparent', color: '#ffffff' })
+/** 网格显示与吸附是两个独立开关，默认都关。 */
+export const DEFAULT_GRID = Object.freeze({ show: false, snap: false })
+
 export function createScene() {
   return {
     version: BOARD_SCENE_VERSION,
     nodes: [],
     edges: [],
-    assets: {}
+    assets: {},
+    // 以下三项随工程保存（规格 7.2）。放在场景里而不是控制器上，
+    // 是为了让"保存的内容"只有一个真值来源——控制器另存一份必然漂移。
+    background: { ...DEFAULT_BACKGROUND },
+    guides: [],
+    grid: { ...DEFAULT_GRID }
   }
+}
+
+/** 背景合法性：只有透明与自定义色两种，色值必须是 #rrggbb。 */
+export function validateBackground(background) {
+  if (!background || typeof background !== 'object') throw new Error('场景缺少 background')
+  if (background.type !== 'transparent' && background.type !== 'color') {
+    throw new Error(`background.type 不支持：${background.type}`)
+  }
+  if (typeof background.color !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(background.color)) {
+    throw new Error(`background.color 非法：${background.color}`)
+  }
+  return background
+}
+
+export function setSceneBackground(scene, background) {
+  scene.background = validateBackground({ ...scene.background, ...background })
+  return scene.background
+}
+
+export function setSceneGrid(scene, patch) {
+  const next = { ...scene.grid, ...patch }
+  scene.grid = { show: Boolean(next.show), snap: Boolean(next.snap) }
+  return scene.grid
 }
 
 /**
@@ -521,7 +554,7 @@ export function migrateScene(rawScene, fromVersion = rawScene?.version) {
   }
 
   scene.version = BOARD_SCENE_VERSION
-  return scene
+  return fillSceneDefaults(scene)
 }
 
 /** v1 → v2：补齐 U2 引入的字段，并把 text 并入 textbox。 */
@@ -553,6 +586,23 @@ function migrateV1toV2(scene) {
   return scene
 }
 
+/**
+ * 补齐纯新增、有明确默认值的场景级字段。
+ *
+ * 放在版本链**之后**且对所有版本执行：这类字段是加出来的，
+ * 缺失时补默认值不会丢信息，而按版本分支写会漏掉"同版本但更早的
+ * 开发期文件"。幂等——重复执行结果逐字段相同。
+ */
+function fillSceneDefaults(scene) {
+  scene.background = scene.background
+    ? validateBackground({ ...DEFAULT_BACKGROUND, ...scene.background })
+    : { ...DEFAULT_BACKGROUND }
+  scene.guides = Array.isArray(scene.guides) ? scene.guides : []
+  const grid = { ...DEFAULT_GRID, ...(scene.grid || {}) }
+  scene.grid = { show: Boolean(grid.show), snap: Boolean(grid.snap) }
+  return scene
+}
+
 /** 校验场景图结构，用于打开文件与还原快照时挡住坏数据。 */
 export function validateScene(scene) {
   if (!scene || typeof scene !== 'object') throw new Error('场景数据无效')
@@ -563,6 +613,20 @@ export function validateScene(scene) {
     throw new Error('场景缺少 nodes / edges')
   }
   if (!scene.assets || typeof scene.assets !== 'object') throw new Error('场景缺少 assets')
+  validateBackground(scene.background)
+  if (!Array.isArray(scene.guides)) throw new Error('场景缺少 guides')
+  for (const guide of scene.guides) {
+    if (guide.orientation !== 'horizontal' && guide.orientation !== 'vertical') {
+      throw new Error(`参考线 ${guide.id} 方向非法：${guide.orientation}`)
+    }
+    if (!Number.isFinite(guide.position)) {
+      throw new Error(`参考线 ${guide.id} 位置非有限数`)
+    }
+  }
+  if (!scene.grid || typeof scene.grid !== 'object') throw new Error('场景缺少 grid')
+  for (const key of ['show', 'snap']) {
+    if (typeof scene.grid[key] !== 'boolean') throw new Error(`grid.${key} 必须是布尔值`)
+  }
   const ids = new Set()
   for (const node of scene.nodes) {
     if (ids.has(node.id)) throw new Error(`节点 id 重复：${node.id}`)

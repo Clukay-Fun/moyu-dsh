@@ -27,7 +27,9 @@ import {
   unionBounds,
   setNodeLocked,
   isNodeLocked,
-  nodeBounds
+  nodeBounds,
+  setSceneBackground,
+  setSceneGrid
 } from './scene.js'
 import { BoardCanvas } from './canvas.js'
 import { BoardHistory } from './history.js'
@@ -74,12 +76,9 @@ export class BoardController {
      * 否则同一批图片在不同时序下会落到不同位置。
      */
     this.layoutViewport = null
-    /** 参考线（世界坐标），随工程保存但不导出 */
-    this.guides = []
-    /** 网格两个开关互相独立，默认关闭 */
-    this.showGrid = false
-    this.snapGrid = false
-    /** 拖动期间的临时对齐线 */
+    // 参考线、网格、背景的真值都在 scene 上（随工程保存）。
+    // 控制器不另存一份——两份状态迟早会漂移，而"保存了什么"必须唯一。
+    /** 拖动期间的临时对齐线：只是渲染中间量，不进工程 */
     this.alignLines = []
     /** 本事务已放置的节点，参与后续避让 */
     this.#batchPlaced = []
@@ -457,19 +456,40 @@ export class BoardController {
     this.dom.rulerY?.addEventListener('pointerdown', start('y'))
   }
 
+  /**
+   * 标记有未保存改动。
+   *
+   * 参考线、网格、背景走这里而不进撤销历史：它们是画布设置而非内容编辑，
+   * 用户不会指望 Ctrl+Z 把网格关掉。但必须计入脏状态并触发恢复快照。
+   */
   #markDirty() {
     this.dirty = true
     this.#reportDirty()
     this.#syncStatus()
+    this.recovery?.schedule()
   }
 
+  get guides() { return this.scene.guides }
+  get showGrid() { return this.scene.grid.show }
+  get snapGrid() { return this.scene.grid.snap }
+  get background() { return this.scene.background }
+
   setShowGrid(value) {
-    this.showGrid = Boolean(value)
+    setSceneGrid(this.scene, { show: Boolean(value) })
     this.renderOverlay()
+    this.#markDirty()
   }
 
   setSnapGrid(value) {
-    this.snapGrid = Boolean(value)
+    setSceneGrid(this.scene, { snap: Boolean(value) })
+    this.#markDirty()
+  }
+
+  /** 背景改变要重画（棋盘格 / 纯色）并计入脏状态。 */
+  setBackground(background) {
+    setSceneBackground(this.scene, background)
+    this.canvas.setBackground(this.scene.background)
+    this.#markDirty()
   }
 
   #syncObjectToolbar() {
@@ -837,6 +857,95 @@ export class BoardController {
    * 若在弹对话框之前就 compact，用户一旦取消保存或写入失败，
    * 已删除图片的二进制就没了，而历史栈还在——之后撤销能恢复节点却恢复不了图片。
    */
+  // ── 工程生命周期（U5 / 规格 7.2、7.3）─────────────────────
+
+  /**
+   * 丢弃当前改动前的统一确认。新建、打开、退出都走这里，
+   * 三处各写一份文案迟早会不一致。
+   *
+   * 「保存」分支要真的保存成功才放行——保存失败或用户在系统对话框里
+   * 取消时必须留在原地，不能顺势把工程切走（规格 7.2）。
+   */
+  async confirmDiscard(actionLabel = '继续') {
+    if (!this.dirty) return true
+    const choice = this.onConfirmDiscard
+      ? await this.onConfirmDiscard(actionLabel)
+      : (window.confirm(`当前画布有未保存的改动，${actionLabel}会丢弃它们。继续？`) ? 'discard' : 'cancel')
+    if (choice === 'cancel') return false
+    if (choice === 'save') return this.save(false)
+    return true
+  }
+
+  /** 新建：清空为初始场景。单文档模式，不开第二个窗口或标签页。 */
+  async newBoard() {
+    if (!(await this.confirmDiscard('新建工程'))) return false
+    const fresh = createScene()
+    this.store.bytes.clear()
+    this.scene.version = fresh.version
+    this.scene.nodes = fresh.nodes
+    this.scene.edges = fresh.edges
+    this.scene.assets = fresh.assets
+    this.scene.background = fresh.background
+    this.scene.guides = fresh.guides
+    this.scene.grid = fresh.grid
+    this.canvas.setBackground(this.scene.background)
+    this.selection = []
+    this.selectedEdge = null
+    this.filePath = null
+    this.dirty = false
+    this.recovery?.cancel()
+    window.api.clearRecovery?.().catch(() => {})
+    this.history.reset(this.scene)
+    this.#reportDirty()
+    await this.#afterChange(false)
+    this.resetZoom()
+    return true
+  }
+
+  /**
+   * 挂载崩溃恢复。写盘内容与正式工程同为 .moyuboard 字节流，
+   * 但落在 userData 下，**不覆盖用户的正式工程**（规格 7.3）。
+   */
+  attachRecovery(scheduler) {
+    this.recovery = scheduler
+    return scheduler
+  }
+
+  /** 供恢复调度器调用：把当前画布打包成字节。 */
+  packForRecovery() {
+    return packBoard(this.scene, this.store)
+  }
+
+  /**
+   * 从恢复数据装载。
+   * 装载后保持**未保存**状态：用户崩溃前就没保存过，恢复不该假装已保存。
+   */
+  async loadRecovered(bytes, projectPath = null) {
+    const { scene, assets } = unpackBoard(new Uint8Array(bytes))
+    validateScene(scene)
+    this.store.bytes.clear()
+    for (const [assetId, data] of assets) this.store.put(assetId, data)
+    this.scene.version = scene.version
+    this.scene.nodes = scene.nodes
+    this.scene.edges = scene.edges
+    this.scene.assets = scene.assets
+    this.scene.background = scene.background
+    this.scene.guides = scene.guides
+    this.scene.grid = scene.grid
+    this.canvas.setBackground(this.scene.background)
+    this.selection = []
+    this.selectedEdge = null
+    this.filePath = projectPath
+    this.history.reset(this.scene)
+    await this.#afterChange(false)
+    this.resetZoom()
+    // 恢复出来的内容尚未落到正式工程，仍是脏的
+    this.dirty = true
+    this.#reportDirty()
+    this.#syncStatus()
+    return true
+  }
+
   async save(asNew = false) {
     try {
       const bytes = packBoard(this.scene, this.store)
@@ -851,6 +960,9 @@ export class BoardController {
 
       this.filePath = result.path
       this.dirty = false
+      // 正常保存后更新恢复基线：待写的快照作废，已落盘的快照删除（规格 7.3）
+      this.recovery?.cancel()
+      window.api.clearRecovery?.().catch(() => {})
       // 确认写入成功后才回收未引用二进制；这会让更早的删除无法再撤销，
       // 因此历史栈同步从当前状态重新开始。
       compactAssetStore(this.scene, this.store)
@@ -868,9 +980,7 @@ export class BoardController {
   }
 
   async open() {
-    if (this.dirty && !window.confirm('当前画布有未保存的改动，打开新文件会丢弃它们。继续？')) {
-      return false
-    }
+    if (!(await this.confirmDiscard('打开其他工程'))) return false
     try {
       const result = await window.api.openBoard()
       if (result.status !== 'opened') return false
@@ -883,10 +993,17 @@ export class BoardController {
       this.scene.nodes = scene.nodes
       this.scene.edges = scene.edges
       this.scene.assets = scene.assets
+      // 背景、参考线、网格同属工程内容，漏掉会沿用上一个工程的设置
+      this.scene.background = scene.background
+      this.scene.guides = scene.guides
+      this.scene.grid = scene.grid
+      this.canvas.setBackground(this.scene.background)
       this.selection = []
       this.selectedEdge = null
       this.filePath = result.path
       this.dirty = false
+      this.recovery?.cancel()
+      window.api.clearRecovery?.().catch(() => {})
       this.history.reset(this.scene)
       this.#reportDirty()
       await this.#afterChange(false)
