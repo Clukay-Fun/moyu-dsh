@@ -39,6 +39,7 @@ import {
   createGuide, moveGuide, removeGuide, shouldDropGuide, validateGuides,
   computeSnap, RULER, GRID
 } from './guides.js'
+import { commitGeometry, restoreGeometry, minimalPanToReveal } from './editor/session.js'
 
 /** 单张图片上限，与主进程截图上限口径一致。 */
 const MAX_IMAGE_BYTES = 100 * 1024 * 1024
@@ -112,6 +113,8 @@ export class BoardController {
       rulerY: dom.rulerY
     })
     this.#bindRulerDrag()
+    // 双击图片 → 全屏编辑器。回调由 main.js 注入，控制器不认识模态。
+    this.canvas.onImageDoubleClick = (nodeId) => this.#requestEdit(nodeId, 'adjust')
     // 拖动时实时吸附并显示对齐线
     this.canvas.onObjectMoving = (nodeId, bounds) => this.#applySnap(nodeId, bounds)
     this.canvas.onObjectMoved = () => { this.alignLines = []; this.renderOverlay() }
@@ -617,11 +620,99 @@ export class BoardController {
       case 'front': this.#applyLayer(bringToFront); return
       case 'back': this.#applyLayer(sendToBack); return
       case 'delete': this.deleteSelected(); return
+      case 'edit': this.#requestEdit(ids[0], 'adjust'); return
+      case 'crop': this.#requestEdit(ids[0], 'crop'); return
+      case 'original': this.restoreNodeOriginal(ids[0]); return
       default:
-        // edit / crop / original / copy / ocr / pin 依赖全屏编辑器与 IPC，
-        // 由 U4 接入；此处不静默失败。
-        this.onStatus({ error: `“${action}”将在 U4 接入` })
+        // copy / ocr / pin 走主进程 IPC，由 main.js 注入处理器
+        if (this.onNodeCommand) { this.onNodeCommand(action, ids); return }
+        this.onStatus({ error: `暂不支持的操作：${action}` })
     }
+  }
+
+  // ── 全屏图片编辑器事务（U4 / 规格 5.2、5.3）───────────────
+
+  /** 双击或工具按钮触发编辑。锁定图片不可编辑，且不静默失败。 */
+  #requestEdit(nodeId, tool) {
+    const node = this.scene.nodes.find((n) => n.id === nodeId)
+    if (!node || node.type !== 'image') return
+    if (isNodeLocked(node)) {
+      this.onStatus({ error: '该图片已锁定，请先解锁再编辑' })
+      return
+    }
+    if (!this.onEditImage) {
+      this.onStatus({ error: '图片编辑器未就绪' })
+      return
+    }
+    this.onEditImage(this.getNodeImage(nodeId), tool)
+  }
+
+  /** 供编辑器读取源像素与原图可用性。 */
+  getNodeImage(nodeId) {
+    const node = this.scene.nodes.find((n) => n.id === nodeId)
+    if (!node || node.type !== 'image') return null
+    return {
+      nodeId,
+      assetId: node.assetId,
+      originalAssetId: node.originalAssetId,
+      bytes: this.store.get(node.assetId),
+      mime: this.scene.assets[node.assetId]?.mime || 'image/png',
+      canRestore: Boolean(node.originalAssetId) && node.originalAssetId !== node.assetId
+    }
+  }
+
+  /**
+   * 「完成」：登记新资源 → 换 assetId → 保持中心与显示宽度 → **一条**历史。
+   *
+   * 全部改动都在 #afterChange() 之前完成，所以无论换了几个字段，
+   * 主画布只多出一步可撤销的操作。
+   */
+  async replaceNodeImage(nodeId, { bytes, mime = 'image/png', size }) {
+    const node = this.scene.nodes.find((n) => n.id === nodeId)
+    if (!node || node.type !== 'image') throw new Error('目标图片不存在')
+    if (isNodeLocked(node)) throw new Error('图片已锁定')
+
+    const assetId = registerAsset(this.scene, this.store, {
+      data: bytes, mime, width: size.width, height: size.height
+    })
+    Object.assign(node, commitGeometry(node, size))
+    node.assetId = assetId
+    this.#revealNode(node)
+    await this.#afterChange()
+    return node
+  }
+
+  /** 恢复原图：同样保持中心与显示宽度，同样只落一条历史，可撤销可重做。 */
+  async restoreNodeOriginal(nodeId) {
+    const node = this.scene.nodes.find((n) => n.id === nodeId)
+    if (!node || node.type !== 'image') return
+    if (isNodeLocked(node)) {
+      this.onStatus({ error: '该图片已锁定，请先解锁' })
+      return
+    }
+    const originalId = node.originalAssetId
+    if (!originalId || originalId === node.assetId) {
+      this.onStatus({ error: '当前已是原图' })
+      return
+    }
+    const asset = this.scene.assets[originalId]
+    if (!asset || !this.store.has(originalId)) {
+      this.onStatus({ error: '原图数据已不可用' })
+      return
+    }
+    Object.assign(node, restoreGeometry(node, { width: asset.width, height: asset.height }))
+    node.assetId = originalId
+    this.#revealNode(node)
+    await this.#afterChange()
+    this.onStatus({ message: '已恢复原图' })
+  }
+
+  /** 若编辑后对象完全离开视口，做最小平移让它重新可见（规格 5.2）。 */
+  #revealNode(node) {
+    const viewport = this.canvas.viewportRect()
+    const { dx, dy } = minimalPanToReveal(nodeBounds(node), viewport)
+    // pan 收的是屏幕像素，世界位移要乘当前缩放；方向相反（移视口而非移对象）
+    if (dx || dy) this.canvas.pan(-dx * this.zoom, -dy * this.zoom)
   }
 
   deleteSelected() {

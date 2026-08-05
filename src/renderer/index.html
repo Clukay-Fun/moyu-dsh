@@ -750,6 +750,45 @@
               </section>
             </div>
           </main>
+
+          <!-- ══ U4 · 全屏图片编辑器 ══
+               覆盖内容区，但保留顶栏与左侧导航（规格 5.1）。
+               截图即时标注与画布双击共用这一份 DOM 与 editor/ 下的工具实现。 -->
+          <div class="img-editor" id="image-editor" hidden aria-hidden="true"
+               role="dialog" aria-modal="true" aria-labelledby="img-editor-title">
+            <div class="img-editor-bar">
+              <b id="img-editor-title">编辑图片</b>
+              <span class="img-editor-size" id="img-editor-size"></span>
+              <span class="toolbar-space"></span>
+              <button class="gbtn" id="img-editor-undo" type="button" title="撤销 (Ctrl+Z)" disabled>↶ 撤销</button>
+              <button class="gbtn" id="img-editor-redo" type="button" title="重做 (Ctrl+Shift+Z)" disabled>↷ 重做</button>
+              <button class="gbtn" id="img-editor-restore" type="button" title="恢复到最初导入的原图">恢复原图</button>
+              <button class="gbtn ghost" id="img-editor-cancel" type="button">取消</button>
+              <button class="primary-btn" id="img-editor-commit" type="button">完成</button>
+            </div>
+
+            <div class="img-editor-body">
+              <div class="img-editor-rail" id="img-editor-rail" role="toolbar" aria-label="编辑工具">
+                <button class="tool-btn" data-tool="crop" type="button" title="裁切"><span>⌗</span>裁切</button>
+                <button class="tool-btn" data-tool="adjust" type="button" title="调色"><span>◑</span>调色</button>
+                <button class="tool-btn" data-tool="mosaic" type="button" title="马赛克"><span>▒</span>马赛克</button>
+                <button class="tool-btn" data-tool="doodle" type="button" title="涂鸦"><span>✎</span>涂鸦</button>
+                <button class="tool-btn" data-tool="rect" type="button" title="矩形"><span>▢</span>矩形</button>
+                <button class="tool-btn" data-tool="arrow" type="button" title="箭头"><span>↗</span>箭头</button>
+                <button class="tool-btn" data-tool="text" type="button" title="文字"><span>T</span>文字</button>
+                <button class="tool-btn" data-tool="watermark" type="button" title="水印"><span>◈</span>水印</button>
+              </div>
+
+              <div class="img-editor-stage" id="img-editor-stage">
+                <canvas id="image-editor-canvas"></canvas>
+              </div>
+
+              <aside class="img-editor-panel" id="img-editor-panel">
+                <div class="img-editor-hint" id="img-editor-hint">从左侧选择一个工具</div>
+                <div class="img-editor-options" id="img-editor-options"></div>
+              </aside>
+            </div>
+          </div>
         </div>
       </div>
 

@@ -3846,3 +3846,190 @@ input:focus-visible {
 }
 /* 标尺内的刻度与文字用 canvas 绘制，保持屏幕尺寸不随画布缩放 */
 .ruler canvas { display: block; width: 100%; height: 100%; }
+
+/* ══ U4 · 全屏图片编辑器 ══════════════════════════════════
+   覆盖内容区，不覆盖顶栏与左侧导航。
+   动效取值理由：入场是"元素出现"，用强 ease-out；停在 180ms 以内，
+   编辑器是高频入口，再慢就显得拖沓。不从 scale(0) 起，那看着像凭空冒出来。 */
+.img-editor {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  background: var(--background);
+  transition: opacity 180ms cubic-bezier(0.23, 1, 0.32, 1),
+              transform 180ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.img-editor[hidden] { display: none; }
+
+@starting-style {
+  .img-editor {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+}
+
+.img-editor-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--hairline);
+  background: var(--panel);
+  backdrop-filter: blur(14px);
+}
+
+.img-editor-bar b { font-size: 13px; }
+
+.img-editor-size {
+  font-size: 12px;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.img-editor-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 84px 1fr 244px;
+}
+
+/* ── 工具栏 ── */
+.img-editor-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 8px;
+  overflow-y: auto;
+  border-right: 1px solid var(--hairline);
+}
+
+.tool-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 9px 4px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-small);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  /* 只过渡具体属性，不用 all */
+  transition: transform 140ms cubic-bezier(0.23, 1, 0.32, 1),
+              background-color 140ms ease,
+              color 140ms ease,
+              border-color 140ms ease;
+}
+
+.tool-btn span { font-size: 17px; line-height: 1; }
+
+@media (hover: hover) {
+  .tool-btn:hover { color: var(--accent); background: var(--accent-10); }
+}
+
+.tool-btn:active { transform: scale(0.96); }
+
+.tool-btn[aria-pressed="true"] {
+  color: var(--accent);
+  background: var(--accent-10);
+  border-color: var(--accent-28);
+}
+
+/* ── 画布区 ── */
+.img-editor-stage {
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background:
+    linear-gradient(45deg, var(--hairline) 25%, transparent 25%) -8px 0 / 16px 16px,
+    linear-gradient(-45deg, var(--hairline) 25%, transparent 25%) -8px 0 / 16px 16px,
+    linear-gradient(45deg, transparent 75%, var(--hairline) 75%) 0 0 / 16px 16px,
+    linear-gradient(-45deg, transparent 75%, var(--hairline) 75%) 0 0 / 16px 16px;
+}
+
+.img-editor-stage canvas {
+  display: block;
+  box-shadow: var(--shadow-panel);
+}
+
+/* ── 参数面板 ── */
+.img-editor-panel {
+  border-left: 1px solid var(--hairline);
+  padding: 12px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.img-editor-hint {
+  font-size: 12px;
+  color: var(--faint);
+  line-height: 1.6;
+}
+
+.img-editor-options { display: flex; flex-direction: column; gap: 9px; }
+
+.img-editor-options label.inline-value {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.img-editor-options output { font-variant-numeric: tabular-nums; }
+
+.img-editor-options input[type="range"] { width: 100%; accent-color: var(--accent); }
+
+.img-editor-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.img-editor-field > span { font-size: 12px; color: var(--muted); }
+
+.img-editor-field input[type="text"],
+.img-editor-field input[type="number"],
+.img-editor-field select {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-small);
+  background: var(--card);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 12px;
+}
+
+.img-editor-swatches { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.img-editor-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+  transition: transform 140ms cubic-bezier(0.23, 1, 0.32, 1),
+              border-color 140ms ease;
+}
+
+.img-editor-swatch:active { transform: scale(0.9); }
+.img-editor-swatch[aria-pressed="true"] { border-color: var(--foreground); }
+
+/* 尊重系统的减少动态偏好 */
+@media (prefers-reduced-motion: reduce) {
+  .img-editor,
+  .tool-btn,
+  .img-editor-swatch {
+    transition-duration: 1ms;
+  }
+}

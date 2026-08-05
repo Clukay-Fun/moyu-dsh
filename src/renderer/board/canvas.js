@@ -62,6 +62,13 @@ export class BoardCanvas {
         object.setCoords()
       }
     })
+    // 双击图片进全屏编辑器（U4 / 规格 5.1）。
+    // 文本对象的双击归 fabric 自己（进入行内编辑），这里只接图片。
+    this.canvas.on('mouse:dblclick', (event) => {
+      const object = event.target
+      if (!object?.boardNodeId || object.boardNodeType !== 'image') return
+      this.onImageDoubleClick?.(object.boardNodeId)
+    })
     this.canvas.on('selection:created', () => this.#emitSelection())
     this.canvas.on('selection:updated', () => this.#emitSelection())
     this.canvas.on('selection:cleared', () => this.#emitSelection())
@@ -198,6 +205,7 @@ export class BoardCanvas {
       const object = await this.#createObject(node)
       if (!object) continue
       object.boardNodeId = node.id
+      object.boardNodeType = node.type
       this.objects.set(node.id, object)
       this.canvas.add(object)
     }

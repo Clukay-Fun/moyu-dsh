@@ -6,6 +6,7 @@ import { createQpdfRunner } from 'qpdf-run'
 import { parse as parseOpenType } from 'opentype.js'
 import { isRetailType, renderRetailBarcode, computeRetailGeometry } from './retailBarcode.js'
 import { BoardController } from './board/index.js'
+import { ImageEditorModal } from './board/editor/modal.js'
 import { cleanIpcError, illustratorFailureHint, isComCancelled } from './comErrors.js'
 import {
   isGenericType, renderGenericBarcode, computeGenericGeometry, genericRasterSize, resolveGenericTypeName,
@@ -2456,9 +2457,12 @@ function ensureBoardController() {
       if (info?.saved) showToast(`已保存：${info.saved.split(/[\\/]/).pop()}`)
       if (info?.opened) showToast(`已打开：${info.opened.split(/[\\/]/).pop()}`)
       if (info?.warn) showToast(info.warn)
+      if (info?.message) showToast(info.message)
       if (info?.imported !== undefined) consumePendingImageTool(info.imported > 0)
     }
   })
+  // 双击图片与对象工具栏的 编辑/裁切 都走这里（U4）
+  boardController.onEditImage = (image, tool) => openImageEditor(image, tool)
   boardController.mount({
     pane: canvasSurface,
     stage: document.querySelector('#board-stage'),
@@ -2554,16 +2558,73 @@ let pendingImageTool = null
 
 const IMAGE_TOOLS = new Set(['crop', 'watermark', 'adjust'])
 
+/** 全屏图片编辑器（U4）。懒创建：没打开过就不建实例。 */
+let imageEditorModal = null
+
+function ensureImageEditor() {
+  if (imageEditorModal) return imageEditorModal
+  imageEditorModal = new ImageEditorModal({
+    fabric,
+    onStatus: (message) => showToast(message),
+    confirmDiscard: () => window.confirm('放弃本次编辑？未完成的修改会丢失。'),
+    onCancel: () => {
+      // 取消什么都不做：场景、资源、主历史逐字段不变（规格 5.2）
+    },
+    onCommit: async ({ blob, size, context }) => {
+      try {
+        const bytes = new Uint8Array(await blob.arrayBuffer())
+        if (context?.nodeId) {
+          await boardController.replaceNodeImage(context.nodeId, {
+            bytes, mime: 'image/png', size
+          })
+        } else {
+          // 截图入口：标注结果作为新对象落到画布
+          await boardController.addImage(bytes, 'image/png')
+        }
+      } catch (error) {
+        showToast(`应用编辑结果失败：${error.message}`)
+      }
+    }
+  })
+  return imageEditorModal
+}
+
 /**
  * 打开全屏图片编辑器。
  *
- * ⚠ U1 阶段编辑器尚未实现（U4 交付）。这里是**唯一**的接入缝：
- * 路由、pending 生命周期与锁定拦截都已是真实逻辑并可测，
- * 只有这一步是占位。U4 把函数体换成真正的编辑器即可，调用方不动。
+ * 两个入口共用：画布双击/工具按钮传 image（含 nodeId），
+ * 截图入口传 { bytes, mime } 且不带 nodeId。
  */
-function openImageEditor(node, tool) {
-  showToast(`全屏图片编辑器将在 U4 接入（工具：${tool}）`)
-  return false
+async function openImageEditor(image, tool) {
+  if (!image?.bytes) {
+    showToast('图片数据不可用')
+    return false
+  }
+  const url = URL.createObjectURL(new Blob([image.bytes], { type: image.mime || 'image/png' }))
+  try {
+    const bitmap = await new Promise((resolve, reject) => {
+      const probe = new Image()
+      probe.addEventListener('load', () => resolve(probe))
+      probe.addEventListener('error', () => reject(new Error('图片无法解码')))
+      probe.src = url
+    })
+    ensureImageEditor().open({
+      image: bitmap,
+      assetId: image.assetId || 'capture',
+      originNodeId: image.nodeId || null,
+      origin: image.nodeId ? 'canvas' : 'capture',
+      canRestore: Boolean(image.canRestore),
+      context: { nodeId: image.nodeId || null },
+      tool
+    })
+    return true
+  } catch (error) {
+    showToast(`打开编辑器失败：${error.message}`)
+    return false
+  } finally {
+    // 位图已解码进内存，URL 可以立刻回收
+    URL.revokeObjectURL(url)
+  }
 }
 
 /** 当前可编辑的单选图片；不满足条件时返回原因。 */
@@ -2597,7 +2658,7 @@ function requestImageTool(tool) {
 
   const pick = singleEditableImage()
   if (pick.ok) {
-    openImageEditor(pick.node, tool)
+    openImageEditor(boardController.getNodeImage(pick.node.id), tool)
     return
   }
   if (pick.reason === 'locked') {
@@ -2620,12 +2681,20 @@ function consumePendingImageTool(imported) {
   if (!tool) return
   if (!imported) return // 用户取消或导入失败：不打开空编辑器，不污染历史
   const pick = singleEditableImage()
-  if (pick.ok) openImageEditor(pick.node, tool)
+  if (pick.ok) openImageEditor(boardController.getNodeImage(pick.node.id), tool)
 }
 
 /** 区域截图 / 应用内滚动截图统一入口。 */
+/**
+ * 截图结果是否应进统一编辑器。
+ * 只在「从画布发起截图」这条路径上为真；取消时必须清掉，
+ * 否则下次从旧截图页发起会被劫持。
+ */
+let captureTargetsCanvas = false
+
 function startUnifiedCapture(kind) {
   activateUnifiedCanvas()
+  captureTargetsCanvas = true
   if (kind === 'scroll') {
     startScrollScreenshotButton?.click()
     return
@@ -3247,12 +3316,21 @@ window.api.onScreenshotOcrProgress((progress) => {
 
 window.api.onScreenshotCaptured((result) => {
   screenshotState.busy = false
+  // U4：从统一画布发起的截图直接进同一个全屏编辑器做即时标注。
+  // 完成后落到画布；取消则丢弃。旧截图页仅在 U6 删除前作为兜底保留。
+  if (captureTargetsCanvas) {
+    captureTargetsCanvas = false
+    openImageEditor({ bytes: result.data, mime: 'image/png' }, 'rect')
+      .catch((error) => showToast(`标注截图失败：${error.message}`))
+    return
+  }
   loadScreenshotResult(result).catch((error) => {
     const reason = error instanceof Error ? error.message : String(error)
     setScreenshotStatus(`截图载入失败：${reason}`, 'error')
   }).finally(updateScreenshotControls)
 })
 window.api.onScreenshotCancelled(() => {
+  captureTargetsCanvas = false
   screenshotState.busy = false
   updateScreenshotControls()
   setScreenshotStatus('已取消截图')
