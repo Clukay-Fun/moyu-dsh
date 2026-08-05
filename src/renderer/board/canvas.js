@@ -121,6 +121,33 @@ export class BoardCanvas {
     return active.map((object) => object.boardNodeId).filter(Boolean)
   }
 
+  /**
+   * 把对象改成**绕中心旋转**，与场景模型对齐。
+   *
+   * 所有 #createObject 出来的对象都要过这一道；创建时写的
+   * originX/originY: 'left'/'top' 只是摆放用的中间态。
+   *
+   * fabric 绕 originX/originY 指定的点旋转。若保留 left/top 原点，
+   * 对象在画面上绕**左上角**转，而 nodeBounds()、导出包围盒、吸附
+   * 全都按**绕中心**算——两套几何一分叉，45° 对象能差出半条对角线
+   * （200×200 时是 141px）。于是对齐线画在一处、对象吸附到另一处。
+   *
+   * 尺寸取渲染后的实际值而非 node.width/height：文本框的高度由 fabric
+   * 排版决定，创建时 node.height 可能还是上一次的值。
+   */
+  #useCenterOrigin(object, node) {
+    const width = object.width * (object.scaleX || 1)
+    const height = object.height * (object.scaleY || 1)
+    object.set({
+      originX: 'center',
+      originY: 'center',
+      left: node.x + width / 2,
+      top: node.y + height / 2,
+      angle: node.rotation || 0
+    })
+    object.setCoords()
+  }
+
   /** 交互结果写回场景图。fabric 用 left/top/scale，场景图用 x/y/width/height。 */
   #writeBack(event) {
     if (!this.scene || this.suspendSync) return
@@ -134,18 +161,20 @@ export class BoardCanvas {
       const sceneNode = this.scene.nodes.find((n) => n.id === nodeId)
       // 锁定对象在多选变换中自动跳过（规格 3.2）
       if (isNodeLocked(sceneNode)) continue
-      // 多选时 fabric 的子对象坐标是相对于选区的，必须换算成画布绝对坐标
+      const width = object.width * object.scaleX * (event?.target?.scaleX ?? 1)
+      const height = object.height * object.scaleY * (event?.target?.scaleY ?? 1)
+
+      // 多选时 fabric 的子对象坐标是相对于选区的，必须换算成画布绝对坐标。
+      // 对象原点已是中心，所以矩阵的平移分量就是绝对中心。
       const matrix = object.calcTransformMatrix()
-      const point = new this.fabric.Point(-object.width / 2, -object.height / 2)
-      const absolute = this.fabric.util.transformPoint(point, matrix)
-      setNodePosition(this.scene, nodeId, absolute.x, absolute.y)
+      const center = this.fabric.util.transformPoint(new this.fabric.Point(0, 0), matrix)
+      // node.x/y 存的是**未旋转**框的左上角，由中心反推
+      setNodePosition(this.scene, nodeId, center.x - width / 2, center.y - height / 2)
 
       // 旋转角度写回（多选时 fabric 的子对象 angle 是相对选区的）
       const angle = (object.angle || 0) + (event?.target?.type === 'activeSelection' ? (event.target.angle || 0) : 0)
       if (Number.isFinite(angle)) setNodeRotation(this.scene, nodeId, angle)
 
-      const width = object.width * object.scaleX * (event?.target?.scaleX ?? 1)
-      const height = object.height * object.scaleY * (event?.target?.scaleY ?? 1)
       if (width > 0 && height > 0) {
         if (isTextNode(sceneNode)) {
           // 文本框：缩放只改 scale，不动基础字号与基础宽高（规格 4）
@@ -209,6 +238,7 @@ export class BoardCanvas {
     for (const node of nodesByZ(this.scene)) {
       const object = await this.#createObject(node)
       if (!object) continue
+      this.#useCenterOrigin(object, node)
       object.boardNodeId = node.id
       object.boardNodeType = node.type
       this.objects.set(node.id, object)

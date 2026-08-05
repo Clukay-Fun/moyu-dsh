@@ -69,6 +69,15 @@ export class ImageEditorModal {
     this.session = null
     this.canvas = null
     this.context = null
+    /**
+     * 会话世代。每次 open/teardown 都 +1。
+     * 所有跨 await 的异步动作在恢复执行时都要比对它——
+     * 「等回来时还是不是当初那个会话」不能靠 this.session 是否非空判断，
+     * 因为期间完全可能已经关掉又打开了另一张图。
+     */
+    this.epoch = 0
+    /** 提交事务进行中：期间禁止关闭、恢复与任何编辑动作 */
+    this.committing = false
     /** 画笔/形状的共享样式，切工具不重置——用户挑好的颜色应该留着 */
     this.style = { color: SWATCHES[0], lineWidth: 3 }
 
@@ -90,7 +99,7 @@ export class ImageEditorModal {
 
     // 编辑器打开时，快捷键先归模态；不能让底层画布同时响应
     this.keyHandler = (event) => {
-      if (!this.isOpen) return
+      if (!this.isOpen || this.committing) return
       const key = event.key.toLowerCase()
       if ((event.ctrlKey || event.metaKey) && key === 'z') {
         event.preventDefault()
@@ -135,6 +144,8 @@ export class ImageEditorModal {
       return false
     }
     const { image, assetId, originNodeId = null, origin = 'canvas', tool = null } = request
+    this.epoch += 1
+    this.committing = false
     this.session = new EditorSession({
       sourceAssetId: assetId,
       sourceSize: { width: image.width, height: image.height },
@@ -174,6 +185,8 @@ export class ImageEditorModal {
 
   /** 关闭并释放 fabric 实例。不改变任何外部状态——那是调用方的事。 */
   #teardown() {
+    this.epoch += 1
+    this.committing = false
     this.canvas?.dispose()
     this.canvas = null
     this.session = null
@@ -185,11 +198,21 @@ export class ImageEditorModal {
     this.root.setAttribute('aria-hidden', 'true')
   }
 
-  /** 取消：有修改时先确认。场景、资源、主历史一概不动。 */
+  /**
+   * 取消：有修改时先确认。场景、资源、主历史一概不动。
+   *
+   * 提交事务在途时拒绝关闭：那笔写入已经发出去了，拦不住也撤不回，
+   * 此时放行会得到「用户以为取消了、画布却已经改了」的状态。
+   */
   requestClose() {
-    if (this.session?.isDirty() && !this.confirmDiscard()) return
+    if (this.committing) {
+      this.onStatus('正在保存编辑结果，请稍候')
+      return false
+    }
+    if (this.session?.isDirty() && !this.confirmDiscard()) return false
     this.#teardown()
     this.onCancel()
+    return true
   }
 
   dispose() {
@@ -200,7 +223,7 @@ export class ImageEditorModal {
   // ── 操作与历史 ──────────────────────────────────────────
 
   #applyOperation(tool, params) {
-    if (!this.session) return
+    if (!this.session || this.committing) return
     if (tool === 'crop') {
       params = normalizeCrop(params, this.session.resultSize())
     }
@@ -209,10 +232,12 @@ export class ImageEditorModal {
   }
 
   undo() {
+    if (this.committing) return
     if (this.session?.undo()) this.#rerender()
   }
 
   redo() {
+    if (this.committing) return
     if (this.session?.redo()) this.#rerender()
   }
 
@@ -226,17 +251,23 @@ export class ImageEditorModal {
    * 主历史仍只在「完成」时落一条，恢复本身不单独提交。
    */
   async #restoreOriginal() {
-    if (!this.session || !this.loadOriginal) return
+    if (!this.session || !this.loadOriginal || this.committing) return
     if (this.session.isDirty() && !this.confirmDiscard()) return
+    // 记下发起时的世代与归属对象：解码原图是异步的，期间用户完全可能
+    // 关掉编辑器再双击打开另一张图。只判断 this.session 非空会把这张
+    // 原图错误地载入到别的对象上。
+    const epoch = this.epoch
+    const { originNodeId, origin } = this.session
+    const loadOriginal = this.loadOriginal
     this.restoreBtn.disabled = true
     try {
-      const original = await this.loadOriginal()
-      if (!this.session) return // 期间被关掉了
+      const original = await loadOriginal()
+      if (this.epoch !== epoch) return // 已经不是当初那个会话了，丢弃结果
       this.session = new EditorSession({
         sourceAssetId: original.assetId,
         sourceSize: { width: original.image.width, height: original.image.height },
-        originNodeId: this.session.originNodeId,
-        origin: this.session.origin
+        originNodeId,
+        origin
       })
       this.canvas.load(original.image, buildRenderPlan(this.session), this.#stageSize())
       this.#syncBar()
@@ -244,9 +275,9 @@ export class ImageEditorModal {
       this.restoreBtn.hidden = true // 已经是原图了，没得再恢复
       this.onStatus('已恢复到最初的原图')
     } catch (error) {
-      this.onStatus(`恢复原图失败：${error.message}`)
+      if (this.epoch === epoch) this.onStatus(`恢复原图失败：${error.message}`)
     } finally {
-      this.restoreBtn.disabled = false
+      if (this.epoch === epoch) this.restoreBtn.disabled = false
     }
   }
 
@@ -491,9 +522,13 @@ export class ImageEditorModal {
    * 本控制器不直接改场景——那样会绕过历史事务。
    */
   async commit() {
-    if (!this.session) return
+    if (!this.session || this.committing) return
     if (!this.session.isDirty()) { this.requestClose(); return }
-    this.commitBtn.disabled = true
+    const epoch = this.epoch
+    // 事务在途期间锁死整个编辑器：取消、恢复、工具、快捷键全部不响应。
+    // 否则用户可以一边"取消"一边让事务写入成功。
+    this.committing = true
+    this.#setBusy(true)
     try {
       const blob = await this.canvas.toBlob('image/png')
       const size = this.session.resultSize()
@@ -501,12 +536,26 @@ export class ImageEditorModal {
       //   才允许 teardown。反过来的话，事务一失败用户的编辑就没了，
       //   而且连重试的机会都没有——操作栈已随会话一起销毁。
       await this.onCommit({ blob, size, context: this.context, session: this.session })
+      if (this.epoch !== epoch) return // 理论上不可达（提交期间禁止关闭），防御性保留
+      this.committing = false
       this.#teardown()
     } catch (error) {
+      if (this.epoch !== epoch) return
       // 保留编辑器与操作栈，用户可以改一下再试，或者取消
+      this.committing = false
+      this.#setBusy(false)
       this.onStatus(`保存编辑结果失败：${error.message}`)
-    } finally {
-      this.commitBtn.disabled = false
     }
+  }
+
+  /** 提交期间把所有会改变状态的入口禁掉，避免与在途事务打架。 */
+  #setBusy(busy) {
+    this.root.setAttribute('aria-busy', String(busy))
+    for (const el of [this.commitBtn, this.cancelBtn, this.restoreBtn, this.undoBtn, this.redoBtn]) {
+      el.disabled = busy
+    }
+    for (const button of this.rail.querySelectorAll('[data-tool]')) button.disabled = busy
+    for (const control of this.panel.querySelectorAll('input, button, select')) control.disabled = busy
+    if (!busy) this.#syncBar() // 撤销/重做按钮的可用性交回给真实历史深度
   }
 }

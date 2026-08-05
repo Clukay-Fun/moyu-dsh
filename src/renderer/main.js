@@ -2720,14 +2720,18 @@ function consumePendingImageTool(imported) {
  */
 let captureTargetsCanvas = false
 
-function startUnifiedCapture(kind) {
+async function startUnifiedCapture(kind) {
   activateUnifiedCanvas()
-  captureTargetsCanvas = true
   if (kind === 'scroll') {
+    // 滚动截图仍走旧实验入口，结果不归画布
     startScrollScreenshotButton?.click()
-    return
+    return false
   }
-  startScreenshotButton?.click()
+  // ⚠ 只有确认覆盖层起来了才置标记。启动失败或忙碌时置了却等不到回调，
+  //   标记会一直挂着，把下一次别处发起的截图结果劫持到画布上。
+  const started = await beginRegionScreenshot()
+  captureTargetsCanvas = started
+  return started
 }
 
 // ── 命令栏：委托到既有实现，不复制第二套逻辑 ──
@@ -3181,8 +3185,16 @@ async function renderScreenshotPng() {
   return new Uint8Array(await blob.arrayBuffer())
 }
 
-startScreenshotButton.addEventListener('click', async () => {
-  if (screenshotState.busy) return
+/**
+ * 发起区域截图。
+ * @returns {Promise<boolean>} 覆盖层是否真的起来了。
+ *
+ * 返回值很重要：调用方要靠它决定截图结果归谁。忙碌中直接返回 false，
+ * 启动异常也返回 false——两种情况都不会有 captured/cancelled 回调，
+ * 若此时留下"结果归画布"的标记，下一次从旧截图页发起的结果就会被劫持。
+ */
+async function beginRegionScreenshot() {
+  if (screenshotState.busy) return false
   screenshotState.busy = true
   updateScreenshotControls()
   setScreenshotStatus('正在读取屏幕…', 'busy')
@@ -3190,13 +3202,17 @@ startScreenshotButton.addEventListener('click', async () => {
   try {
     await window.api.startScreenshot()
     setScreenshotStatus('请在全屏覆盖层中拖动选择区域', 'busy')
+    return true
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error)
     screenshotState.busy = false
     updateScreenshotControls()
     setScreenshotStatus(`截图失败：${reason}`, 'error')
+    return false
   }
-})
+}
+
+startScreenshotButton.addEventListener('click', () => { beginRegionScreenshot() })
 
 document.querySelectorAll('.screenshot-annotation').forEach((button) => {
   button.addEventListener('click', () => {
