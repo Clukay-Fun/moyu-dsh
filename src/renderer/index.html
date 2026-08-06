@@ -326,15 +326,9 @@
                 <!-- ══ 统一画布（A 方案 · 顶部命令栏）══ -->
                 <div class="canvas-surface" id="canvas-surface">
                   <div class="canvas-command-bar">
-                    <div class="split-button" id="capture-split">
-                      <button class="cbtn primary" id="cmd-capture" type="button">区域截图</button>
-                      <button class="cbtn primary split-arrow" id="cmd-capture-menu" type="button"
-                              aria-haspopup="true" aria-expanded="false" aria-label="截图方式">▾</button>
-                      <div class="cmd-menu" id="capture-menu" role="menu" hidden>
-                        <button type="button" role="menuitem" data-capture="region">区域截图</button>
-                        <button type="button" role="menuitem" data-capture="scroll">应用内滚动截图（实验）</button>
-                      </div>
-                    </div>
+                    <!-- 删除滚动截图后只剩一种截图方式，分裂按钮的下拉不再有内容，
+                         整体收敛为单按钮。 -->
+                    <button class="cbtn primary" id="cmd-capture" type="button">区域截图</button>
                     <button class="cbtn" id="cmd-import" type="button">导入图片</button>
                     <button class="cbtn" id="cmd-text" type="button">文本框</button>
                     <div class="menu-wrap">
@@ -637,35 +631,6 @@
               <button class="gbtn ghost" id="pdf-cancel-page-organizer" type="button">取消</button>
               <button class="primary-btn" id="pdf-save-page-organizer" type="button">保存新 PDF</button>
             </div>
-          </footer>
-        </section>
-      </div>
-
-      <!-- 应用内滚动截图（实验能力，规格 6）。入口在命令栏截图下拉；
-           它是覆盖层而非页面内容，U6 删除旧截图页时提升为独立模态层。 -->
-      <div class="scroll-spike-overlay" id="scroll-spike-overlay" hidden>
-        <section class="glass-card scroll-spike-dialog" role="dialog" aria-modal="true" aria-labelledby="scroll-spike-title">
-          <header>
-            <div>
-              <b id="scroll-spike-title">应用内滚动截图</b>
-              <span>仅验证本软件可控滚动区域，不支持截取第三方应用。</span>
-            </div>
-            <button class="gbtn" id="cancel-scroll-screenshot" type="button">取消</button>
-          </header>
-          <div class="controlled-scroll-source" id="controlled-scroll-source">
-            <div class="controlled-scroll-document">
-              <div class="controlled-scroll-cover">
-                <small>MOYU TOOLS · CAPTURE</small>
-                <h2>应用内长内容示例</h2>
-                <p>滚动区域由本应用精确控制，可按帧截取并无缝拼接。</p>
-              </div>
-              <div class="controlled-scroll-list" id="controlled-scroll-list"></div>
-              <footer>滚动截图 · 仅限应用内内容</footer>
-            </div>
-          </div>
-          <footer class="scroll-spike-actions">
-            <span>生成的长图会作为普通图片对象加入画布。</span>
-            <button class="primary" id="confirm-scroll-screenshot" type="button">生成应用内长图</button>
           </footer>
         </section>
       </div>

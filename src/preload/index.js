@@ -57,7 +57,6 @@ contextBridge.exposeInMainWorld(
     savePdfFiles: (payload) => ipcRenderer.invoke('pdf:save-files', payload),
     showPdfOutput: (path) => ipcRenderer.invoke('pdf:show-item', path),
     startScreenshot: () => ipcRenderer.invoke('screenshot:start'),
-    captureScrollFrame: (rect) => ipcRenderer.invoke('screenshot:capture-scroll-frame', rect),
     getScreenshotSession: (sessionId) => ipcRenderer.invoke('screenshot:get-session', sessionId),
     completeScreenshot: (payload) => ipcRenderer.invoke('screenshot:complete', payload),
     cancelScreenshot: (sessionId) => ipcRenderer.invoke('screenshot:cancel', sessionId),

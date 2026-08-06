@@ -1009,7 +1009,6 @@ submenu.addEventListener('click', (event) => {
   }
 })
 
-
 function showToast(message) {
   window.clearTimeout(toastTimer)
   toast.textContent = message
@@ -2418,7 +2417,6 @@ const boardFileInput = document.querySelector('#board-file-input')
 
 let boardController = null
 
-
 /** 取当前截图编辑器的画面字节；无截图时返回 null。 */
 
 /** 进入图片模块时挂载统一画布。页面刚显示时尺寸才可测，故延后一帧 fit。 */
@@ -2747,7 +2745,7 @@ function singleEditableImage() {
  */
 function requestImageTool(tool) {
   if (tool === 'capture') {
-    startUnifiedCapture('region')
+    startUnifiedCapture()
     return
   }
   if (!IMAGE_TOOLS.has(tool)) return
@@ -2833,7 +2831,7 @@ window.api.onScreenshotCancelled(() => {
 // 主进程注册 Ctrl+Shift+A，触发后走与命令栏按钮**同一个入口**，
 // 不复制第二套截图逻辑。
 window.api.onCaptureShortcut(() => {
-  startUnifiedCapture('region')
+  startUnifiedCapture()
 })
 
 window.api.onShortcutStatus((status) => {
@@ -2844,7 +2842,6 @@ window.api.onShortcutStatus((status) => {
 // 告诉主进程渲染端已就绪，补发启动期间可能错过的注册结果
 window.api.reportShortcutReady()
 
-/** 区域截图 / 应用内滚动截图统一入口。 */
 /**
  * 截图结果是否应进统一编辑器。
  * 只在「从画布发起截图」这条路径上为真；取消时必须清掉，
@@ -2852,120 +2849,9 @@ window.api.reportShortcutReady()
  */
 let captureTargetsCanvas = false
 
-
-
-// ── 应用内滚动截图（实验能力，规格 6）────────────────────────
-// 只截本应用可控的滚动区，不扩张到第三方窗口。
-// 结果与区域截图一样，作为普通图片对象加入画布。
-const scrollSpikeOverlay = document.querySelector('#scroll-spike-overlay')
-const controlledScrollSource = document.querySelector('#controlled-scroll-source')
-const controlledScrollList = document.querySelector('#controlled-scroll-list')
-const confirmScrollScreenshotButton = document.querySelector('#confirm-scroll-screenshot')
-const cancelScrollScreenshotButton = document.querySelector('#cancel-scroll-screenshot')
-let scrollCaptureBusy = false
-
-async function captureControlledScroll() {
-  const originalScrollTop = controlledScrollSource.scrollTop
-  controlledScrollSource.classList.add('capturing')
-  await nextAnimationFrames(2)
-  const clientHeight = controlledScrollSource.clientHeight
-  const scrollHeight = controlledScrollSource.scrollHeight
-  const maxScrollTop = Math.max(0, scrollHeight - clientHeight)
-  const positions = []
-
-  for (let scrollTop = 0; scrollTop < maxScrollTop; scrollTop += clientHeight) {
-    positions.push(scrollTop)
-  }
-  positions.push(maxScrollTop)
-
-  let outputCanvas
-  let outputContext
-  let pixelScale = 1
-
-  try {
-    for (const [index, scrollTop] of [...new Set(positions)].entries()) {
-      controlledScrollSource.scrollTop = scrollTop
-      await nextAnimationFrames(3)
-      const rect = controlledScrollSource.getBoundingClientRect()
-      const frame = await window.api.captureScrollFrame({
-        x: rect.x,
-        y: rect.y,
-        width: rect.width,
-        height: rect.height
-      })
-      const frameCanvas = await decodePngCanvas(frame.data)
-
-      if (!outputCanvas) {
-        pixelScale = frameCanvas.width / rect.width
-        outputCanvas = document.createElement('canvas')
-        outputCanvas.width = frameCanvas.width
-        outputCanvas.height = Math.max(1, Math.round(scrollHeight * pixelScale))
-        outputContext = outputCanvas.getContext('2d')
-      }
-
-      const targetY = Math.round(scrollTop * pixelScale)
-      const remainingHeight = outputCanvas.height - targetY
-      outputContext.drawImage(
-        frameCanvas,
-        0,
-        0,
-        frameCanvas.width,
-        Math.min(frameCanvas.height, remainingHeight),
-        0,
-        targetY,
-        frameCanvas.width,
-        Math.min(frameCanvas.height, remainingHeight)
-      )
-      showToast(`正在拼接 ${index + 1} / ${positions.length} 帧…`)
-    }
-  } finally {
-    controlledScrollSource.scrollTop = originalScrollTop
-    controlledScrollSource.classList.remove('capturing')
-  }
-
-  if (!outputCanvas) throw new Error('没有捕获到滚动内容')
-  return { canvas: outputCanvas, frameCount: [...new Set(positions)].length }
-}
-
-
-cancelScrollScreenshotButton.addEventListener('click', () => {
-  scrollSpikeOverlay.hidden = true
-})
-
-confirmScrollScreenshotButton.addEventListener('click', async () => {
-  if (scrollCaptureBusy) return
-  scrollCaptureBusy = true
-  confirmScrollScreenshotButton.disabled = true
-  showToast('正在截取应用内长内容…')
-  try {
-    const result = await captureControlledScroll()
-    scrollSpikeOverlay.hidden = true
-    const blob = await canvasToBlob(result.canvas, 'image/png')
-    const controller = ensureBoardController()
-    controller.beginAddTransaction()
-    try {
-      await controller.addImage(new Uint8Array(await blob.arrayBuffer()), 'image/png')
-    } finally {
-      controller.endAddTransaction()
-    }
-    showToast(`长图已加入画布 · ${result.frameCount} 帧 · ${result.canvas.width} × ${result.canvas.height} px`)
-  } catch (error) {
-    showToast(`滚动截图失败：${error instanceof Error ? error.message : error}`)
-  } finally {
-    scrollCaptureBusy = false
-    confirmScrollScreenshotButton.disabled = false
-  }
-})
-
-/** 区域截图 / 应用内滚动截图统一入口。 */
-async function startUnifiedCapture(kind) {
+/** 区域截图统一入口。命令栏按钮与全局快捷键都走这里。 */
+async function startUnifiedCapture() {
   activateUnifiedCanvas()
-  if (kind === 'scroll') {
-    scrollSpikeOverlay.hidden = false
-    controlledScrollSource.scrollTop = 0
-    confirmScrollScreenshotButton.focus()
-    return false
-  }
   // ⚠ 只有确认覆盖层起来了才置标记。启动失败或忙碌时置了却等不到回调，
   //   标记会一直挂着，把下一次别处发起的截图结果劫持到画布上。
   const started = await beginRegionScreenshot()
@@ -2975,8 +2861,6 @@ async function startUnifiedCapture(kind) {
 
 // ── 命令栏：委托到既有实现，不复制第二套逻辑 ──
 const cmdCapture = document.querySelector('#cmd-capture')
-const cmdCaptureMenu = document.querySelector('#cmd-capture-menu')
-const captureMenu = document.querySelector('#capture-menu')
 const cmdImport = document.querySelector('#cmd-import')
 const cmdText = document.querySelector('#cmd-text')
 const cmdProject = document.querySelector('#cmd-project')
@@ -2987,7 +2871,6 @@ const backgroundMenu = document.querySelector('#background-menu')
 /** 同一时刻只允许一个下拉打开。 */
 function closeAllCmdMenus(except = null) {
   for (const [trigger, menu] of [
-    [cmdCaptureMenu, captureMenu],
     [cmdProject, projectMenu],
     [cmdBackground, backgroundMenu]
   ]) {
@@ -3004,18 +2887,7 @@ function toggleCmdMenu(trigger, menu) {
   trigger.setAttribute('aria-expanded', String(open))
 }
 
-cmdCapture.addEventListener('click', () => startUnifiedCapture('region'))
-cmdCaptureMenu.addEventListener('click', (event) => {
-  event.stopPropagation()
-  toggleCmdMenu(cmdCaptureMenu, captureMenu)
-})
-captureMenu.addEventListener('click', (event) => {
-  const button = event.target.closest('[data-capture]')
-  if (!button) return
-  closeAllCmdMenus()
-  startUnifiedCapture(button.dataset.capture)
-})
-
+cmdCapture.addEventListener('click', () => startUnifiedCapture())
 cmdImport.addEventListener('click', () => {
   activateUnifiedCanvas()
   boardFileInput.click()
@@ -3079,54 +2951,6 @@ document.addEventListener('keydown', (event) => {
 })
 
 
-
-
-
-
-
-
-const controlledScrollItems = [
-  ['01', '区域截图', '选择屏幕区域并载入标注画布', '#6978e6'],
-  ['02', '矩形与箭头', '用醒目的几何标记突出重点', '#7b6bd6'],
-  ['03', '画笔标注', '直接在截图上绘制自由线条', '#4da4b0'],
-  ['04', '文字说明', '添加可移动、可缩放的文字注释', '#db8f43'],
-  ['05', '复制到剪贴板', '生成完整分辨率 PNG 并复制', '#4a9a70'],
-  ['06', '保存 PNG', '通过主进程安全选择落盘位置', '#d05f62'],
-  ['07', '应用内滚动截图', '精确控制滚动量并逐帧捕获', '#5b79c7'],
-  ['08', '长图无缝拼接', '按真实滚动坐标消除重叠内容', '#9a69b8'],
-  ['09', '继续标注', '长图载入同一套 Fabric 编辑器', '#3d91a6'],
-  ['10', '边界清晰', '第三方窗口滚动截图不在本次承诺内', '#737789']
-]
-
-
-function nextAnimationFrames(count = 2) {
-  return new Promise((resolve) => {
-    const step = (remaining) => {
-      if (remaining <= 0) resolve()
-      else requestAnimationFrame(() => step(remaining - 1))
-    }
-    step(count)
-  })
-}
-
-async function decodePngCanvas(data) {
-  const blob = new Blob([data], { type: 'image/png' })
-  const bitmap = await createImageBitmap(blob)
-  const canvas = document.createElement('canvas')
-  canvas.width = bitmap.width
-  canvas.height = bitmap.height
-  canvas.getContext('2d').drawImage(bitmap, 0, 0)
-  bitmap.close()
-  return canvas
-}
-
-
-
-
-
-
-
-
 /**
  * 发起区域截图。
  * @returns {Promise<boolean>} 覆盖层是否真的起来了。
@@ -3136,11 +2960,6 @@ async function decodePngCanvas(data) {
  * 若此时留下"结果归画布"的标记，下一次从旧截图页发起的结果就会被劫持。
  */
 
-
-
-
-
-
 const ocrProgressLabels = {
   'loading tesseract core': '载入 OCR 核心',
   'initializing tesseract': '初始化 OCR 核心',
@@ -3148,12 +2967,6 @@ const ocrProgressLabels = {
   'initializing api': '初始化识别引擎',
   'recognizing text': '正在识别文字'
 }
-
-
-
-
-
-
 
 let screenshotResizeTimer
 
@@ -4552,7 +4365,6 @@ barcodeFontSelect.addEventListener('change', () => {
   refreshBarcodeFont()
 })
 
-
 const formatActionConfigs = {
   视频转换: {
     kind: 'video',
@@ -4975,46 +4787,15 @@ window.api.onFormatProgress((progress) => {
 
 const imageEditor = document.querySelector('#image-editor')
 
-
-
-
-
-
-
 function enlivenImageObjects(objects) {
   return new Promise((resolve) => {
     fabric.util.enlivenObjects(objects || [], resolve)
   })
 }
 
-
-
-
-
-
 function clampColor(value) {
   return Math.max(0, Math.min(255, value))
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 function canvasToBlob(canvas, type, quality) {
   return new Promise((resolve, reject) => {
@@ -5025,12 +4806,7 @@ function canvasToBlob(canvas, type, quality) {
   })
 }
 
-
-
-
-
 let updatingImageResize = false
-
 
 let imageResizeTimer
 
