@@ -3828,8 +3828,10 @@ input:focus-visible {
 
 .tool-btn[aria-pressed="true"] {
   color: var(--accent);
-  background: var(--accent-10);
-  border-color: var(--accent-28);
+  background: var(--accent-18);
+  border-color: var(--accent);
+  font-weight: 600;
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 /* ── 画布区 ── */
@@ -3844,6 +3846,35 @@ input:focus-visible {
     linear-gradient(-45deg, var(--hairline) 25%, transparent 25%) -8px 0 / 16px 16px,
     linear-gradient(45deg, transparent 75%, var(--hairline) 75%) 0 0 / 16px 16px,
     linear-gradient(-45deg, transparent 75%, var(--hairline) 75%) 0 0 / 16px 16px;
+}
+
+/* 操作提示浮条：贴在画布区顶部，不拦截鼠标 */
+.img-editor-stage-hint {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  max-width: calc(100% - 24px);
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel);
+  backdrop-filter: blur(14px);
+  color: var(--foreground);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  box-shadow: var(--shadow-small);
+}
+.img-editor-stage-hint[hidden] { display: none; }
+/* 前置条件没满足时更醒目，但仍是提示不是报错 */
+.img-editor-stage-hint.blocked {
+  border-color: var(--accent-28);
+  color: var(--accent);
+  font-weight: 600;
 }
 
 .img-editor-stage canvas {

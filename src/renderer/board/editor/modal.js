@@ -29,14 +29,25 @@ const ADJUSTMENT_LABELS = {
 
 const SWATCHES = ['#e83c8c', '#f5a524', '#22c55e', '#6978e6', '#111827', '#ffffff']
 
+/**
+ * 每个工具的操作提示。同时显示在右侧面板与画布上方的浮条。
+ *
+ * 需要二次操作的（裁切、文字）必须把**步骤**说清楚：光写"裁切"会让人
+ * 以为点一下就裁了，实际要先拖框再点「应用裁切」。
+ */
 const TOOL_HINTS = {
-  crop: '在图片上拖出要保留的区域，然后点「应用裁切」。',
-  adjust: '拖动滑块调整。多次调整以最后一次为准，可撤销。',
-  mosaic: '拖出要打码的区域。',
-  doodle: '按住拖动自由涂画。',
-  rect: '拖出一个矩形框。',
-  arrow: '从起点拖到终点画箭头。',
-  text: '填好文字后，点击图片上要放置的位置。'
+  crop: '在图片上拖动选择裁切区域，然后点右侧「应用裁切」',
+  adjust: '拖动右侧滑块调色，画面即时变化；「重置调色」可全部归零',
+  mosaic: '在图片上拖出要打码的区域，松手即生效',
+  doodle: '按住并拖动自由涂画，松手完成一笔',
+  rect: '在图片上拖出矩形，松手即生效',
+  arrow: '从起点拖到终点，松手生成箭头',
+  text: '先在右侧填写文字，再点击图片上要放置的位置'
+}
+
+/** 未满足前置条件时的可执行提示。 */
+const TOOL_BLOCKED_HINTS = {
+  text: '请先在右侧「文字内容」里输入要添加的文字'
 }
 
 export class ImageEditorModal {
@@ -57,6 +68,7 @@ export class ImageEditorModal {
     this.rail = document.getElementById('img-editor-rail')
     this.panel = document.getElementById('img-editor-options')
     this.hint = document.getElementById('img-editor-hint')
+    this.stageHint = document.getElementById('img-editor-stage-hint')
     this.sizeLabel = document.getElementById('img-editor-size')
     this.titleEl = document.getElementById('img-editor-title')
     this.undoBtn = document.getElementById('img-editor-undo')
@@ -165,7 +177,8 @@ export class ImageEditorModal {
     this.canvas = new FullscreenImageEditorCanvas('image-editor-canvas', {
       fabric: this.fabric,
       onOperation: (name, params) => this.#applyOperation(name, params),
-      onDraftChange: () => this.#renderPanel()
+      onDraftChange: () => this.#renderPanel(),
+      onBlocked: (tool) => this.#showHint(tool, true)
     })
     this.canvas.load(image, buildRenderPlan(this.session), this.#stageSize())
     this.#selectTool(tool)
@@ -304,8 +317,24 @@ export class ImageEditorModal {
     }
     // 调色不是画布上的拖拽工具，交互层不接管指针
     this.canvas.setTool(tool === 'adjust' ? null : tool, this.style)
-    this.hint.textContent = tool ? TOOL_HINTS[tool] : '从左侧选择一个工具'
+    this.#showHint(tool)
     this.#renderPanel()
+  }
+
+  /**
+   * 同步两处提示：右侧面板的常驻说明，以及画布上方的浮条。
+   * 浮条放在画布上是因为用户此刻的视线在图上，右侧面板容易被忽略。
+   */
+  #showHint(tool, blocked = false) {
+    const text = tool
+      ? (blocked && TOOL_BLOCKED_HINTS[tool]) || TOOL_HINTS[tool]
+      : '从左侧选择一个工具开始编辑'
+    this.hint.textContent = text
+    if (this.stageHint) {
+      this.stageHint.textContent = text
+      this.stageHint.hidden = !tool
+      this.stageHint.classList.toggle('blocked', Boolean(blocked))
+    }
   }
 
   #renderPanel() {

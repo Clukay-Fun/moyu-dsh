@@ -16,10 +16,11 @@ export class FullscreenImageEditorCanvas {
    * @param {string} elementId  <canvas> 的 id
    * @param {object} deps  fabric · onOperation(tool, params) · onDraftChange()
    */
-  constructor(elementId, { fabric, onOperation, onDraftChange }) {
+  constructor(elementId, { fabric, onOperation, onDraftChange, onBlocked }) {
     this.fabric = fabric
     this.onOperation = onOperation || (() => {})
     this.onDraftChange = onDraftChange || (() => {})
+    this.onBlocked = onBlocked || (() => {})
 
     this.canvas = new fabric.Canvas(elementId, {
       selection: false,
@@ -141,7 +142,9 @@ export class FullscreenImageEditorCanvas {
     if (this.tool === 'text') {
       const at = this.#toSource(pointer)
       const text = this.toolOptions.text
-      if (text) this.onOperation('text', { ...this.toolOptions, x: at.x, y: at.y })
+      // 没填文字就点画布：给可执行提示，而不是静默什么都不发生
+      if (!text) { this.onBlocked?.('text'); return }
+      this.onOperation('text', { ...this.toolOptions, x: at.x, y: at.y })
       return
     }
 
