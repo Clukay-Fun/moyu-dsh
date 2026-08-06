@@ -52,15 +52,23 @@ export function defaultImageSize(sourceWidth, sourceHeight, layoutViewport) {
  * 换行落到 previousRowBottom + 24，行高取该行显示高度最大值。
  */
 export class LayoutCursor {
-  constructor(layoutViewport) {
+  /**
+   * @param {object|null} [centerOn] 传入首个元素的尺寸时，第一行从**视口中心**
+   *   起排而不是左上角；后续换行仍按原规则向下推进。
+   */
+  constructor(layoutViewport, centerOn = null) {
     if (!layoutViewport || !Number.isFinite(layoutViewport.x) || !Number.isFinite(layoutViewport.y)) {
       throw new Error('layoutViewport 无效')
     }
     this.viewport = layoutViewport
-    this.left = layoutViewport.x + LAYOUT.gap
+    this.left = centerOn && centerOn.width > 0
+      ? layoutViewport.x + Math.max(LAYOUT.gap, (layoutViewport.width - centerOn.width) / 2)
+      : layoutViewport.x + LAYOUT.gap
     this.rightBoundary = layoutViewport.x + layoutViewport.width - LAYOUT.gap
     this.x = this.left
-    this.rowTop = layoutViewport.y + LAYOUT.gap
+    this.rowTop = centerOn && centerOn.height > 0
+      ? layoutViewport.y + Math.max(LAYOUT.gap, (layoutViewport.height - centerOn.height) / 2)
+      : layoutViewport.y + LAYOUT.gap
     this.rowHeight = 0
     this.rowCount = 0
   }
@@ -93,8 +101,16 @@ export class LayoutCursor {
  * @param {{x:number,y:number,width:number,height:number}} layoutViewport 冻结的可视世界矩形
  * @returns {Array<{x:number,y:number}>} 与 incoming 等长的坐标
  */
-export function placeNodes(incoming, existing, layoutViewport) {
-  const cursor = new LayoutCursor(layoutViewport)
+/**
+ * @param {object} [options]
+ *   anchor 'top-left'（批量导入，从左上角起排）| 'center'（截图/单张，落在视口中心附近）
+ *
+ * 截图必须用 center：从左上角起排时，画布未平移的情况下第一张会落在世界
+ * 坐标 (24,24)——看起来就像"固定丢在原点"，而用户当时在看别处。
+ */
+export function placeNodes(incoming, existing, layoutViewport, options = {}) {
+  const { anchor = 'top-left' } = options
+  const cursor = new LayoutCursor(layoutViewport, anchor === 'center' ? incoming[0] : null)
   // 已有对象一律不动；本批已放的也要参与避让
   const occupied = existing.map((node) => nodeBounds(node))
   const placed = []

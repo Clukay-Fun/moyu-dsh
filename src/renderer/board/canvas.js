@@ -90,7 +90,10 @@ export class BoardCanvas {
     })
     this.canvas.on('selection:created', () => this.#emitSelection())
     this.canvas.on('selection:updated', () => this.#emitSelection())
-    this.canvas.on('selection:cleared', () => this.#emitSelection())
+    this.canvas.on('selection:cleared', () => {
+      this.#emitSelection()
+      this.onSelectionCleared?.()
+    })
     // 文本编辑结束：把内容与排版后的真实尺寸一并写回场景图
     this.canvas.on('text:editing:exited', (event) => this.#writeBackText(event?.target))
     this.canvas.on('mouse:wheel', (opt) => {
@@ -118,6 +121,9 @@ export class BoardCanvas {
     this.canvas.on('mouse:up', () => {
       this.panning = null
       this.canvas.selection = true
+      // 抬手即视为拖动结束——即使没有产生 object:modified（比如原地按一下），
+      // 也要把对齐线清掉，否则红虚线会留在画面上。
+      this.onPointerUp?.()
     })
   }
 

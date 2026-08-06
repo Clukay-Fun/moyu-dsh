@@ -45,6 +45,11 @@ import {
 } from './guides.js'
 import { commitGeometry, restoreGeometry, minimalPanToReveal } from './editor/session.js'
 
+/** 滚轮单事件最大缩放变化。±10% 实测偏快，触控板尤其容易跳级。 */
+const WHEEL_STEP = 0.05
+/** 鼠标一个标准滚动档的 deltaY（Chromium）。触控板会小很多，按比例换算。 */
+const WHEEL_NOTCH = 100
+
 /** 单张图片上限，与主进程截图上限口径一致。 */
 const MAX_IMAGE_BYTES = 100 * 1024 * 1024
 
@@ -118,11 +123,13 @@ export class BoardController {
     this.canvas.onImageDoubleClick = (nodeId) => this.#requestEdit(nodeId, 'adjust')
     // 拖动时实时吸附并显示对齐线
     this.canvas.onObjectMoving = (nodeId, bounds) => this.#applySnap(nodeId, bounds)
-    this.canvas.onObjectMoved = () => { this.alignLines = []; this.renderOverlay() }
+    this.canvas.onObjectMoved = () => this.clearAlignLines()
+    // 对齐线只是拖动期间的视觉提示，任何"拖动结束"的信号都要清掉它：
+    // 抬手、变换提交、取消选择、拖动被中断。漏掉任何一条都会留下红虚线。
+    this.canvas.onPointerUp = () => this.clearAlignLines()
+    this.canvas.onSelectionCleared = () => this.clearAlignLines()
     this.canvas.onViewportChanged = () => this.renderOverlay()
-    this.canvas.onWheelZoom = (deltaY, point) => {
-      this.zoomBy(deltaY > 0 ? 1 / 1.1 : 1.1, point)
-    }
+    this.canvas.onWheelZoom = (deltaY, point) => this.zoomByWheel(deltaY, point)
     this.ready = true
 
     dom.addFile.addEventListener('click', () => dom.fileInput.click())
@@ -296,6 +303,23 @@ export class BoardController {
     this.#syncObjectToolbar()
     this.renderOverlay()
     return clamped
+  }
+
+  /**
+   * 滚轮 / 触控板缩放。
+   *
+   * 鼠标一个标准档在 Chromium 里通常是 |deltaY| = 100，换算成 ±5%；
+   * 触控板给的是小而连续的值，按同一比例线性换算，于是"轻轻滑一下"只缩
+   * 一点点。ratio 钳在 1 以内，保证**单个事件**最多改变 5%——否则触控板
+   * 一次惯性滚动能跳好几级，画面直接失控。
+   *
+   * 缩放中心是鼠标位置，最小/最大限制沿用 setZoom。
+   */
+  zoomByWheel(deltaY, center = null) {
+    if (!Number.isFinite(deltaY) || deltaY === 0) return this.zoom
+    const ratio = Math.min(1, Math.abs(deltaY) / WHEEL_NOTCH)
+    const factor = deltaY > 0 ? 1 - WHEEL_STEP * ratio : 1 + WHEEL_STEP * ratio
+    return this.setZoom(this.zoom * factor, center)
   }
 
   zoomBy(factor, center = null) {
@@ -503,6 +527,60 @@ export class BoardController {
     this.#markDirty()
   }
 
+  /**
+   * 执行走 IPC 的对象命令（复制 / OCR / 钉住）。
+   *
+   * 三件事由这里统一保证，避免每个命令各写一遍：
+   *   · 在途时忽略重复点击——OCR 要跑好几秒，连点会叠出多份任务；
+   *   · 无论成功、失败还是取消，**选择都不变**；
+   *   · 期间侧栏按钮置灰，结束后恢复。
+   */
+  async #runNodeCommand(action, ids) {
+    if (!this.onNodeCommand) {
+      this.onStatus({ error: `暂不支持的操作：${action}` })
+      return false
+    }
+    if (this.nodeCommandBusy) {
+      this.onStatus({ warn: '上一个操作还在进行中' })
+      return false
+    }
+    this.nodeCommandBusy = true
+    this.#setNodeCommandBusy(true)
+    try {
+      await this.onNodeCommand(action, ids)
+      return true
+    } catch (error) {
+      // 失败只提示，不动选择、不动对象——用户应能立刻重试或改用别的操作
+      this.onStatus({ error: error instanceof Error ? error.message : String(error) })
+      return false
+    } finally {
+      this.nodeCommandBusy = false
+      this.#setNodeCommandBusy(false)
+      // 选择在整个过程中保持不变；这里只是把工具栏状态重新同步一次
+      this.#syncObjectToolbar()
+    }
+  }
+
+  #setNodeCommandBusy(busy) {
+    const toolbar = this.dom?.objectToolbar
+    if (!toolbar) return
+    toolbar.setAttribute('aria-busy', String(busy))
+    for (const button of toolbar.querySelectorAll('[data-obj]')) {
+      if (button.dataset.obj === 'collapse') continue
+      button.disabled = busy
+    }
+    for (const item of this.dom.objectMoreMenu?.querySelectorAll('[data-more]') || []) {
+      item.disabled = busy
+    }
+  }
+
+  /** 清掉拖动期间的对齐线。多个入口共用，避免各写一份漏掉某条路径。 */
+  clearAlignLines() {
+    if (!this.alignLines.length) return
+    this.alignLines = []
+    this.renderOverlay()
+  }
+
   #syncObjectToolbar() {
     const toolbar = this.dom.objectToolbar
     if (!toolbar) return
@@ -693,8 +771,7 @@ export class BoardController {
       case 'original': this.restoreNodeOriginal(ids[0]); return
       default:
         // copy / ocr / pin 走主进程 IPC，由 main.js 注入处理器
-        if (this.onNodeCommand) { this.onNodeCommand(action, ids); return }
-        this.onStatus({ error: `暂不支持的操作：${action}` })
+        this.#runNodeCommand(action, ids)
     }
   }
 
@@ -818,6 +895,7 @@ export class BoardController {
 
   deleteSelected() {
     if (!this.selection.length) return
+    this.clearAlignLines()
     removeNodes(this.scene, [...this.selection])
     this.selection = []
     // 删节点会级联删边，被选中的边可能已不存在
@@ -854,7 +932,11 @@ export class BoardController {
       const display = defaultImageSize(size.width, size.height, viewport)
       // 事务内已放的对象也要参与避让
       const existing = [...this.scene.nodes, ...this.#batchPlaced]
-      const [spot] = placeNodes([display], existing, viewport)
+      // 本事务的**第一张**落在视口中心附近；同批后续的沿用左上角起排规则，
+      // 由 placeNodes 的避让保证不重叠。这样单张截图不会再丢在世界原点，
+      // 批量导入也不会挤成一堆。
+      const anchor = this.#batchPlaced.length === 0 ? 'center' : 'top-left'
+      const [spot] = placeNodes([display], existing, viewport, { anchor })
       const node = addImageNode(this.scene, {
         assetId,
         x: spot.x,
