@@ -2866,6 +2866,7 @@ const cmdProject = document.querySelector('#cmd-project')
 const projectMenu = document.querySelector('#project-menu')
 const cmdBackground = document.querySelector('#cmd-background')
 const backgroundMenu = document.querySelector('#background-menu')
+const boardBgColor = document.querySelector('#board-bg-color')
 
 /** 同一时刻只允许一个下拉打开。 */
 function closeAllCmdMenus(except = null) {
@@ -2927,23 +2928,54 @@ cmdBackground.addEventListener('click', (event) => {
 backgroundMenu.addEventListener('click', (event) => {
   const button = event.target.closest('[data-bg]')
   if (!button) return
-  closeAllCmdMenus()
   const controller = ensureBoardController()
   const key = button.dataset.bg
-  if (key === 'grid') {
+  // 网格两个开关是切换项，点完不关菜单，方便连着点。
+  // ⚠ 必须 stopPropagation：document 上有「点任何地方都关菜单」的兜底监听，
+  //   光是不调用 closeAllCmdMenus() 拦不住冒泡。
+  if (key === 'grid' || key === 'snap') {
+    event.stopPropagation()
     const next = button.getAttribute('aria-checked') !== 'true'
     button.setAttribute('aria-checked', String(next))
-    controller.setShowGrid(next)
+    if (key === 'grid') controller.setShowGrid(next)
+    else controller.setSnapGrid(next)
     return
   }
-  if (key === 'snap') {
-    const next = button.getAttribute('aria-checked') !== 'true'
-    button.setAttribute('aria-checked', String(next))
-    controller.setSnapGrid(next)
+  closeAllCmdMenus()
+  if (key === 'transparent') {
+    controller.setBackground({ type: 'transparent' })
+    syncBackgroundMenu()
+    showToast('背景已设为透明')
     return
   }
-  showToast('背景颜色将在 U6 接入')
+  if (key === 'custom') {
+    // 原生取色器：change 时才落定，避免拖动过程刷满历史
+    boardBgColor.value = controller.background?.color || '#ffffff'
+    boardBgColor.click()
+    return
+  }
+  showToast(`暂不支持的背景选项：${button.textContent.trim()}`)
 })
+
+boardBgColor.addEventListener('change', () => {
+  const controller = ensureBoardController()
+  controller.setBackground({ type: 'color', color: boardBgColor.value })
+  syncBackgroundMenu()
+  showToast(`背景已设为 ${boardBgColor.value}`)
+})
+
+/** 把菜单里的勾选态与场景真值对齐，避免显示与实际不符。 */
+function syncBackgroundMenu() {
+  const controller = boardController
+  if (!controller) return
+  const bg = controller.background
+  backgroundMenu.querySelector('[data-bg="transparent"]')
+    ?.setAttribute('aria-checked', String(bg.type === 'transparent'))
+  backgroundMenu.querySelector('[data-bg="grid"]')
+    ?.setAttribute('aria-checked', String(controller.showGrid))
+  backgroundMenu.querySelector('[data-bg="snap"]')
+    ?.setAttribute('aria-checked', String(controller.snapGrid))
+}
 
 // 取消文件选择时 change 不会触发，必须靠 cancel 清掉 pending，
 // 否则下次导入会被上一次的意图劫持。

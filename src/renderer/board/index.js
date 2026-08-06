@@ -1261,7 +1261,9 @@ export class BoardController {
       getScene: () => this.getSceneSnapshot(),
       getSelection: () => [...this.selection],
       getHistory: () => (this.history ? this.history.stats() : { undo: 0, redo: 0 }),
-      getFileState: () => ({ path: this.filePath, dirty: this.dirty })
+      getFileState: () => ({ path: this.filePath, dirty: this.dirty }),
+      getBackground: () => ({ ...this.background }),
+      getGrid: () => ({ show: this.showGrid, snap: this.snapGrid })
     })
   }
 }

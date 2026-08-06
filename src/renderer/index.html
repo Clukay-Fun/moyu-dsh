@@ -352,8 +352,10 @@
                       <button class="cbtn ghost" id="cmd-background" type="button"
                               aria-haspopup="true" aria-expanded="false">背景</button>
                       <div class="cmd-menu align-right" id="background-menu" role="menu" hidden>
-                        <button type="button" role="menuitem" data-bg="transparent">透明</button>
+                        <button type="button" role="menuitem" data-bg="transparent" aria-checked="true">透明</button>
                         <button type="button" role="menuitem" data-bg="custom">自定义颜色…</button>
+                        <!-- 自定义色走原生取色器；隐藏 input 由菜单项触发 -->
+                        <input type="color" id="board-bg-color" value="#ffffff" hidden />
                         <hr />
                         <button type="button" role="menuitem" data-bg="grid">显示网格</button>
                         <button type="button" role="menuitem" data-bg="snap">吸附网格</button>
