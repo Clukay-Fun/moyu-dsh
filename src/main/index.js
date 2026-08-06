@@ -1688,9 +1688,56 @@ ipcMain.handle('pdf:show-item', async (_event, payload) => {
   return { status: 'shown' }
 })
 
+/**
+ * 抓屏前把主窗口藏起来，抓完/取消后还原。
+ *
+ * 不藏的话冻结画面里会有摸鱼工具箱自己——用户看到的就是"先截了一张软件
+ * 界面，再在上面框选"，而他想截的是被软件挡住的那些东西。
+ *
+ * 记录触发前的真实状态：**原本最小化的窗口不能被还原成普通窗口**，
+ * 否则用户按完快捷键会莫名其妙多出一个窗口。
+ */
+function captureWindowState() {
+  if (!mainWindow || mainWindow.isDestroyed()) return null
+  return {
+    visible: mainWindow.isVisible(),
+    minimized: mainWindow.isMinimized(),
+    focused: mainWindow.isFocused()
+  }
+}
+
+/** 隐藏主窗口并等桌面重绘。等待时长在 mac/Windows 上实测取值。 */
+async function hideForCapture() {
+  const state = captureWindowState()
+  if (!mainWindow || mainWindow.isDestroyed()) return state
+  if (mainWindow.isVisible() && !mainWindow.isMinimized()) mainWindow.hide()
+  // 合成器需要一帧以上才能把窗口从屏幕上抹掉；不等就会截到残影。
+  await new Promise((resolve) => setTimeout(resolve, CAPTURE_HIDE_DELAY_MS))
+  return state
+}
+
+/** 还原到触发前的状态。成功、取消、失败三条路径都必须调用。 */
+function restoreAfterCapture(state) {
+  if (!state || !mainWindow || mainWindow.isDestroyed()) return
+  if (state.minimized) {
+    // 原本就是最小化的，保持最小化——只是让它重新出现在任务栏/Dock
+    if (!mainWindow.isVisible()) mainWindow.showInactive()
+    if (!mainWindow.isMinimized()) mainWindow.minimize()
+    return
+  }
+  if (!state.visible) return // 原本就藏着，别替用户召唤出来
+  mainWindow.show()
+  if (state.focused) mainWindow.focus()
+}
+
+/** 隐藏后等待桌面刷新的时长。实测 mac 上 120ms 足够，留些余量。 */
+const CAPTURE_HIDE_DELAY_MS = 140
+
 ipcMain.handle('screenshot:start', async (event) => {
+  // ⚠ 先取光标所在显示器再隐藏窗口：隐藏会改变焦点，之后取到的可能是别的屏
   const cursorPoint = screen.getCursorScreenPoint()
   const display = screen.getDisplayNearestPoint(cursorPoint)
+  const restoreState = await hideForCapture()
   const physicalWidth = Math.max(1, Math.round(display.bounds.width * display.scaleFactor))
   const physicalHeight = Math.max(1, Math.round(display.bounds.height * display.scaleFactor))
   const sources = await desktopCapturer.getSources({
@@ -1706,6 +1753,8 @@ ipcMain.handle('screenshot:start', async (event) => {
     sources[0]
 
   if (!source || source.thumbnail.isEmpty()) {
+    // 失败也要把窗口还回去，否则应用就此消失
+    restoreAfterCapture(restoreState)
     throw new Error('无法读取屏幕画面，请检查系统录屏权限')
   }
 
@@ -1733,7 +1782,9 @@ ipcMain.handle('screenshot:start', async (event) => {
     displayBounds: display.bounds,
     imageSize: source.thumbnail.getSize(),
     owner: event.sender,
-    overlay
+    overlay,
+    // 触发前的窗口状态。完成、取消、覆盖层被关三条路径都要用它还原。
+    restoreState
   }
   screenshotSessions.set(sessionId, session)
   overlay.once('ready-to-show', () => {
@@ -1744,6 +1795,7 @@ ipcMain.handle('screenshot:start', async (event) => {
     const activeSession = screenshotSessions.get(sessionId)
     if (activeSession?.overlay === overlay) {
       screenshotSessions.delete(sessionId)
+      restoreAfterCapture(activeSession.restoreState)
       activeSession.owner.send('screenshot:cancelled')
     }
   })
@@ -1801,6 +1853,8 @@ ipcMain.handle('screenshot:complete', (_event, payload) => {
   }
   screenshotSessions.delete(payload.sessionId)
   session.overlay.close()
+  // 先把主窗口还回来再送结果，用户才能立刻看到截图落进画布
+  restoreAfterCapture(session.restoreState)
   session.owner.send('screenshot:captured', {
     data: new Uint8Array(data),
     width,
@@ -1814,6 +1868,7 @@ ipcMain.handle('screenshot:cancel', (_event, sessionId) => {
   if (session) {
     screenshotSessions.delete(sessionId)
     session.overlay.close()
+    restoreAfterCapture(session.restoreState)
     session.owner.send('screenshot:cancelled')
   }
   return { status: 'cancelled' }
@@ -2202,10 +2257,11 @@ function notifyShortcutStatus(payload) {
 function triggerCaptureShortcut() {
   if (screenshotSessions.size > 0) return
   if (!mainWindow || mainWindow.isDestroyed()) return
-  // 失焦或最小化时按下快捷键也要能用：先恢复再聚焦
-  if (mainWindow.isMinimized()) mainWindow.restore()
-  mainWindow.show()
-  mainWindow.focus()
+  // ⚠ 不在这里 show/focus。
+  //   截图本来就要把主窗口藏起来（否则应用自己会被截进冻结画面），
+  //   先显示再隐藏会闪一下。这里只发事件，窗口的隐藏与还原全部交给
+  //   screenshot:start 的 hideForCapture / restoreAfterCapture。
+  //   截图完成后由 restoreAfterCapture 还原，并由渲染端切到图片画布。
   mainWindow.webContents.send('shortcut:capture')
 }
 
