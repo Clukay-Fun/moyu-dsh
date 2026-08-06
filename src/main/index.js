@@ -4,6 +4,7 @@ import {
   clipboard,
   desktopCapturer,
   dialog,
+  globalShortcut,
   ipcMain,
   net,
   nativeImage,
@@ -2202,6 +2203,74 @@ ipcMain.handle('screenshot:pin-close', (event, pinId) => {
   return { status: 'closed' }
 })
 
+// ── 全局截图快捷键（规格 6）────────────────────────────────
+//
+// 固定 Ctrl+Shift+A，本版不提供自定义。
+// 只在应用运行期间有效，退出时注销——全局快捷键是进程级资源，
+// 不注销会一直占着，直到下次开机。
+//
+// 写字面量 'Control+Shift+A' 而不是 'CommandOrControl+...'：
+// 规格要的就是 Ctrl+Shift+A。macOS 上它是 Control+Shift+A，
+// 本版不对 macOS 作承诺，正式验收只看 Windows。
+const CAPTURE_SHORTCUT = 'Control+Shift+A'
+
+/** 注册失败的提示；渲染端就绪前先攒着，就绪后再送一次。 */
+let pendingShortcutNotice = null
+
+function notifyShortcutStatus(payload) {
+  const target = mainWindow?.webContents
+  if (!target || target.isDestroyed() || target.isLoading()) {
+    pendingShortcutNotice = payload
+    return
+  }
+  target.send('shortcut:status', payload)
+}
+
+/**
+ * 触发截图。
+ *
+ * 已有覆盖层时直接忽略：连按不能叠出第二层，否则两层覆盖会互相遮挡，
+ * 用户既选不中区域也关不掉。screenshotSessions 是覆盖层的唯一真值。
+ */
+function triggerCaptureShortcut() {
+  if (screenshotSessions.size > 0) return
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  // 失焦或最小化时按下快捷键也要能用：先恢复再聚焦
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+  mainWindow.webContents.send('shortcut:capture')
+}
+
+function registerCaptureShortcut() {
+  let ok = false
+  try {
+    ok = globalShortcut.register(CAPTURE_SHORTCUT, triggerCaptureShortcut)
+  } catch {
+    ok = false
+  }
+  // register 返回 false 或抛错都算失败；无论哪种，应用都要继续跑
+  if (!ok) {
+    notifyShortcutStatus({
+      ok: false,
+      accelerator: CAPTURE_SHORTCUT,
+      message: `全局截图快捷键 ${CAPTURE_SHORTCUT} 被其他软件占用，未能注册。` +
+        '可以继续用界面上的截图按钮。'
+    })
+    return false
+  }
+  notifyShortcutStatus({ ok: true, accelerator: CAPTURE_SHORTCUT })
+  return true
+}
+
+// 渲染端就绪后补发注册结果
+ipcMain.on('shortcut:ready', (event) => {
+  if (event.sender !== mainWindow?.webContents) return
+  if (!pendingShortcutNotice) return
+  event.sender.send('shortcut:status', pendingShortcutNotice)
+  pendingShortcutNotice = null
+})
+
 app.whenReady().then(() => {
   // BrowserWindow.icon 不控制 macOS Dock；开发模式显式使用项目图标，
   // 方便本机预览与 Windows 打包后的品牌视觉保持一致。
@@ -2210,6 +2279,7 @@ app.whenReady().then(() => {
     if (dockIcon && !dockIcon.isEmpty()) app.dock.setIcon(dockIcon)
   }
   createWindow()
+  registerCaptureShortcut()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -2222,6 +2292,12 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
   }
+})
+
+// 退出时释放全局快捷键。will-quit 比 before-quit 更靠后，
+// 是 Electron 文档指定的注销时机。
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll()
 })
 
 app.on('before-quit', () => {
