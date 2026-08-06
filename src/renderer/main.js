@@ -289,7 +289,6 @@ const searchFeatures = [
   ['自动格式条码', '条码', 'bc', 'Auto', 'Auto CODE128 一维码'],
   ['区域截图', '图片', 'image', 'capture', '截图 截屏 抓屏 屏幕 标注'],
   ['图片裁切', '图片', 'image', 'crop', '裁剪 编辑'],
-  ['文字水印', '图片', 'image', 'watermark', '水印 编辑'],
   ['调色与马赛克', '图片', 'image', 'adjust', '亮度 对比度 饱和度 像素化'],
   ['统一画布', '图片', 'image', '', '画布 拼图 多图 文本框 moyuboard 项目 区域'],
   ['截图复制', '图片', 'image', '', '剪贴板 复制 PNG 截图'],
@@ -2622,7 +2621,7 @@ function activateUnifiedCanvas() {
  */
 let pendingImageTool = null
 
-const IMAGE_TOOLS = new Set(['crop', 'watermark', 'adjust'])
+const IMAGE_TOOLS = new Set(['crop', 'adjust'])
 
 /** 全屏图片编辑器（U4）。懒创建：没打开过就不建实例。 */
 let imageEditorModal = null

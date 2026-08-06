@@ -148,7 +148,7 @@ export function normalizeCrop(rect, sourceSize) {
  * 把一组操作折叠成渲染计划。
  *
  * 分成三段是为了保证顺序稳定：
- *   ① 几何（裁切）→ ② 像素（调色、马赛克）→ ③ 覆盖物（涂鸦/水印/标注）
+ *   ① 几何（裁切）→ ② 像素（调色、马赛克）→ ③ 覆盖物（涂鸦/标注）
  * 否则先画箭头再裁切，箭头会被裁掉一半，而用户预期是"在最终画面上标注"。
  */
 export function buildRenderPlan(session) {
@@ -156,7 +156,7 @@ export function buildRenderPlan(session) {
   const crops = ops.filter((op) => op.tool === 'crop')
   const pixel = ops.filter((op) => op.tool === 'mosaic')
   const overlays = ops.filter((op) =>
-    ['doodle', 'watermark', 'rect', 'arrow', 'text'].includes(op.tool))
+    ['doodle', 'rect', 'arrow', 'text'].includes(op.tool))
 
   return {
     crops,
@@ -247,24 +247,10 @@ export function drawOverlay(ctx, op) {
       ctx.stroke()
       break
     }
-    case 'text':
-    case 'watermark': {
+    case 'text': {
       ctx.font = `${p.fontWeight || 'normal'} ${p.fontSize || 24}px ${p.fontFamily || 'system-ui, sans-serif'}`
       ctx.textBaseline = 'top'
-      if (op.tool === 'watermark' && p.opacity != null) ctx.globalAlpha = p.opacity
-      if (op.tool === 'watermark' && p.repeat) {
-        // 平铺水印
-        const stepX = p.stepX || 220
-        const stepY = p.stepY || 160
-        ctx.rotate((p.angle || -20) * Math.PI / 180)
-        for (let y = -ctx.canvas.height; y < ctx.canvas.height * 2; y += stepY) {
-          for (let x = -ctx.canvas.width; x < ctx.canvas.width * 2; x += stepX) {
-            ctx.fillText(p.text || '', x, y)
-          }
-        }
-      } else {
-        ctx.fillText(p.text || '', p.x || 0, p.y || 0)
-      }
+      ctx.fillText(p.text || '', p.x || 0, p.y || 0)
       break
     }
     default:

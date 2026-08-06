@@ -36,8 +36,7 @@ const TOOL_HINTS = {
   doodle: '按住拖动自由涂画。',
   rect: '拖出一个矩形框。',
   arrow: '从起点拖到终点画箭头。',
-  text: '填好文字后，点击图片上要放置的位置。',
-  watermark: '填好文字后点「添加水印」，可平铺整张图。'
+  text: '填好文字后，点击图片上要放置的位置。'
 }
 
 export class ImageEditorModal {
@@ -317,7 +316,6 @@ export class ImageEditorModal {
     if (tool === 'adjust') { this.#renderAdjustPanel(); return }
     if (tool === 'crop') { this.#renderCropPanel(); return }
     if (tool === 'mosaic') { this.#renderMosaicPanel(); return }
-    if (tool === 'watermark') { this.#renderWatermarkPanel(); return }
     if (tool === 'text') { this.#renderTextPanel(); return }
     this.#renderStrokePanel()
   }
@@ -400,47 +398,6 @@ export class ImageEditorModal {
       this.#swatches(),
       this.#slider('字号', 'fontSize', this.style.fontSize || 24, 8, 160)
     )
-    this.panel.append(frag)
-  }
-
-  #renderWatermarkPanel() {
-    const frag = document.createDocumentFragment()
-    frag.append(
-      this.#textField('水印文字', 'text', this.style.text || ''),
-      this.#swatches(),
-      this.#slider('字号', 'fontSize', this.style.fontSize || 28, 8, 160),
-      this.#slider('不透明度 %', 'opacityPercent', this.style.opacityPercent || 25, 5, 100)
-    )
-
-    const tile = document.createElement('label')
-    tile.className = 'inline-value'
-    const tileBox = document.createElement('input')
-    tileBox.type = 'checkbox'
-    tileBox.checked = this.style.repeat !== false
-    tileBox.addEventListener('change', () => { this.style.repeat = tileBox.checked })
-    const tileText = document.createElement('span')
-    tileText.textContent = '平铺整张图'
-    tile.append(tileText, tileBox)
-
-    const add = document.createElement('button')
-    add.type = 'button'
-    add.className = 'primary-btn'
-    add.textContent = '添加水印'
-    add.addEventListener('click', () => {
-      if (!this.style.text) { this.onStatus('请先填写水印文字'); return }
-      const size = this.session.resultSize()
-      this.#applyOperation('watermark', {
-        text: this.style.text,
-        color: this.style.color,
-        fontSize: this.style.fontSize || 28,
-        opacity: (this.style.opacityPercent || 25) / 100,
-        repeat: this.style.repeat !== false,
-        x: size.width * 0.06,
-        y: size.height * 0.9
-      })
-    })
-
-    frag.append(tile, add)
     this.panel.append(frag)
   }
 

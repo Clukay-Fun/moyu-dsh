@@ -13,7 +13,7 @@
 
 /** 工具集。截图入口与双击入口共用这一份，不得各自维护。 */
 export const EDITOR_TOOLS = [
-  'crop', 'adjust', 'mosaic', 'doodle', 'watermark', 'rect', 'arrow', 'text'
+  'crop', 'adjust', 'mosaic', 'doodle', 'rect', 'arrow', 'text'
 ]
 
 /**
