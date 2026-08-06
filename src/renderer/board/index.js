@@ -1277,7 +1277,10 @@ export class BoardController {
       getHistory: () => (this.history ? this.history.stats() : { undo: 0, redo: 0 }),
       getFileState: () => ({ path: this.filePath, dirty: this.dirty }),
       getBackground: () => ({ ...this.background }),
-      getGrid: () => ({ show: this.showGrid, snap: this.snapGrid })
+      getGrid: () => ({ show: this.showGrid, snap: this.snapGrid }),
+      // 场景坐标 ↔ 屏幕坐标的换算依据。验收要在对象**真实所在的位置**发鼠标
+      // 事件，"图应该在画布中间"是个会骗人的假设。
+      getViewport: () => ({ ...this.canvas.viewportRect(), zoom: this.zoom })
     })
   }
 }
