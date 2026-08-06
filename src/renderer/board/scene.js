@@ -35,13 +35,31 @@ export const TEXT_DEFAULTS = {
   fontFamily: 'system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif'
 }
 
-/** 文本框特有样式。纯文字节点无边框无底色。 */
+/**
+ * 文本框特有样式：**默认透明、无边框**，只留文字与编辑用的内边距。
+ * 白底加边框会在截图上凭空糊一块，多数场景要的只是一行标注文字。
+ */
 export const TEXTBOX_DEFAULTS = {
+  backgroundColor: '',
+  borderColor: '',
+  borderWidth: 0,
+  padding: 10
+}
+
+/**
+ * v1 工程的历史文本框样式。**冻结，只用于 v1 → v2 迁移**。
+ *
+ * 产品默认值可以改，但不能反向改变用户已经保存过的内容：旧工程里那些
+ * 没有显式写 style 的文本框，当年看到的就是白底加浅灰边框，迁移后必须
+ * 还是那样。若直接复用 TEXTBOX_DEFAULTS，改一次默认值就会把所有历史
+ * 工程的观感改一次。
+ */
+export const TEXTBOX_DEFAULTS_V1 = Object.freeze({
   backgroundColor: '#ffffff',
   borderColor: '#d8dae5',
   borderWidth: 1,
   padding: 10
-}
+})
 
 /** 文本框默认宽度。这是**节点尺寸**不是样式，故不放进 style。 */
 export const TEXTBOX_DEFAULT_WIDTH = 260
@@ -577,7 +595,7 @@ function migrateV1toV2(scene) {
       if (!Number.isFinite(next.scaleX) || next.scaleX <= 0) next.scaleX = 1
       if (!Number.isFinite(next.scaleY) || next.scaleY <= 0) next.scaleY = 1
       // 纯文字节点原本没有边框/底色/内边距，补成文本框默认值
-      next.style = { ...TEXT_DEFAULTS, ...TEXTBOX_DEFAULTS, ...(next.style || {}) }
+      next.style = { ...TEXT_DEFAULTS, ...TEXTBOX_DEFAULTS_V1, ...(next.style || {}) }
     }
     return next
   })

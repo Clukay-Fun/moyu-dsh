@@ -234,14 +234,28 @@ export class BoardCanvas {
     this.onChange('transform')
   }
 
+  /** 只把文本内容与排版尺寸落进场景，不发 onChange。渲染前退出编辑时用。 */
+  #applyTextMetrics(object) {
+    if (!this.scene || !object?.boardNodeId) return
+    setNodeText(this.scene, object.boardNodeId, object.text ?? '')
+    setNodeMetrics(this.scene, object.boardNodeId, {
+      width: object.width,
+      height: object.height
+    })
+  }
+
   #writeBackText(object) {
     if (!this.scene || !object?.boardNodeId || this.suspendSync) return
     setNodeText(this.scene, object.boardNodeId, object.text ?? '')
     // 文本真实宽高只有排版后才知道，必须回填，否则包围盒、连接线锚点、
     // 导出尺寸都会用估算值。
+    //
+    // ⚠ 写**基础**宽高，不乘 scale。node.width 的语义是未缩放的基础宽度，
+    //   缩放单独存在 node.scaleX（规格 4）。若这里写 width*scaleX，下次渲染
+    //   会用 width: node.width 再叠一次 scaleX，缩放被乘两遍。
     setNodeMetrics(this.scene, object.boardNodeId, {
-      width: object.width * (object.scaleX || 1),
-      height: object.height * (object.scaleY || 1)
+      width: object.width,
+      height: object.height
     })
     // 同 #writeBack：渲染统一由 #afterChange 负责，此处不再直接 render
     this.onChange('text')
@@ -269,6 +283,24 @@ export class BoardCanvas {
   /** 按场景图重建全部 fabric 对象。节点规模为几十量级，全量重建足够。 */
   async render() {
     if (!this.scene) return
+    // ⚠ 有对象正在行内编辑时，必须**先正常退出编辑再重建**。
+    //
+    //   直接 clear() 会把正在编辑的 Textbox 连同编辑状态一起销毁，之后
+    //   fabric 的 exitEditing 拿不到 canvas 就抛错，对象也变成孤儿
+    //   ——表现就是"编辑一次之后再也选不中、改不动、双击不进编辑"。
+    //
+    //   也不能简单跳过这次渲染：那样锁定、撤销这类状态变更会静默不生效，
+    //   直到下一次渲染才补上（实测锁定后仍能双击进编辑就是这么来的）。
+    //
+    //   退出编辑用 suspendSync 挡住事件回写，改为在这里直接落库，
+    //   避免 onChange → #afterChange → render() 递归。
+    const editing = this.canvas.getActiveObject()
+    if (editing?.isEditing) {
+      this.suspendSync = true
+      editing.exitEditing()
+      this.suspendSync = false
+      this.#applyTextMetrics(editing)
+    }
     this.suspendSync = true
     const selected = new Set(this.getSelectedIds())
     this.canvas.discardActiveObject()
@@ -387,6 +419,9 @@ export class BoardCanvas {
         lockMovementX: lockedText,
         lockMovementY: lockedText,
         lockRotation: lockedText,
+        // 图片分支有这两项，文本框此前漏了——锁定后仍能拉伸
+        lockScalingX: lockedText,
+        lockScalingY: lockedText,
         originX: 'left',
         originY: 'top',
         angle: node.rotation || 0,
