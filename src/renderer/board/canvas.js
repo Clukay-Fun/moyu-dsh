@@ -20,6 +20,7 @@ import {
   edgePathPoints,
   NODE_TYPES
 } from './scene.js'
+import { applyBoardControls } from './controls.js'
 
 export class BoardCanvas {
   /**
@@ -312,6 +313,8 @@ export class BoardCanvas {
     for (const node of nodesByZ(this.scene)) {
       const object = await this.#createObject(node)
       if (!object) continue
+      // 视觉小、命中大的控制点（S3）。必须在对象加入画布前套上。
+      applyBoardControls(object)
       this.#useCenterOrigin(object, node)
       object.boardNodeId = node.id
       object.boardNodeType = node.type

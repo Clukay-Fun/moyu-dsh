@@ -2434,6 +2434,8 @@ function ensureBoardController() {
   })
   // 双击图片与对象工具栏的 编辑/裁切 都走这里（U4）
   boardController.onEditImage = (image, tool) => openImageEditor(image, tool)
+  // ⚠ 临时诊断桥：S3 用，跑完删除
+  Object.defineProperty(window, '__bd', { get: () => boardController, configurable: true })
 
   // 对象侧栏「更多」：复制 / OCR / 钉住（U6 / 规格 6.1）。
   // 主进程能力原样复用，只是入口从旧截图页搬到了对象上。
