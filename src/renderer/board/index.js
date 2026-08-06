@@ -35,7 +35,7 @@ import { BoardCanvas } from './canvas.js'
 import { BoardHistory } from './history.js'
 import { packBoard, unpackBoard } from './container.js'
 import {
-  exportBounds, planExport, describePlan, exportFillColor, exportMime, exportFileName
+  exportBounds, planExport, describePlan, exportFillColor, exportMime, exportFileName, exportFileType
 } from './export.js'
 import { defaultImageSize, placeNodes, LAYOUT } from './layout.js'
 import { BoardOverlay } from './overlay.js'
@@ -626,7 +626,9 @@ export class BoardController {
      * 图片：编辑 裁切 复制 锁定 置顶 置底 删除 更多
      * 文本框：编辑文字 复制 锁定 置顶 置底 删除
      * 多选：复制 锁定 置顶 置底 删除
-     * 锁定后只留「已锁定」与层级/删除——但对象仍保持选中。
+     * 锁定后只留「已锁定」与「删除」——层级也一并收起（锁定即不可改动），
+     * 但对象仍保持选中。删除按钮保持可见：藏起来会让"怎么去掉它"无从下手，
+     * 点了给出「已锁定，无法删除」的提示反而更可发现（见 F-05）。
      */
     const visible = {
       edit: single && !locked,
@@ -895,8 +897,20 @@ export class BoardController {
 
   deleteSelected() {
     if (!this.selection.length) return
+    // ⚠ removeNodes 是顺序 map，遇到锁定节点会中途抛出——混合选中时
+    //   前几个已经删掉、异常又逃到控制台，场景被改一半且 #afterChange()
+    //   永远执行不到，这一步不进历史，撤销也回不来。
+    //   所以前置条件在这里挡：scene.js 的严格抛出保留为不变量兜底。
+    const locked = this.selection.filter((id) =>
+      isNodeLocked(this.scene.nodes.find((n) => n.id === id)))
+    const removable = this.selection.filter((id) => !locked.includes(id))
+    if (!removable.length) {
+      this.onStatus({ warn: locked.length > 1 ? '选中对象已全部锁定，无法删除' : '该对象已锁定，无法删除' })
+      return
+    }
     this.clearAlignLines()
-    removeNodes(this.scene, [...this.selection])
+    removeNodes(this.scene, removable)
+    if (locked.length) this.onStatus({ warn: `已跳过 ${locked.length} 个锁定对象` })
     this.selection = []
     // 删节点会级联删边，被选中的边可能已不存在
     if (this.selectedEdge && !this.scene.edges.some((e) => e.id === this.selectedEdge)) {
@@ -1213,7 +1227,7 @@ export class BoardController {
       const result = await window.api.saveImageFile({
         data: image.bytes,
         name: exportFileName({ projectPath: this.filePath, range }),
-        type: format
+        type: exportFileType(format)
       })
       if (result?.status === 'saved') {
         this.onStatus({ saved: result.path, note: describePlan(plan) })

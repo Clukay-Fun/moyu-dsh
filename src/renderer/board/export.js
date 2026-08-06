@@ -136,6 +136,19 @@ export function exportMime(format) {
 }
 
 /**
+ * 导出格式 → 主进程 `image:save-file` 的 `type`。
+ *
+ * ⚠ 两边命名**故意不同**：用户可见的是 `jpg`（扩展名），
+ * 主进程 `IMAGE_FILE_TYPES` 的键是 `jpeg`（格式名）。
+ * 直接把 `'jpg'` 传过去会被判成「不支持的图片文件数据」，
+ * 而 png 两边同名，所以只测 png 永远发现不了。必须经此转换。
+ */
+export function exportFileType(format) {
+  if (!EXPORT_FORMATS.includes(format)) throw new Error(`未知导出格式：${format}`)
+  return format === 'png' ? 'png' : 'jpeg'
+}
+
+/**
  * 默认文件名（规格 8.2）。
  * 已保存工程用工程名；未保存用 `画布-YYYYMMDD-HHmmss`；选中导出加 `-选中`。
  */
