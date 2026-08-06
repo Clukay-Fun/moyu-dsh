@@ -2905,13 +2905,18 @@ projectMenu.addEventListener('click', (event) => {
   if (!button) return
   closeAllCmdMenus()
   const controller = ensureBoardController()
+  // ⚠ 这里的每个分支都必须对应控制器上**真实存在**的方法。
+  //   曾经有过 export-png 调用早已改名的 exportPng()、export-jpg 与 new
+  //   直接掉进 default 的情况——底部隐藏按钮接的是对的，所以 harness 全绿，
+  //   而用户真正在用的顶部菜单完全不工作。
   switch (button.dataset.project) {
+    case 'new': void controller.newBoard(); break
     case 'open': void controller.open(); break
     case 'save': void controller.save(false); break
     case 'save-as': void controller.save(true); break
-    case 'export-png': void controller.exportPng({ range: 'content', scale: 1 }); break
-    // 新建与导出 JPG 在 U5 / U6 接入；此处只保证入口存在且不静默失败
-    default: showToast(`“${button.textContent.trim()}”将在后续切片接入`)
+    case 'export-png': void controller.exportImage({ range: 'content', format: 'png' }); break
+    case 'export-jpg': void controller.exportImage({ range: 'content', format: 'jpg' }); break
+    default: showToast(`暂不支持的操作：${button.textContent.trim()}`)
   }
 })
 

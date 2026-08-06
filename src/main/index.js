@@ -1702,15 +1702,89 @@ function captureWindowState() {
   return {
     visible: mainWindow.isVisible(),
     minimized: mainWindow.isMinimized(),
-    focused: mainWindow.isFocused()
+    focused: mainWindow.isFocused(),
+    // macOS 绿色按钮进入的系统全屏是**独立 Space**，隐藏时要先退全屏，
+    // 且必须等 Space 切换动画结束才能抓到真实画面
+    fullScreen: mainWindow.isFullScreen()
   }
 }
+
+/** 等一个窗口事件，带超时兜底；不用固定 sleep 猜状态是否完成。 */
+function waitForWindowEvent(win, event, timeoutMs = 2000) {
+  return new Promise((resolve) => {
+    let done = false
+    const finish = (reason) => {
+      if (done) return
+      done = true
+      win.removeListener(event, onEvent)
+      clearTimeout(timer)
+      resolve(reason)
+    }
+    const onEvent = () => finish('event')
+    const timer = setTimeout(() => finish('timeout'), timeoutMs)
+    win.once(event, onEvent)
+  })
+}
+
+/** 连续两帧屏幕尺寸稳定即认为桌面已稳定。 */
+async function waitForDesktopSettle(frames = 2) {
+  for (let i = 0; i < frames; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, CAPTURE_HIDE_DELAY_MS))
+  }
+}
+
+/**
+ * 判断抓到的是不是黑帧。
+ *
+ * 全屏 Space 切换期间抓屏会拿到纯黑的过渡帧。宁可让用户重试，
+ * 也不能把一张黑图当成截图交出去——用户会以为是自己框错了。
+ */
+function isBlankCapture(image) {
+  if (!image || image.isEmpty()) return true
+  const size = image.getSize()
+  if (!size.width || !size.height) return true
+  // 缩到很小再逐像素看，避免对全屏位图做全量扫描
+  const small = image.resize({ width: 24, height: 16, quality: 'good' })
+  const buf = small.toBitmap()
+  if (!buf || !buf.length) return true
+  let max = 0
+  for (let i = 0; i < buf.length; i += 4) {
+    max = Math.max(max, buf[i], buf[i + 1], buf[i + 2])
+    if (max > BLANK_CAPTURE_THRESHOLD) return false
+  }
+  return true
+}
+
+/** 亮度低于此值的画面视为黑帧。留一点余量以容忍深色壁纸的极端情况。 */
+const BLANK_CAPTURE_THRESHOLD = 8
 
 /** 隐藏主窗口并等桌面重绘。等待时长在 mac/Windows 上实测取值。 */
 async function hideForCapture() {
   const state = captureWindowState()
   if (!mainWindow || mainWindow.isDestroyed()) return state
-  if (mainWindow.isVisible() && !mainWindow.isMinimized()) mainWindow.hide()
+
+  if (state.fullScreen) {
+    // ── 系统全屏：先退出全屏，等 Space 动画真正结束再隐藏 ──
+    //   直接 hide() 会在 Space 切换的中途抓屏，拿到的是纯黑过渡帧。
+    //   等的是**事件**不是固定时长：不同机器、不同动画设置耗时差很多。
+    mainWindow.setFullScreen(false)
+    await waitForWindowEvent(mainWindow, 'leave-full-screen', 3000)
+    if (mainWindow.isVisible()) {
+      const hidden = waitForWindowEvent(mainWindow, 'hide', 1500)
+      mainWindow.hide()
+      await hidden
+    }
+    // Space 切回后桌面还要重绘一会儿
+    await waitForDesktopSettle(3)
+    return state
+  }
+
+  // ── 普通 / 最大化窗口：原有快速路径 ──
+  if (mainWindow.isVisible() && !mainWindow.isMinimized()) {
+    const hidden = waitForWindowEvent(mainWindow, 'hide', 800)
+    mainWindow.hide()
+    await hidden
+  }
   // 合成器需要一帧以上才能把窗口从屏幕上抹掉；不等就会截到残影。
   await new Promise((resolve) => setTimeout(resolve, CAPTURE_HIDE_DELAY_MS))
   return state
@@ -1728,6 +1802,8 @@ function restoreAfterCapture(state) {
   if (!state.visible) return // 原本就藏着，别替用户召唤出来
   mainWindow.show()
   if (state.focused) mainWindow.focus()
+  // 原本是系统全屏的，还回去——否则用户截完图发现应用退出了全屏
+  if (state.fullScreen && !mainWindow.isFullScreen()) mainWindow.setFullScreen(true)
 }
 
 /** 隐藏后等待桌面刷新的时长。实测 mac 上 120ms 足够，留些余量。 */
@@ -1740,22 +1816,32 @@ ipcMain.handle('screenshot:start', async (event) => {
   const restoreState = await hideForCapture()
   const physicalWidth = Math.max(1, Math.round(display.bounds.width * display.scaleFactor))
   const physicalHeight = Math.max(1, Math.round(display.bounds.height * display.scaleFactor))
-  const sources = await desktopCapturer.getSources({
-    types: ['screen'],
-    thumbnailSize: {
-      width: physicalWidth,
-      height: physicalHeight
-    },
-    fetchWindowIcons: false
-  })
-  const source =
-    sources.find((candidate) => String(candidate.display_id) === String(display.id)) ||
-    sources[0]
+  const grab = async () => {
+    const sources = await desktopCapturer.getSources({
+      types: ['screen'],
+      thumbnailSize: { width: physicalWidth, height: physicalHeight },
+      fetchWindowIcons: false
+    })
+    return sources.find((c) => String(c.display_id) === String(display.id)) || sources[0]
+  }
+
+  let source = await grab()
+  // 抓到黑帧多半是合成器还没画完（尤其刚退出全屏 Space），再等一拍重抓一次。
+  // 只重试一次：真没权限时不该让用户干等。
+  if (source && isBlankCapture(source.thumbnail)) {
+    await waitForDesktopSettle(3)
+    source = await grab()
+  }
 
   if (!source || source.thumbnail.isEmpty()) {
     // 失败也要把窗口还回去，否则应用就此消失
     restoreAfterCapture(restoreState)
     throw new Error('无法读取屏幕画面，请检查系统录屏权限')
+  }
+  if (isBlankCapture(source.thumbnail)) {
+    // 宁可让用户重试，也不能把黑图当截图交出去——用户会以为是自己框错了
+    restoreAfterCapture(restoreState)
+    throw new Error('屏幕画面尚未就绪，请重试')
   }
 
   const sessionId = randomUUID()
