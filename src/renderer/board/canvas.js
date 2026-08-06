@@ -22,6 +22,27 @@ import {
 } from './scene.js'
 import { applyBoardControls } from './controls.js'
 
+/**
+ * 锁定对象的选中框：灰色虚线。
+ *
+ * 只改**选中框**，不动对象本身——不降透明度、不加蒙层。锁定是"这个东西
+ * 现在动不了"，不是"这个东西被禁用了"，把内容做灰会让人以为导出也会变。
+ * 选中框属于 fabric 的控制器层，本来就不进导出（renderRegion 用的是
+ * StaticCanvas，没有交互层）。
+ */
+function applyLockedOutline(object, locked) {
+  if (locked) {
+    object.borderColor = 'rgba(120, 124, 140, 0.9)'
+    object.borderDashArray = [5, 4]
+    object.borderScaleFactor = 1.5
+  } else {
+    object.borderColor = '#6978e6'
+    object.borderDashArray = null
+    object.borderScaleFactor = 1.5
+  }
+  return object
+}
+
 export class BoardCanvas {
   /**
    * @param {string} elementId canvas 元素 id
@@ -315,6 +336,9 @@ export class BoardCanvas {
       if (!object) continue
       // 视觉小、命中大的控制点（S3）。必须在对象加入画布前套上。
       applyBoardControls(object)
+      // ⚠ 必须在 applyBoardControls **之后**：它会重置 borderColor，
+      //   先设锁定虚线会被覆盖回主题色。
+      applyLockedOutline(object, isNodeLocked(node))
       this.#useCenterOrigin(object, node)
       object.boardNodeId = node.id
       object.boardNodeType = node.type
@@ -380,8 +404,8 @@ export class BoardCanvas {
               hoverCursor: locked ? 'not-allowed' : 'move'
             })
             image.setControlsVisibility({
-              tl: true, tr: true, bl: true, br: true,
-              ml: true, mr: true, mt: true, mb: true,
+              tl: !locked, tr: !locked, bl: !locked, br: !locked,
+              ml: !locked, mr: !locked, mt: !locked, mb: !locked,
               mtr: !locked
             })
             resolve(image)

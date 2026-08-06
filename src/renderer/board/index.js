@@ -539,28 +539,65 @@ export class BoardController {
 
     const single = nodes.length === 1
     const locked = nodes.some((n) => isNodeLocked(n))
-    const isImage = single && nodes[0].type === 'image'
+    const type = single ? nodes[0].type : null
+    const isImage = type === 'image'
+    const isText = type === 'textbox'
 
-    // 锁定：只提供解锁与只读信息；多选：只提供复制/删除/锁定/置顶/置底
-    for (const button of toolbar.querySelectorAll('[data-obj]')) {
+    /**
+     * 各按钮的可见性。
+     * 图片：编辑 裁切 复制 锁定 置顶 置底 删除 更多
+     * 文本框：编辑文字 复制 锁定 置顶 置底 删除
+     * 多选：复制 锁定 置顶 置底 删除
+     * 锁定后只留「已锁定」与层级/删除——但对象仍保持选中。
+     */
+    const visible = {
+      edit: single && !locked,
+      crop: isImage && !locked,
+      copy: !locked,
+      lock: true,
+      front: !locked,
+      back: !locked,
+      delete: true,
+      // 「更多」里目前只有图片相关项，文本框不需要
+      more: isImage
+    }
+    for (const button of this.dom.objectToolbar.querySelectorAll('[data-obj]')) {
       const key = button.dataset.obj
       if (key === 'collapse') continue
-      const allowed =
-        key === 'lock' ? true
-          : key === 'copy' ? !locked
-            : key === 'more' ? true
-              : single && isImage && !locked
-      button.hidden = !allowed
+      button.hidden = !visible[key]
     }
-    toolbar.querySelector('[data-obj="lock"]')?.setAttribute('aria-pressed', String(locked))
-    toolbar.querySelector('[data-obj="lock"]')?.setAttribute('title', locked ? '解锁' : '锁定')
-    // 「更多」里的 OCR / 钉住只对单选未锁定图片开放
+
+    // 编辑按钮的文案随类型变化，避免"编辑"对文本框含义不清
+    const editButton = this.dom.objectToolbar.querySelector('[data-obj="edit"] .obj-label')
+    if (editButton) editButton.textContent = isText ? '编辑文字' : '编辑'
+
+    // 锁定按钮：图标 + 文案 + 高亮三者同时表达状态
+    const lockButton = this.dom.objectToolbar.querySelector('[data-obj="lock"]')
+    if (lockButton) {
+      lockButton.setAttribute('aria-pressed', String(locked))
+      lockButton.title = locked ? '点击解锁' : '锁定后不可移动、缩放、旋转与编辑'
+      const icon = lockButton.querySelector('.obj-ic')
+      const label = lockButton.querySelector('.obj-label')
+      if (icon) icon.textContent = locked ? '🔒' : '🔓'
+      if (label) label.textContent = locked ? '已锁定' : '锁定'
+    }
+
+    // 「更多」：恢复原图 / OCR / 钉住，只对单选未锁定图片开放
     const moreMenu = this.dom.objectMoreMenu
     if (moreMenu) {
+      const node = single ? nodes[0] : null
       for (const item of moreMenu.querySelectorAll('[data-more]')) {
         const key = item.dataset.more
-        item.hidden = (key === 'ocr' || key === 'pin') ? !(isImage && !locked) : false
+        if (key === 'original') {
+          item.hidden = !(isImage && !locked) ||
+            !node?.originalAssetId || node.originalAssetId === node.assetId
+        } else {
+          item.hidden = !(isImage && !locked)
+        }
       }
+      // 所有项都不可用时不留空菜单
+      const anyVisible = [...moreMenu.querySelectorAll('[data-more]')].some((i) => !i.hidden)
+      if (!anyVisible) moreMenu.hidden = true
     }
     toolbar.hidden = false
   }

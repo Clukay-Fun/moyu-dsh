@@ -368,22 +368,40 @@
 
               <!-- 跟随选中对象的竖向工具栏：屏幕固定尺寸，不随画布缩放 -->
               <div class="object-toolbar" id="object-toolbar" hidden>
-                <button class="obj-btn" data-obj="collapse" type="button" title="收起">‹</button>
+                <button class="obj-btn obj-collapse" data-obj="collapse" type="button"
+                        title="收起工具栏" aria-label="收起工具栏"><span aria-hidden="true">‹</span></button>
                 <div class="obj-group" id="obj-actions">
-                  <button class="obj-btn" data-obj="edit" type="button" title="编辑">✎</button>
-                  <button class="obj-btn" data-obj="crop" type="button" title="裁切">⌗</button>
-                  <button class="obj-btn" data-obj="original" type="button" title="查看/恢复原图">↶</button>
-                  <button class="obj-btn" data-obj="copy" type="button" title="复制">⧉</button>
-                  <button class="obj-btn" data-obj="lock" type="button" title="锁定">◇</button>
-                  <button class="obj-btn" data-obj="more" type="button" title="更多">⋯</button>
+                  <!-- 主操作：图标 + 短标签。整个矩形可点，不依赖单个字符。 -->
+                  <button class="obj-btn" data-obj="edit" type="button">
+                    <span class="obj-ic" aria-hidden="true">✎</span><span class="obj-label">编辑</span>
+                  </button>
+                  <button class="obj-btn" data-obj="crop" type="button">
+                    <span class="obj-ic" aria-hidden="true">⌗</span><span class="obj-label">裁切</span>
+                  </button>
+                  <button class="obj-btn" data-obj="copy" type="button">
+                    <span class="obj-ic" aria-hidden="true">⧉</span><span class="obj-label">复制</span>
+                  </button>
+                  <button class="obj-btn obj-lock" data-obj="lock" type="button" aria-pressed="false">
+                    <span class="obj-ic" aria-hidden="true">🔓</span><span class="obj-label">锁定</span>
+                  </button>
+                  <button class="obj-btn" data-obj="front" type="button">
+                    <span class="obj-ic" aria-hidden="true">⤒</span><span class="obj-label">置顶</span>
+                  </button>
+                  <button class="obj-btn" data-obj="back" type="button">
+                    <span class="obj-ic" aria-hidden="true">⤓</span><span class="obj-label">置底</span>
+                  </button>
+                  <button class="obj-btn obj-danger" data-obj="delete" type="button">
+                    <span class="obj-ic" aria-hidden="true">🗑</span><span class="obj-label">删除</span>
+                  </button>
+                  <button class="obj-btn" data-obj="more" type="button" aria-haspopup="true" aria-expanded="false">
+                    <span class="obj-ic" aria-hidden="true">⋯</span><span class="obj-label">更多</span>
+                  </button>
                 </div>
+                <!-- 低频项收在「更多」里，避免侧栏长期占宽 -->
                 <div class="cmd-menu align-right" id="object-more-menu" role="menu" hidden>
+                  <button type="button" role="menuitem" data-more="original">恢复原图</button>
                   <button type="button" role="menuitem" data-more="ocr">文字提取（OCR）</button>
-                  <button type="button" role="menuitem" data-more="pin">钉住</button>
-                  <hr />
-                  <button type="button" role="menuitem" data-more="front">置顶</button>
-                  <button type="button" role="menuitem" data-more="back">置底</button>
-                  <button type="button" role="menuitem" data-more="delete">删除</button>
+                  <button type="button" role="menuitem" data-more="pin">钉在桌面</button>
                 </div>
               </div>
               <div class="canvas-empty" id="board-empty">

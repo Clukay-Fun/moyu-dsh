@@ -3605,16 +3605,31 @@ input:focus-visible {
 }
 .object-toolbar.collapsed .obj-group { display: none; }
 
+/* 侧栏本身吃掉指针事件，点空白不穿透到画布取消选择 */
+.object-toolbar .obj-group,
+.object-toolbar .obj-btn,
+.object-toolbar .cmd-menu {
+  pointer-events: auto;
+}
+
 .obj-btn {
+  /* 图标 + 短标签横排；整个矩形都是点击区，不依赖单个字符 */
   display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
+  grid-template-columns: 18px auto;
+  align-items: center;
+  justify-items: start;
+  gap: 6px;
+  width: 100%;
+  min-width: 84px;
+  min-height: 30px;
+  padding: 0 8px 0 6px;
   border: 0;
   border-radius: 8px;
   color: var(--muted);
   background: transparent;
-  font-size: 13px;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
   cursor: pointer;
   transition:
     color 130ms ease,
@@ -3625,6 +3640,37 @@ input:focus-visible {
   .obj-btn:hover { color: var(--accent); background: var(--accent-10); }
 }
 .obj-btn:active { transform: scale(0.94); }
+.obj-btn[hidden] { display: none; }
+
+.obj-ic {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  font-size: 13px;
+  line-height: 1;
+}
+.obj-label { white-space: nowrap; }
+
+/* 收起按钮只有箭头，不占标签宽度 */
+.obj-collapse {
+  grid-template-columns: 1fr;
+  justify-items: center;
+  min-width: 22px;
+  width: 22px;
+  padding: 0;
+}
+
+/* 锁定态：按钮高亮；文案由 JS 在「锁定 / 已锁定」间切换 */
+.obj-lock[aria-pressed="true"] {
+  color: var(--accent);
+  background: var(--accent-18);
+  font-weight: 600;
+}
+
+.obj-danger { color: #c0453f; }
+@media (hover: hover) and (pointer: fine) {
+  .obj-danger:hover { color: #ffffff; background: #c0453f; }
+}
 .obj-btn[aria-pressed="true"] { color: var(--accent); background: var(--accent-10); }
 
 .object-toolbar > .obj-btn[data-obj="collapse"] {
