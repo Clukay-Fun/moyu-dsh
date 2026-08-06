@@ -805,26 +805,44 @@ function createWindow() {
     mainWindow.show()
   })
 
-  // 未保存的汇总画布：关闭前确认。
-  // 用 forceClose 标记避免 destroy 后再次触发本处理器造成递归。
+  // 未保存的汇总画布：关闭前确认，三选项与新建/打开完全一致（规格 7.2）。
+  //
+  // 必须异步：选「保存」时要把保存交给 renderer 执行（打包、写盘、
+  // 可能弹系统保存对话框），**保存成功才退出**。保存失败或用户在保存
+  // 对话框里取消时留在原地——否则等于"点了保存却把改动丢了"。
+  // forceClose 标记避免 destroy 后再次触发本处理器造成递归。
   let forceClose = false
+  let closing = false
   mainWindow.on('close', (event) => {
     if (forceClose || !boardHasUnsavedChanges) return
     event.preventDefault()
-    const choice = dialog.showMessageBoxSync(mainWindow, {
-      type: 'warning',
-      buttons: ['取消', '不保存并退出'],
-      defaultId: 0,
-      cancelId: 0,
-      title: '有未保存的画布',
-      message: '汇总画布有未保存的改动',
-      detail: '直接退出会丢失这些改动。可先取消，回到「截图 › 汇总画布」保存。'
-    })
-    if (choice === 1) {
-      forceClose = true
-      boardHasUnsavedChanges = false
-      mainWindow.destroy()
-    }
+    if (closing) return // 已在处理中，忽略重复的关闭请求
+    closing = true
+
+    ;(async () => {
+      try {
+        const choice = await dialog.showMessageBox(mainWindow, {
+          type: 'warning',
+          buttons: ['保存并退出', '不保存并退出', '取消'],
+          defaultId: 0,
+          cancelId: 2,
+          title: '有未保存的画布',
+          message: '汇总画布有未保存的改动',
+          detail: '选择「保存并退出」会先保存当前工程；保存失败时不会退出。'
+        })
+        if (choice.response === 2) return // 取消：什么都不做
+
+        if (choice.response === 0) {
+          const saved = await requestRendererSave()
+          if (!saved) return // 保存失败或用户取消了保存对话框：留在原地
+        }
+        forceClose = true
+        boardHasUnsavedChanges = false
+        mainWindow.destroy()
+      } finally {
+        closing = false
+      }
+    })()
   })
   mainWindow.on('closed', () => {
     mainWindow = null
@@ -1842,6 +1860,40 @@ const MOYUBOARD_MAX_BYTES = 512 * 1024 * 1024
  * 无法在其中等待对话框，也拦不住"退出应用"这条路径。
  */
 let boardHasUnsavedChanges = false
+
+/** 关闭流程里等待 renderer 保存结果的握手表。 */
+const pendingCloseSaves = new Map()
+let closeSaveSeq = 0
+
+/**
+ * 请 renderer 执行一次保存，等待其结果。
+ * @returns {Promise<boolean>} 是否真的保存成功
+ *
+ * 超时兜底：renderer 卡死时不能让窗口永远关不掉，
+ * 但超时按**失败**处理——宁可让用户再点一次，也不能悄悄丢改动。
+ */
+function requestRendererSave(timeoutMs = 120000) {
+  const target = mainWindow?.webContents
+  if (!target || target.isDestroyed()) return Promise.resolve(false)
+  const id = ++closeSaveSeq
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      pendingCloseSaves.delete(id)
+      resolve(false)
+    }, timeoutMs)
+    pendingCloseSaves.set(id, (ok) => {
+      clearTimeout(timer)
+      pendingCloseSaves.delete(id)
+      resolve(Boolean(ok))
+    })
+    target.send('board:request-save', id)
+  })
+}
+
+ipcMain.on('board:save-result', (event, id, ok) => {
+  if (event.sender !== mainWindow?.webContents) return
+  pendingCloseSaves.get(id)?.(ok)
+})
 
 ipcMain.on('board:dirty', (event, dirty) => {
   if (event.sender !== mainWindow?.webContents) return

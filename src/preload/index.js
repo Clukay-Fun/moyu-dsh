@@ -19,6 +19,12 @@ contextBridge.exposeInMainWorld(
     writeRecovery: (payload) => ipcRenderer.invoke('recovery:write', payload),
     readRecovery: () => ipcRenderer.invoke('recovery:read'),
     clearRecovery: () => ipcRenderer.invoke('recovery:clear'),
+    onBoardSaveRequest: (handler) => {
+      const listener = (_event, id) => handler(id)
+      ipcRenderer.on('board:request-save', listener)
+      return () => ipcRenderer.off('board:request-save', listener)
+    },
+    reportBoardSaveResult: (id, ok) => ipcRenderer.send('board:save-result', id, Boolean(ok)),
     saveImageFile: (payload) => ipcRenderer.invoke('image:save-file', payload),
     pickIllustratorFiles: () => ipcRenderer.invoke('illustrator:pick-files'),
     pickIllustratorFolder: () => ipcRenderer.invoke('illustrator:pick-folder'),

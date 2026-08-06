@@ -2490,6 +2490,18 @@ function ensureBoardController() {
     return window.confirm(`不保存直接${actionLabel}？未保存的改动会丢失。`) ? 'discard' : 'cancel'
   }
 
+  // 退出握手：主进程弹三选项，选「保存并退出」时由这里真正执行保存，
+  // 结果回传给主进程决定是否退出（规格 7.2）
+  window.api.onBoardSaveRequest(async (id) => {
+    let ok = false
+    try {
+      ok = await boardController.save(false)
+    } catch {
+      ok = false
+    }
+    window.api.reportBoardSaveResult(id, ok)
+  })
+
   // 崩溃恢复：3 秒 debounce / 30 秒 max-wait（规格 7.3）
   boardController.attachRecovery(new RecoveryScheduler({
     write: async () => {

@@ -33,6 +33,10 @@ export class RecoveryScheduler {
     this.lastChangeAt = null
     /** 是否有一次 write 正在进行 */
     this.writing = false
+    /** 在途写盘的 Promise；cancelAndWait() 靠它等待落盘真正结束 */
+    this.inFlight = null
+    /** 停用：正常保存/关闭后不再排期，避免又生成一份恢复文件 */
+    this.stopped = false
     /** 写盘期间又来了变更：写完要再排一次，否则最后那批改动会丢 */
     this.dirtyWhileWriting = false
     this.stats = { scheduled: 0, writes: 0, debounceFires: 0, maxWaitFires: 0, errors: 0 }
@@ -40,6 +44,7 @@ export class RecoveryScheduler {
 
   /** 有变更发生。可高频调用。 */
   schedule() {
+    if (this.stopped) return
     const at = this.now()
     if (this.firstChangeAt === null) this.firstChangeAt = at
     this.lastChangeAt = at
@@ -76,36 +81,70 @@ export class RecoveryScheduler {
    */
   async flush() {
     if (this.firstChangeAt === null) return false
-    if (this.writing) { this.dirtyWhileWriting = true; return false }
+    if (this.writing) { this.dirtyWhileWriting = true; return this.inFlight }
 
     if (this.timer !== null) { this.clearTimer(this.timer); this.timer = null }
     this.firstChangeAt = null
     this.lastChangeAt = null
     this.writing = true
-    try {
-      await this.write()
-      this.stats.writes += 1
-      return true
-    } catch (error) {
-      this.stats.errors += 1
-      // 恢复快照失败不能打断用户操作，只上报
-      this.onError(error)
-      return false
-    } finally {
-      this.writing = false
-      if (this.dirtyWhileWriting) {
-        this.dirtyWhileWriting = false
-        this.schedule()
+    this.inFlight = (async () => {
+      try {
+        await this.write()
+        this.stats.writes += 1
+        return true
+      } catch (error) {
+        this.stats.errors += 1
+        // 恢复快照失败不能打断用户操作，只上报
+        this.onError(error)
+        return false
+      } finally {
+        this.writing = false
+        this.inFlight = null
+        if (this.dirtyWhileWriting) {
+          this.dirtyWhileWriting = false
+          this.schedule()
+        }
       }
-    }
+    })()
+    return this.inFlight
   }
 
-  /** 丢弃待写变更（正常保存后重置基线、放弃恢复时用）。 */
+  /** 丢弃待写变更（放弃恢复时用）。不等待在途写盘。 */
   cancel() {
     if (this.timer !== null) { this.clearTimer(this.timer); this.timer = null }
     this.firstChangeAt = null
     this.lastChangeAt = null
     this.dirtyWhileWriting = false
+  }
+
+  /**
+   * 停止排期并**等待在途写盘结束**。正常保存与关闭走这条。
+   *
+   * 只 cancel() 是不够的：它只清掉定时器，拦不住已经开始的 write()。
+   * 于是「保存 → cancel → 删除恢复文件」之后，那次在途写盘才完成 rename，
+   * 又把恢复文件生了出来；下次启动就会提示恢复一个**已经正常保存过**的旧状态。
+   *
+   * stopped 在等待期间保持为真，确保 finally 里的重新排期也被挡住。
+   */
+  async cancelAndWait() {
+    this.stopped = true
+    if (this.timer !== null) { this.clearTimer(this.timer); this.timer = null }
+    this.firstChangeAt = null
+    this.lastChangeAt = null
+    this.dirtyWhileWriting = false
+    // 写盘的 finally 可能又排一次；循环等到真正没有在途任务
+    while (this.inFlight) {
+      try { await this.inFlight } catch { /* 失败已在内部上报 */ }
+    }
+    this.firstChangeAt = null
+    this.lastChangeAt = null
+    this.dirtyWhileWriting = false
+    if (this.timer !== null) { this.clearTimer(this.timer); this.timer = null }
+  }
+
+  /** 重新允许排期（保存完成、恢复文件清理干净之后）。 */
+  resume() {
+    this.stopped = false
   }
 
   get pending() { return this.firstChangeAt !== null }

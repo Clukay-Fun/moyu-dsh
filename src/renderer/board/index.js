@@ -235,6 +235,12 @@ export class BoardController {
       this.history.push(this.scene)
       this.dirty = true
       this.#reportDirty()
+      // ⚠ 内容编辑（新增/移动/缩放/旋转/删除/文本）全部走这条路，
+      //   恢复快照必须在这里调度。只在 #markDirty() 里调度是不够的——
+      //   那只覆盖背景/网格/参考线，崩溃后恢复出来的会是一份没有内容的画布。
+      //   commit=false 是撤销/重做自身的还原重绘与打开工程后的首次渲染，
+      //   不代表新的用户改动，不能触发。
+      this.recovery?.schedule()
     }
     await this.canvas.render()
     this.#syncControls()
@@ -270,7 +276,15 @@ export class BoardController {
     }
     this.selection = []
     this.selectedEdge = null
+    // commit=false：撤销/重做不能再往历史里压一步。
+    // 但它确实改变了内容——脏状态与恢复快照都要跟上，
+    // 否则撤销后画布已与已保存文件不同，界面却还显示"已保存"，
+    // 且崩溃后恢复到的是撤销**之前**的状态。
     this.#afterChange(false)
+    this.dirty = true
+    this.#reportDirty()
+    this.#syncStatus()
+    this.recovery?.schedule()
   }
 
   // ── 视口缩放与平移 ──────────────────────────────────────
@@ -910,13 +924,29 @@ export class BoardController {
     this.selectedEdge = null
     this.filePath = null
     this.dirty = false
-    this.recovery?.cancel()
-    window.api.clearRecovery?.().catch(() => {})
+    await this.#resetRecoveryBaseline()
     this.history.reset(this.scene)
     this.#reportDirty()
     await this.#afterChange(false)
     this.resetZoom()
     return true
+  }
+
+  /**
+   * 正常保存/打开/新建之后重置恢复基线。
+   *
+   * ⚠ 必须**等在途写盘结束**再删恢复文件。只 cancel() 的话，
+   *   已经开始的那次 write 会在 clearRecovery 之后才完成 rename，
+   *   把恢复文件又生出来；下次启动就会提示恢复一个已经正常保存过的旧状态。
+   */
+  async #resetRecoveryBaseline() {
+    if (this.recovery) await this.recovery.cancelAndWait()
+    try {
+      await window.api.clearRecovery?.()
+    } catch {
+      // 删不掉不影响当前操作；下次启动读到的快照会因内容陈旧被用户放弃
+    }
+    this.recovery?.resume()
   }
 
   /**
@@ -978,8 +1008,7 @@ export class BoardController {
       this.filePath = result.path
       this.dirty = false
       // 正常保存后更新恢复基线：待写的快照作废，已落盘的快照删除（规格 7.3）
-      this.recovery?.cancel()
-      window.api.clearRecovery?.().catch(() => {})
+      await this.#resetRecoveryBaseline()
       // 确认写入成功后才回收未引用二进制；这会让更早的删除无法再撤销，
       // 因此历史栈同步从当前状态重新开始。
       compactAssetStore(this.scene, this.store)
@@ -1019,8 +1048,7 @@ export class BoardController {
       this.selectedEdge = null
       this.filePath = result.path
       this.dirty = false
-      this.recovery?.cancel()
-      window.api.clearRecovery?.().catch(() => {})
+      await this.#resetRecoveryBaseline()
       this.history.reset(this.scene)
       this.#reportDirty()
       await this.#afterChange(false)
