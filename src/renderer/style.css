@@ -3850,6 +3850,27 @@ input:focus-visible {
 
 .tool-btn span { font-size: 17px; line-height: 1; }
 
+/* 工具与动作之间的分隔。动作不是模式——点了立刻执行完、没有按下态，
+   视觉上必须和上面那组分开，否则用户会以为点了"钉住"就进入了钉住模式。 */
+.rail-split {
+  width: 100%;
+  margin: 8px 0;
+  border: 0;
+  border-top: 1px solid var(--hairline);
+}
+.rail-split[hidden] { display: none; }
+
+/* 动作按钮：比工具再淡一档，且永远不会有 aria-pressed 的高亮态 */
+.tool-btn.action-btn { color: var(--faint); }
+.tool-btn.action-btn[hidden] { display: none; }
+@media (hover: hover) and (pointer: fine) {
+  .tool-btn.action-btn:hover:not(:disabled) { color: var(--accent); background: var(--accent-10); }
+}
+.tool-btn.action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* 只读（图片被锁定）时，被禁用的工具要一眼看出来 */
+.img-editor.read-only .tool-btn:disabled { opacity: 0.35; }
+
 @media (hover: hover) {
   .tool-btn:hover { color: var(--accent); background: var(--accent-10); }
 }

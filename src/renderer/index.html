@@ -377,9 +377,6 @@
                   <button class="obj-btn" data-obj="edit" type="button">
                     <span class="obj-ic" aria-hidden="true">✎</span><span class="obj-label">编辑</span>
                   </button>
-                  <button class="obj-btn" data-obj="crop" type="button">
-                    <span class="obj-ic" aria-hidden="true">⌗</span><span class="obj-label">裁切</span>
-                  </button>
                   <button class="obj-btn" data-obj="copy" type="button">
                     <span class="obj-ic" aria-hidden="true">⧉</span><span class="obj-label">复制</span>
                   </button>
@@ -395,15 +392,6 @@
                   <button class="obj-btn obj-danger" data-obj="delete" type="button">
                     <span class="obj-ic" aria-hidden="true">🗑</span><span class="obj-label">删除</span>
                   </button>
-                  <button class="obj-btn" data-obj="more" type="button" aria-haspopup="true" aria-expanded="false">
-                    <span class="obj-ic" aria-hidden="true">⋯</span><span class="obj-label">更多</span>
-                  </button>
-                </div>
-                <!-- 低频项收在「更多」里，避免侧栏长期占宽 -->
-                <div class="cmd-menu align-right" id="object-more-menu" role="menu" hidden>
-                  <button type="button" role="menuitem" data-more="original">恢复原图</button>
-                  <button type="button" role="menuitem" data-more="ocr">文字提取（OCR）</button>
-                  <button type="button" role="menuitem" data-more="pin">钉在桌面</button>
                 </div>
               </div>
               <div class="canvas-empty" id="board-empty">
@@ -597,9 +585,8 @@
               <span class="toolbar-space"></span>
               <button class="gbtn" id="img-editor-undo" type="button" title="撤销 (Ctrl+Z)" disabled>↶ 撤销</button>
               <button class="gbtn" id="img-editor-redo" type="button" title="重做 (Ctrl+Shift+Z)" disabled>↷ 重做</button>
-              <button class="gbtn" id="img-editor-restore" type="button" title="恢复到最初导入的原图">恢复原图</button>
               <button class="gbtn ghost" id="img-editor-cancel" type="button">取消</button>
-              <button class="primary-btn" id="img-editor-commit" type="button">完成</button>
+              <button class="primary" id="img-editor-commit" type="button">完成</button>
             </div>
 
             <div class="img-editor-body">
@@ -611,6 +598,16 @@
                 <button class="tool-btn" data-tool="rect" type="button" title="矩形"><span>▢</span>矩形</button>
                 <button class="tool-btn" data-tool="arrow" type="button" title="箭头"><span>↗</span>箭头</button>
                 <button class="tool-btn" data-tool="text" type="button" title="文字"><span>T</span>文字</button>
+
+                <!-- ⚠ 分隔线以下是**动作**不是工具：点了立刻执行完，
+                     没有按下态，也不进撤销栈（见 session.js 的 EDITOR_ACTIONS）。 -->
+                <hr class="rail-split" />
+                <button class="tool-btn action-btn" data-action="restore" type="button"
+                        title="恢复到最初导入的原图" hidden><span>⟲</span>恢复原图</button>
+                <button class="tool-btn action-btn" data-action="ocr" type="button"
+                        title="识别当前编辑结果中的文字"><span>字</span>文字提取</button>
+                <button class="tool-btn action-btn" data-action="pin" type="button"
+                        title="把当前编辑预览钉在桌面"><span>📌</span>钉住</button>
               </div>
 
               <div class="img-editor-stage checkerboard" id="img-editor-stage">
@@ -650,7 +647,7 @@
             </div>
             <div class="pdf-page-dialog-actions">
               <button class="gbtn ghost" id="pdf-cancel-page-organizer" type="button">取消</button>
-              <button class="primary-btn" id="pdf-save-page-organizer" type="button">保存新 PDF</button>
+              <button class="primary" id="pdf-save-page-organizer" type="button">保存新 PDF</button>
             </div>
           </footer>
         </section>

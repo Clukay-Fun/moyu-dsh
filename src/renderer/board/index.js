@@ -187,13 +187,6 @@ export class BoardController {
       event.stopPropagation()
       this.#onObjectAction(button.dataset.obj)
     })
-    dom.objectMoreMenu?.addEventListener('click', (event) => {
-      const item = event.target.closest('[data-more]')
-      if (!item) return
-      event.stopPropagation()
-      dom.objectMoreMenu.hidden = true
-      this.#onObjectAction(item.dataset.more)
-    })
     dom.exportPng?.addEventListener('click', () =>
       this.exportImage({ range: dom.exportRange.value, format: 'png' }))
     dom.exportJpg?.addEventListener('click', () =>
@@ -592,9 +585,6 @@ export class BoardController {
       if (button.dataset.obj === 'collapse') continue
       button.disabled = busy
     }
-    for (const item of this.dom.objectMoreMenu?.querySelectorAll('[data-more]') || []) {
-      item.disabled = busy
-    }
   }
 
   /** 清掉拖动期间的对齐线。多个入口共用，避免各写一份漏掉某条路径。 */
@@ -634,7 +624,6 @@ export class BoardController {
   hideFloatingToolbars() {
     this.#cancelToolbarSync()
     if (this.dom?.objectToolbar) this.dom.objectToolbar.hidden = true
-    if (this.dom?.objectMoreMenu) this.dom.objectMoreMenu.hidden = true
   }
 
   #syncObjectToolbar() {
@@ -686,23 +675,25 @@ export class BoardController {
 
     /**
      * 各按钮的可见性。
-     * 图片：编辑 裁切 复制 锁定 置顶 置底 删除 更多
+     * 图片：编辑 复制 锁定 置顶 置底 删除
      * 文本框：编辑文字 复制 锁定 置顶 置底 删除
-     * 多选：复制 锁定 置顶 置底 删除
+     * 多选/混合选择：复制 锁定 置顶 置底 删除（紧凑批量工具栏，S3）
+     *
+     * ⚠ 裁切 / 恢复原图 / OCR / 钉住**不在这里**——它们统一在全屏编辑器里
+     *   （S3+S4）。同一能力两个入口是上一版的教训：两边的可用条件、
+     *   繁忙态、错误提示迟早会漂移。
      * 锁定后只留「已锁定」与「删除」——层级也一并收起（锁定即不可改动），
      * 但对象仍保持选中。删除按钮保持可见：藏起来会让"怎么去掉它"无从下手，
      * 点了给出「已锁定，无法删除」的提示反而更可发现（见 F-05）。
      */
     const visible = {
-      edit: single && !locked,
-      crop: isImage && !locked,
+      // 锁定的图片仍可打开（只读：提取文字 / 钉住），所以不再要求 !locked
+      edit: single && (isImage || !locked),
       copy: !locked,
       lock: true,
       front: !locked,
       back: !locked,
-      delete: true,
-      // 「更多」里目前只有图片相关项，文本框不需要
-      more: isImage
+      delete: true
     }
     for (const button of this.dom.objectToolbar.querySelectorAll('[data-obj]')) {
       const key = button.dataset.obj
@@ -725,23 +716,6 @@ export class BoardController {
       if (label) label.textContent = locked ? '已锁定' : '锁定'
     }
 
-    // 「更多」：恢复原图 / OCR / 钉住，只对单选未锁定图片开放
-    const moreMenu = this.dom.objectMoreMenu
-    if (moreMenu) {
-      const node = single ? nodes[0] : null
-      for (const item of moreMenu.querySelectorAll('[data-more]')) {
-        const key = item.dataset.more
-        if (key === 'original') {
-          item.hidden = !(isImage && !locked) ||
-            !node?.originalAssetId || node.originalAssetId === node.assetId
-        } else {
-          item.hidden = !(isImage && !locked)
-        }
-      }
-      // 所有项都不可用时不留空菜单
-      const anyVisible = [...moreMenu.querySelectorAll('[data-more]')].some((i) => !i.hidden)
-      if (!anyVisible) moreMenu.hidden = true
-    }
     toolbar.hidden = false
   }
 
@@ -825,15 +799,10 @@ export class BoardController {
         this.#afterChange()
         return
       }
-      case 'more':
-        this.dom.objectMoreMenu.hidden = !this.dom.objectMoreMenu.hidden
-        return
       case 'front': this.#applyLayer(bringToFront); return
       case 'back': this.#applyLayer(sendToBack); return
       case 'delete': this.deleteSelected(); return
       case 'edit': this.#requestEdit(ids[0], 'adjust'); return
-      case 'crop': this.#requestEdit(ids[0], 'crop'); return
-      case 'original': this.restoreNodeOriginal(ids[0]); return
       default:
         // copy / ocr / pin 走主进程 IPC，由 main.js 注入处理器
         this.#runNodeCommand(action, ids)
@@ -846,15 +815,14 @@ export class BoardController {
   #requestEdit(nodeId, tool) {
     const node = this.scene.nodes.find((n) => n.id === nodeId)
     if (!node || node.type !== 'image') return
-    if (isNodeLocked(node)) {
-      this.onStatus({ error: '该图片已锁定，请先解锁再编辑' })
-      return
-    }
+    // 锁定的图片以**只读**方式进编辑器（S4）：提取文字、钉住不改对象，
+    // 被锁定挡在门外没道理；改像素的入口由编辑器自己禁用。
+    const readOnly = isNodeLocked(node)
     if (!this.onEditImage) {
       this.onStatus({ error: '图片编辑器未就绪' })
       return
     }
-    this.onEditImage(this.getNodeImage(nodeId), tool)
+    this.onEditImage({ ...this.getNodeImage(nodeId), readOnly }, tool)
   }
 
   /** 供编辑器读取源像素与原图可用性。 */

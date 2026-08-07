@@ -56,10 +56,12 @@ export class ImageEditorModal {
    *   fabric · onCommit(blob, resultSize, session) · onCancel() · onStatus(msg)
    *   confirmDiscard() → boolean  放弃修改前的确认
    */
-  constructor({ fabric, onCommit, onCancel, onStatus, confirmDiscard }) {
+  constructor({ fabric, onCommit, onCancel, onStatus, confirmDiscard, onAction }) {
     this.fabric = fabric
     this.onCommit = onCommit || (() => {})
     this.onCancel = onCancel || (() => {})
+    /** 动作执行器（OCR / 钉住），由调用方注入——模态不认识 IPC */
+    this.onAction = onAction || null
     this.onStatus = onStatus || (() => {})
     this.confirmDiscard = confirmDiscard || (() => true)
 
@@ -73,7 +75,8 @@ export class ImageEditorModal {
     this.titleEl = document.getElementById('img-editor-title')
     this.undoBtn = document.getElementById('img-editor-undo')
     this.redoBtn = document.getElementById('img-editor-redo')
-    this.restoreBtn = document.getElementById('img-editor-restore')
+    this.restoreBtn = this.rail.querySelector('[data-action="restore"]')
+    this.actionBtns = [...this.rail.querySelectorAll('[data-action]')]
     this.cancelBtn = document.getElementById('img-editor-cancel')
     this.commitBtn = document.getElementById('img-editor-commit')
 
@@ -89,6 +92,13 @@ export class ImageEditorModal {
     this.epoch = 0
     /** 提交事务进行中：期间禁止关闭、恢复与任何编辑动作 */
     this.committing = false
+    /**
+     * 只读模式（S4）：锁定的图片允许进来看和取内容，但不允许改。
+     * OCR 与钉住不改对象，所以仍可用；改像素的工具、恢复原图、完成提交禁用。
+     */
+    this.readOnly = false
+    /** 有动作在途（OCR 要跑几秒）。期间禁止重复点，也禁止提交。 */
+    this.actionBusy = false
     /** 画笔/形状的共享样式，切工具不重置——用户挑好的颜色应该留着 */
     this.style = { color: SWATCHES[0], lineWidth: 3 }
 
@@ -104,7 +114,10 @@ export class ImageEditorModal {
     })
     this.undoBtn.addEventListener('click', () => this.undo())
     this.redoBtn.addEventListener('click', () => this.redo())
-    this.restoreBtn.addEventListener('click', () => this.#restoreOriginal())
+    this.rail.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-action]')
+      if (button) this.#runAction(button.dataset.action)
+    })
     this.cancelBtn.addEventListener('click', () => this.requestClose())
     this.commitBtn.addEventListener('click', () => this.commit())
 
@@ -168,10 +181,17 @@ export class ImageEditorModal {
     /** 按需加载原图字节的回调；没有原图可恢复时为 null */
     this.loadOriginal = request.loadOriginal ?? null
 
+    this.readOnly = Boolean(request.readOnly)
+    this.actionBusy = false
+
     this.root.hidden = false
     this.root.setAttribute('aria-hidden', 'false')
-    this.titleEl.textContent = origin === 'capture' ? '标注截图' : '编辑图片'
-    this.restoreBtn.hidden = !request.canRestore || !this.loadOriginal
+    this.titleEl.textContent = origin === 'capture'
+      ? '标注截图'
+      : (this.readOnly ? '查看图片（已锁定）' : '编辑图片')
+    // 恢复原图只在"这张图之前被编辑过"时才有意义；只读模式下它会改像素，禁用。
+    this.restoreBtn.hidden = !request.canRestore || !this.loadOriginal || this.readOnly
+    this.#applyReadOnly()
 
     // 懒创建：只有真正打开编辑器时才多出第二个 fabric 实例
     this.canvas = new FullscreenImageEditorCanvas('image-editor-canvas', {
@@ -182,7 +202,13 @@ export class ImageEditorModal {
     })
     this.canvas.load(image, buildRenderPlan(this.session), this.#stageSize())
     this.#selectTool(tool)
-    this.#syncBar()
+    // ⚠ 必须显式复位繁忙态（F-09）。提交成功的路径是
+    //   #setBusy(true) → onCommit → #teardown()，**从不调用 #setBusy(false)**，
+    //   于是 DOM 上的 disabled 全留在那里。下次打开时按钮看着在、点不动——
+    //   取消被禁掉尤其致命，用户只能靠 Esc 退出。
+    //   #setBusy(false) 内部会接着跑 #syncBar() 与 #applyReadOnly()，
+    //   把可用性交回给真实的历史深度与只读规则。
+    this.#setBusy(false)
     return true
   }
 
@@ -508,7 +534,8 @@ export class ImageEditorModal {
    * 本控制器不直接改场景——那样会绕过历史事务。
    */
   async commit() {
-    if (!this.session || this.committing) return
+    if (!this.session || this.committing || this.actionBusy) return
+    if (this.readOnly) { this.onStatus('图片已锁定，解锁后才能保存修改'); return }
     if (!this.session.isDirty()) { this.requestClose(); return }
     const epoch = this.epoch
     // 事务在途期间锁死整个编辑器：取消、恢复、工具、快捷键全部不响应。
@@ -534,6 +561,59 @@ export class ImageEditorModal {
     }
   }
 
+  /**
+   * 执行一次动作（S4）：恢复原图 / OCR / 钉住。
+   *
+   * 三条纪律：
+   * · **不进撤销栈**——OCR 和钉住不改像素，恢复原图走自己的会话重建路径；
+   * · **只认当前编辑结果**——取的是渲染管线的当前缓冲，不是最初的原图；
+   * · **跨 await 必须比对 epoch**——OCR 要跑好几秒，期间用户完全可能
+   *   取消编辑器再打开另一张图。回来时会话已经不是当初那个了，
+   *   结果必须**作废**，绝不能往新会话上写、也不能弹旧图的提示。
+   */
+  async #runAction(action) {
+    if (!this.session || this.committing || this.actionBusy) return
+    if (action === 'restore') { this.#restoreOriginal(); return }
+    if (!this.onAction) { this.onStatus('该功能未接入'); return }
+
+    const epoch = this.epoch
+    this.actionBusy = true
+    this.#setBusy(true)
+    try {
+      const blob = await this.canvas.toBlob('image/png')
+      if (this.epoch !== epoch) return // 会话已换，结果作废
+      const bytes = new Uint8Array(await blob.arrayBuffer())
+      const message = await this.onAction(action, { bytes, size: this.session.resultSize() })
+      if (this.epoch !== epoch) return // 同上：await 之后再判一次
+      if (message) this.onStatus(message)
+    } catch (error) {
+      if (this.epoch !== epoch) return
+      this.onStatus(`操作失败：${error.message}`)
+    } finally {
+      if (this.epoch === epoch) {
+        this.actionBusy = false
+        this.#setBusy(false)
+      }
+    }
+  }
+
+  /**
+   * 只读模式的可用性（S4）。
+   *
+   * 锁定的图片允许进来做 OCR 和钉住——这两件事不改对象，被锁定挡住没道理。
+   * 但凡会改像素的入口一律禁掉：7 个工具、恢复原图、完成提交。
+   */
+  #applyReadOnly() {
+    const ro = this.readOnly
+    for (const button of this.rail.querySelectorAll('[data-tool]')) button.disabled = ro
+    this.commitBtn.disabled = ro
+    this.commitBtn.title = ro ? '图片已锁定，解锁后才能保存修改' : ''
+    this.undoBtn.disabled = ro
+    this.redoBtn.disabled = ro
+    this.root.classList.toggle('read-only', ro)
+    if (ro) this.hint.textContent = '图片已锁定：可以提取文字或钉住，修改需先解锁'
+  }
+
   /** 提交期间把所有会改变状态的入口禁掉，避免与在途事务打架。 */
   #setBusy(busy) {
     this.root.setAttribute('aria-busy', String(busy))
@@ -541,7 +621,11 @@ export class ImageEditorModal {
       el.disabled = busy
     }
     for (const button of this.rail.querySelectorAll('[data-tool]')) button.disabled = busy
+    for (const button of this.actionBtns) button.disabled = busy
     for (const control of this.panel.querySelectorAll('input, button, select')) control.disabled = busy
-    if (!busy) this.#syncBar() // 撤销/重做按钮的可用性交回给真实历史深度
+    if (!busy) {
+      this.#syncBar() // 撤销/重做按钮的可用性交回给真实历史深度
+      this.#applyReadOnly() // ⚠ 必须在 #syncBar 之后：只读的禁用规则优先级更高
+    }
   }
 }

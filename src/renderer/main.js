@@ -2439,8 +2439,8 @@ function ensureBoardController() {
   // 双击图片与对象工具栏的 编辑/裁切 都走这里（U4）
   boardController.onEditImage = (image, tool) => openImageEditor(image, tool)
 
-  // 对象侧栏「更多」：复制 / OCR / 钉住（U6 / 规格 6.1）。
-  // 主进程能力原样复用，只是入口从旧截图页搬到了对象上。
+  // 对象侧栏的 IPC 类命令。S3 之后这里只剩「复制」——
+  // OCR 与钉住已并入全屏编辑器的动作组，同一能力不再有两个入口。
   boardController.onNodeCommand = async (action, ids) => {
     if (ids.length !== 1) {
       showToast('请先单选一张图片')
@@ -2456,25 +2456,6 @@ function ensureBoardController() {
         // 复制的是当前编辑后的源像素
         const result = await window.api.copyScreenshot(image.bytes)
         showToast(result?.status === 'copied' ? '已复制到剪贴板' : '复制失败')
-        return
-      }
-      if (action === 'ocr') {
-        // OCR 输入是**未经画布变换的源像素**：不叠加旋转、缩放、背景与网格，
-        // 任何重采样都会拉低识别率（规格 6.1）
-        showToast('正在识别文字…')
-        const result = await window.api.recognizeScreenshot(image.bytes)
-        const text = (result?.text || '').trim()
-        if (!text) { showToast('未识别到文字'); return }
-        await window.api.copyScreenshotText(text)
-        showToast(`已识别 ${text.length} 个字符并复制`)
-        return
-      }
-      if (action === 'pin') {
-        // 钉住的是该对象**单独渲染的当前视觉结果**：含旋转与显示尺寸，
-        // 但不含控制器、参考线与其他对象
-        const pixels = await boardController.renderNodeAlone(ids[0])
-        const result = await window.api.pinScreenshot(pixels)
-        showToast(result?.status === 'pinned' ? '已钉在桌面' : '钉住失败')
         return
       }
       showToast(`暂不支持的操作：${action}`)
@@ -2549,7 +2530,6 @@ function ensureBoardController() {
     rulerX: document.querySelector('#ruler-x'),
     rulerY: document.querySelector('#ruler-y'),
     objectToolbar: document.querySelector('#object-toolbar'),
-    objectMoreMenu: document.querySelector('#object-more-menu'),
     exportRange: document.querySelector('#board-export-range'),
     exportPng: document.querySelector('#board-export-png'),
     exportJpg: document.querySelector('#board-export-jpg'),
@@ -2641,6 +2621,28 @@ function ensureImageEditor() {
     },
     // ⚠ 不在这里 catch：失败必须传回模态，让它保持打开、保住操作栈。
     //   吞掉异常会让模态以为提交成功并关闭，用户的编辑就没了。
+    /**
+     * 编辑器的动作执行器（S4）：OCR 与钉住。
+     *
+     * ⚠ 两者都作用于**当前编辑结果**，不是最初的原图——传进来的 bytes
+     * 就是渲染管线的当前缓冲。钉住因此可能钉的是一份还没提交的预览，
+     * 这是**允许行为**：提示里写清楚，之后取消编辑也不会关掉已钉的窗口。
+     */
+    onAction: async (action, { bytes }) => {
+      if (action === 'ocr') {
+        showToast('正在识别文字…')
+        const result = await window.api.recognizeScreenshot(bytes)
+        const text = (result?.text || '').trim()
+        if (!text) return '未识别到文字'
+        await window.api.copyScreenshotText(text)
+        return `已识别 ${text.length} 个字符并复制`
+      }
+      if (action === 'pin') {
+        const result = await window.api.pinScreenshot(bytes)
+        return result?.status === 'pinned' ? '已钉住当前编辑预览' : '钉住失败'
+      }
+      return `暂不支持的操作：${action}`
+    },
     onCommit: async ({ blob, size, context }) => {
       const bytes = new Uint8Array(await blob.arrayBuffer())
       if (context?.nodeId) {
@@ -2702,6 +2704,8 @@ async function openImageEditor(image, tool) {
       originNodeId: image.nodeId || null,
       origin: image.nodeId ? 'canvas' : 'capture',
       canRestore: Boolean(image.canRestore),
+      // 锁定的图片以**只读**方式进来：可以提取文字、钉住，不能改像素（S4）
+      readOnly: Boolean(image.readOnly),
       context: { nodeId: image.nodeId || null },
       // 「恢复原图」按需取原图字节：不预先解码，没点就不付这个代价
       loadOriginal: image.canRestore && image.nodeId
