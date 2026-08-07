@@ -2438,6 +2438,8 @@ function ensureBoardController() {
   })
   // 双击图片与对象工具栏的 编辑/裁切 都走这里（U4）
   boardController.onEditImage = (image, tool) => openImageEditor(image, tool)
+  // 画布快捷键的第二道守卫：模态编辑器开着时一律不响应（F-10）
+  boardController.isModalOpen = () => Boolean(imageEditorModal?.isOpen)
 
   // 对象侧栏的 IPC 类命令。S3 之后这里只剩「复制」——
   // OCR 与钉住已并入全屏编辑器的动作组，同一能力不再有两个入口。

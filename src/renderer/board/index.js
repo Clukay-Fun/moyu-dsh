@@ -213,6 +213,10 @@ export class BoardController {
     // Delete / Backspace 删除选中，但在文本编辑态下不拦截
     this.keyHandler = (event) => {
       if (!this.isVisible()) return
+      // ⚠ 第二道守卫（F-10）：全屏编辑器打开时，画布一律不响应快捷键。
+      //   编辑器自己已经在捕获阶段拦截了，这里再挡一次——两层里任何一层
+      //   将来被改坏，都不会让"编辑器开着还能删掉底层对象"重新出现。
+      if (this.isModalOpen?.()) return
       const tag = document.activeElement?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA') return
       const mod = event.metaKey || event.ctrlKey

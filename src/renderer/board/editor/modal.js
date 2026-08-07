@@ -92,6 +92,8 @@ export class ImageEditorModal {
     this.epoch = 0
     /** 提交事务进行中：期间禁止关闭、恢复与任何编辑动作 */
     this.committing = false
+    /** 捕获监听是否已挂。防止连续开关叠加（F-10） */
+    this.keyBound = false
     /**
      * 只读模式（S4）：锁定的图片允许进来看和取内容，但不允许改。
      * OCR 与钉住不改对象，所以仍可用；改像素的工具、恢复原图、完成提交禁用。
@@ -122,26 +124,70 @@ export class ImageEditorModal {
     this.commitBtn.addEventListener('click', () => this.commit())
 
     // 编辑器打开时，快捷键先归模态；不能让底层画布同时响应
+    /**
+     * 模态的键盘隔离层（F-10）。
+     *
+     * `aria-modal` 只是给辅助技术看的**语义标记**，对事件传播没有任何作用。
+     * 编辑器开着时，底层画布的 document 监听照样收得到按键——按 Delete
+     * 会把正在编辑的那个对象删掉，随后提交必然失败（"目标图片不存在"）。
+     *
+     * 所以这里在**捕获阶段**把键盘事件整体拦下：编辑器支持的自己处理，
+     * 不支持的一律吞掉，绝不放行到下层。只有一个例外——焦点在输入框 /
+     * 文本域 / contenteditable 里时必须放行，否则用户在文字工具里连
+     * 退格删字都做不到。
+     */
     this.keyHandler = (event) => {
-      if (!this.isOpen || this.committing) return
+      if (!this.isOpen) return
+
+      // 例外：可编辑控件里的按键是正常文字编辑，不能拦
+      const target = event.target
+      const tag = target?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable) return
+
+      // 到这里说明是"作用于编辑器整体"的按键。先隔离，再决定要不要处理——
+      // 顺序不能反：提交在途时下面会提前 return，但事件已经拦住了，
+      // 不会漏给画布。
+      event.stopPropagation()
+      if (this.committing) return
+
       const key = event.key.toLowerCase()
-      if ((event.ctrlKey || event.metaKey) && key === 'z') {
+      const mod = event.ctrlKey || event.metaKey
+      if (mod && key === 'z') {
         event.preventDefault()
-        event.stopPropagation()
         event.shiftKey ? this.redo() : this.undo()
+        return
+      }
+      if (mod && key === 'y') { // Windows 习惯的重做
+        event.preventDefault()
+        this.redo()
         return
       }
       if (event.key === 'Escape') {
         event.preventDefault()
-        event.stopPropagation()
         // Esc 先退出当前工具，再次按下才提示放弃（规格 5.2）
         if (this.canvas?.hasDraft()) { this.canvas.cancelDraft(); return }
         if (this.activeTool) { this.#selectTool(null); return }
         this.requestClose()
       }
+      // 其余按键（Delete / Backspace / 方向键 …）已被 stopPropagation 吞掉，
+      // 编辑器自己不处理，也绝不会落到画布上。
     }
-    // 捕获阶段绑定，确保早于画布的全局快捷键
+  }
+
+  /**
+   * 挂上捕获监听。**幂等**——连续打开关闭多次不会叠加。
+   * 只在编辑器打开期间存在，关闭后立即卸载，画布快捷键随即恢复。
+   */
+  #bindKeyIsolation() {
+    if (this.keyBound) return
     window.addEventListener('keydown', this.keyHandler, true)
+    this.keyBound = true
+  }
+
+  #unbindKeyIsolation() {
+    if (!this.keyBound) return
+    window.removeEventListener('keydown', this.keyHandler, true)
+    this.keyBound = false
   }
 
   // ── 打开 / 关闭 ─────────────────────────────────────────
@@ -209,6 +255,8 @@ export class ImageEditorModal {
     //   #setBusy(false) 内部会接着跑 #syncBar() 与 #applyReadOnly()，
     //   把可用性交回给真实的历史深度与只读规则。
     this.#setBusy(false)
+    // ⚠ 最后一步再挂键盘隔离：前面任何一步失败都不会留下孤儿监听
+    this.#bindKeyIsolation()
     return true
   }
 
@@ -223,6 +271,9 @@ export class ImageEditorModal {
 
   /** 关闭并释放 fabric 实例。不改变任何外部状态——那是调用方的事。 */
   #teardown() {
+    // 提交成功、取消、提交失败后都会走到这里——卸载必须放在最前面，
+    // 后面任何一步抛错都不能让监听留在 window 上（会吃掉画布的所有快捷键）。
+    this.#unbindKeyIsolation()
     this.epoch += 1
     this.committing = false
     this.canvas?.dispose()
@@ -254,7 +305,7 @@ export class ImageEditorModal {
   }
 
   dispose() {
-    window.removeEventListener('keydown', this.keyHandler, true)
+    this.#unbindKeyIsolation()
     if (this.isOpen) this.#teardown()
   }
 
