@@ -26,7 +26,7 @@ export const EDITOR_TOOLS = [
  * 合并成一张表的话，"7 个工具都必须有按下态和操作提示"这类断言会立刻变成
  * 假命题，而它们正是保证工具可用性的那几条。
  */
-export const EDITOR_ACTIONS = ['restore', 'ocr', 'pin']
+export const EDITOR_ACTIONS = ['restore', 'ocr']
 
 /**
  * 调色参数。

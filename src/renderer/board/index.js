@@ -191,13 +191,24 @@ export class BoardController {
       event.stopPropagation()
       this.#onTextAction(button.dataset.text)
     })
-    dom.textFontFamily?.addEventListener('change', () =>
-      this.#applyTextStyle({ fontFamily: dom.textFontFamily.value }))
     dom.textFill?.addEventListener('change', () =>
       this.#applyTextStyle({ fill: dom.textFill.value }))
-    dom.textAlignSelect?.addEventListener('change', () =>
-      this.#applyTextStyle({ textAlign: dom.textAlignSelect.value }))
-    dom.textScale?.addEventListener('change', () => this.#applyTextScale(Number(dom.textScale.value)))
+
+    // ── 缩放比例输入框（S3）──
+    dom.textScale?.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        // 回车不直接提交，而是 blur——提交逻辑只留一处，回车与失焦走同一条路
+        event.preventDefault()
+        dom.textScale.blur()
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        event.stopPropagation() // 别让 Esc 继续上浮去关别的浮层
+        this.#revertTextScaleInput()
+        dom.textScale.blur()
+      }
+    })
+    dom.textScale?.addEventListener('blur', () => this.#commitTextScaleInput())
 
     dom.objectToolbar?.addEventListener('click', (event) => {
       const button = event.target.closest('[data-obj]')
@@ -430,6 +441,9 @@ export class BoardController {
     await this.#afterChange()
   }
 
+  /** 供 main.js 的应用菜单调用（字体 / 对齐）。菜单不认识场景，样式仍由这里落。 */
+  applyTextStyleFromToolbar(patch) { return this.#applyTextStyle(patch) }
+
   /** 横向工具栏的按钮动作。层级/复制/锁定/删除复用竖栏那套实现，不另写一份。 */
   #onTextAction(action) {
     const ids = this.selection
@@ -445,6 +459,57 @@ export class BoardController {
       // 其余与竖栏同义，直接转过去——两套实现迟早会漂移
       default: this.#onObjectAction(action)
     }
+  }
+
+  /** 缩放比例的合法区间。低于 10% 看不清，高于 1000% 一屏放不下。 */
+  static SCALE_MIN = 0.1
+  static SCALE_MAX = 10
+
+  /**
+   * 解析用户输入的比例。接受 `150`、`150%`、`150％`（全角）；其余视为非法。
+   * @returns {number|null} 归一化后的比例；非法返回 null
+   */
+  #parseScaleInput(raw) {
+    const text = String(raw ?? '').trim().replace(/[%％]\s*$/, '').trim()
+    if (!text) return null
+    const value = Number(text)
+    if (!Number.isFinite(value)) return null
+    return value / 100
+  }
+
+  /** Esc：放弃本次输入，回显场景真值。 */
+  #revertTextScaleInput() {
+    const node = this.#selectedTextNodes()[0]
+    if (!node || !this.dom.textScale) return
+    this.dom.textScale.value = `${Math.round((node.scaleX ?? 1) * 100)}%`
+  }
+
+  /**
+   * 失焦 / 回车时提交输入的比例。
+   *
+   * 三种情况都要有确定行为：非法输入 → 提示并回退；越界 → 提示并回退；
+   * 与当前值相同 → 直接回显、**不写历史**（否则点一下输入框再点走都会
+   * 多出一条撤销记录）。
+   */
+  #commitTextScaleInput() {
+    const input = this.dom.textScale
+    const node = this.#selectedTextNodes()[0]
+    if (!input || !node) return
+    const parsed = this.#parseScaleInput(input.value)
+    if (parsed === null) {
+      this.onStatus({ warn: '缩放比例要填数字，例如 150 或 150%' })
+      this.#revertTextScaleInput()
+      return
+    }
+    const min = BoardController.SCALE_MIN
+    const max = BoardController.SCALE_MAX
+    if (parsed < min || parsed > max) {
+      this.onStatus({ warn: `缩放比例需在 ${min * 100}% ～ ${max * 100}% 之间` })
+      this.#revertTextScaleInput()
+      return
+    }
+    if (Math.abs(parsed - (node.scaleX ?? 1)) < 1e-6) { this.#revertTextScaleInput(); return }
+    this.#applyTextScale(parsed)
   }
 
   /**
@@ -758,34 +823,35 @@ export class BoardController {
     const size = bar.getBoundingClientRect()
     const width = size.width || 420
     const height = size.height || 36
-    const gap = 8
+    // 固定**屏幕**间距，不随画布缩放变化——间距是给手指/鼠标留的余量，
+    // 它跟画布缩放没关系。10px 刚好躲开控制点（半径 11px 的一半）。
+    const GAP = 10
 
-    // 上方放不下就翻到下方
-    const below = view.y - gap - height < 0
-    const top = below
-      ? Math.min(stage.height - height - gap, view.y + view.height + gap)
-      : view.y - height - gap
-    // 与外接框左对齐，超出右边界时整体左移
+    // 默认在**下方**：文本框上方通常是正文内容，工具栏压上去挡视线；
+    // 下方放不下再翻到上方。
+    const belowTop = view.y + view.height + GAP
+    const fitsBelow = belowTop + height <= stage.height - GAP
+    const top = fitsBelow ? belowTop : Math.max(GAP, view.y - height - GAP)
+    bar.classList.toggle('above', !fitsBelow)
+    // 与外接框左对齐；左右越界时钳制回可视区
     const left = Math.min(
-      Math.max(gap, view.x),
-      Math.max(gap, stage.width - width - gap)
+      Math.max(GAP, view.x),
+      Math.max(GAP, stage.width - width - GAP)
     )
-    bar.classList.toggle('below', below)
-    bar.style.transform = `translate3d(${Math.round(left)}px, ${Math.round(Math.max(gap, top))}px, 0)`
+    bar.style.transform = `translate3d(${Math.round(left)}px, ${Math.round(top)}px, 0)`
 
     // 控件取值对齐场景真值，避免显示与实际不符
     const locked = isNodeLocked(node)
     const style = node.style || {}
     const dom = this.dom
-    if (dom.textFontFamily) dom.textFontFamily.value = style.fontFamily ?? dom.textFontFamily.value
     if (dom.textFill) dom.textFill.value = style.fill ?? '#000000'
-    if (dom.textAlignSelect) dom.textAlignSelect.value = style.textAlign ?? 'left'
-    if (dom.textScale) {
-      // 缩放比例只在下拉里有对应档位时回显；手动拖过控制点的任意比例
-      // 不硬塞进去，否则会把 137% 显示成 125% 这种假信息
-      const current = String(node.scaleX ?? 1)
-      const match = [...dom.textScale.options].some((o) => o.value === current)
-      dom.textScale.value = match ? current : ''
+    this.#syncTextScaleInput(node)
+    // 菜单里的勾选态
+    for (const item of dom.textFontMenu?.querySelectorAll('[data-font]') || []) {
+      item.setAttribute('aria-checked', String(item.dataset.font === style.fontFamily))
+    }
+    for (const item of dom.textAlignMenu?.querySelectorAll('[data-align]') || []) {
+      item.setAttribute('aria-checked', String(item.dataset.align === (style.textAlign ?? 'left')))
     }
     const boldBtn = bar.querySelector('[data-text="bold"]')
     if (boldBtn) boldBtn.setAttribute('aria-pressed', String(style.fontWeight === 'bold'))
@@ -802,7 +868,22 @@ export class BoardController {
     for (const button of bar.querySelectorAll('[data-text]')) {
       button.disabled = locked && !enabled.has(button.dataset.text)
     }
-    for (const control of bar.querySelectorAll('select, input')) control.disabled = locked
+    for (const control of bar.querySelectorAll('input, .txt-trigger')) {
+      control.disabled = locked
+    }
+  }
+
+  /**
+   * 缩放输入框回显（S3）。
+   *
+   * ⚠ 用户正在输入时**不覆盖**它的内容——拖控制点会连续触发同步，
+   * 每次都写回去的话，用户刚敲的两个字符就被冲掉了。
+   */
+  #syncTextScaleInput(node) {
+    const input = this.dom.textScale
+    if (!input) return
+    if (document.activeElement === input) return
+    input.value = `${Math.round((node.scaleX ?? 1) * 100)}%`
   }
 
   #syncObjectToolbar() {
@@ -987,7 +1068,7 @@ export class BoardController {
       case 'delete': this.deleteSelected(); return
       case 'edit': this.#requestEdit(ids[0], 'adjust'); return
       default:
-        // copy / ocr / pin 走主进程 IPC，由 main.js 注入处理器
+        // copy 走主进程 IPC，由 main.js 注入处理器（OCR 已并入编辑器）
         this.#runNodeCommand(action, ids)
     }
   }

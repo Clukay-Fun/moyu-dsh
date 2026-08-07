@@ -2501,10 +2501,12 @@ function ensureBoardController() {
     stage: document.querySelector('#board-stage'),
     // S5 · 文本框横向工具栏
     textToolbar: document.querySelector('#text-toolbar'),
-    textFontFamily: document.querySelector('#text-font-family'),
     textFill: document.querySelector('#text-fill'),
-    textAlignSelect: document.querySelector('#text-align'),
     textScale: document.querySelector('#text-scale'),
+    textFontTrigger: document.querySelector('#text-font-trigger'),
+    textFontMenu: document.querySelector('#text-font-menu'),
+    textAlignTrigger: document.querySelector('#text-align-trigger'),
+    textAlignMenu: document.querySelector('#text-align-menu'),
     empty: document.querySelector('#board-empty'),
     statusDot: document.querySelector('#board-status-dot'),
     statusText: document.querySelector('#board-status-text'),
@@ -2627,9 +2629,11 @@ function ensureImageEditor() {
     /**
      * 编辑器的动作执行器（S4）：OCR 与钉住。
      *
-     * ⚠ 两者都作用于**当前编辑结果**，不是最初的原图——传进来的 bytes
-     * 就是渲染管线的当前缓冲。钉住因此可能钉的是一份还没提交的预览，
-     * 这是**允许行为**：提示里写清楚，之后取消编辑也不会关掉已钉的窗口。
+     * ⚠ 作用于**当前编辑结果**，不是最初的原图——传进来的 bytes 就是
+     * 渲染管线的当前缓冲。
+     *
+     * 钉住已从这里移除（S4）：编辑器里钉的是一份还没提交的预览，
+     * 语义含糊。独立的截图钉住功能不受影响，仍在。
      */
     onAction: async (action, { bytes }) => {
       if (action === 'ocr') {
@@ -2639,10 +2643,6 @@ function ensureImageEditor() {
         if (!text) return '未识别到文字'
         await window.api.copyScreenshotText(text)
         return `已识别 ${text.length} 个字符并复制`
-      }
-      if (action === 'pin') {
-        const result = await window.api.pinScreenshot(bytes)
-        return result?.status === 'pinned' ? '已钉住当前编辑预览' : '钉住失败'
       }
       return `暂不支持的操作：${action}`
     },
@@ -2880,23 +2880,124 @@ const backgroundMenu = document.querySelector('#background-menu')
 const boardBgColor = document.querySelector('#board-bg-color')
 
 /** 同一时刻只允许一个下拉打开。 */
-function closeAllCmdMenus(except = null) {
-  for (const [trigger, menu] of [
-    [cmdProject, projectMenu],
-    [cmdBackground, backgroundMenu]
-  ]) {
-    if (menu === except) continue
-    menu.hidden = true
-    trigger.setAttribute('aria-expanded', 'false')
+/**
+ * ══ 浮层管理器（S1）══
+ *
+ * 所有"同层浮层"登记在这里，解决三件事：
+ *   · 开新的要关掉同层的旧的——两个下拉同时开着，用户不知道该点哪个；
+ *   · Esc **只关最上层**，不能一次全关掉，也不能越过模态去关下面的；
+ *   · 点浮层内部不穿透到画布——不加的话点击会冒到 document，
+ *     被"点空白取消选择"的兜底清掉选中，浮层跟着消失。
+ *
+ * 登记表按**打开顺序**维护，最后打开的就是最上层。
+ */
+const popovers = []
+/** @type {Array<{menu: HTMLElement, trigger: HTMLElement|null}>} */
+const openPopovers = []
+
+function registerPopover(menu, trigger = null) {
+  if (!menu) return
+  popovers.push({ menu, trigger })
+  // 点内部不穿透；mousedown 也要拦，否则会把焦点从画布抢走
+  menu.addEventListener('mousedown', (event) => {
+    if (!event.target.closest('input, select, textarea')) event.preventDefault()
+  })
+  menu.addEventListener('click', (event) => event.stopPropagation())
+}
+
+function isPopoverOpen(menu) { return openPopovers.some((p) => p.menu === menu) }
+
+function openPopover(menu) {
+  const entry = popovers.find((p) => p.menu === menu)
+  if (!entry) return
+  closePopovers(menu) // 同层互斥
+  menu.hidden = false
+  entry.trigger?.setAttribute('aria-expanded', 'true')
+  if (!isPopoverOpen(menu)) openPopovers.push(entry)
+}
+
+function closePopover(menu) {
+  const at = openPopovers.findIndex((p) => p.menu === menu)
+  if (at === -1) return
+  const [entry] = openPopovers.splice(at, 1)
+  entry.menu.hidden = true
+  entry.trigger?.setAttribute('aria-expanded', 'false')
+}
+
+/** 关闭全部（可留一个）。点画布空白、切模块等场景用。 */
+function closePopovers(except = null) {
+  for (const entry of [...openPopovers]) {
+    if (entry.menu === except) continue
+    closePopover(entry.menu)
   }
 }
 
-function toggleCmdMenu(trigger, menu) {
-  const open = menu.hidden
-  closeAllCmdMenus(open ? menu : null)
-  menu.hidden = !open
-  trigger.setAttribute('aria-expanded', String(open))
+/** 关掉最上层的一个，返回是否关掉了。Esc 用。 */
+function closeTopPopover() {
+  const top = openPopovers[openPopovers.length - 1]
+  if (!top) return false
+  closePopover(top.menu)
+  return true
 }
+
+/** 把浮层定位到触发钮下方；越界时钳制回窗口内。position: fixed，用视口坐标。 */
+function placePopover(menu, trigger, { align = 'left', gap = 6 } = {}) {
+  menu.hidden = false // 先显形才量得到尺寸
+  const t = trigger.getBoundingClientRect()
+  const m = menu.getBoundingClientRect()
+  let left = align === 'right' ? t.right - m.width : t.left
+  left = Math.max(8, Math.min(left, window.innerWidth - m.width - 8))
+  // 下方放不下就翻到上方
+  let top = t.bottom + gap
+  if (top + m.height > window.innerHeight - 8) top = Math.max(8, t.top - m.height - gap)
+  menu.style.left = `${Math.round(left)}px`
+  menu.style.top = `${Math.round(top)}px`
+}
+
+function closeAllCmdMenus(except = null) {
+  closePopovers(except)
+}
+
+function toggleCmdMenu(trigger, menu) {
+  if (isPopoverOpen(menu)) closePopover(menu)
+  else openPopover(menu)
+}
+
+// 登记两个命令栏菜单
+registerPopover(projectMenu, cmdProject)
+registerPopover(backgroundMenu, cmdBackground)
+
+// ── 文本工具栏的字体 / 对齐菜单（S1：替换原生 select）──
+const textFontTrigger = document.querySelector('#text-font-trigger')
+const textFontMenu = document.querySelector('#text-font-menu')
+const textAlignTrigger = document.querySelector('#text-align-trigger')
+const textAlignMenu = document.querySelector('#text-align-menu')
+registerPopover(textFontMenu, textFontTrigger)
+registerPopover(textAlignMenu, textAlignTrigger)
+
+const ALIGN_LABEL = { left: '左对齐', center: '居中', right: '右对齐' }
+
+function bindTextPopover(trigger, menu, onPick) {
+  trigger?.addEventListener('mousedown', (event) => event.preventDefault())
+  trigger?.addEventListener('click', (event) => {
+    event.stopPropagation()
+    if (isPopoverOpen(menu)) { closePopover(menu); return }
+    openPopover(menu)
+    placePopover(menu, trigger)
+  })
+  menu?.addEventListener('click', (event) => {
+    const item = event.target.closest('button')
+    if (!item) return
+    closePopover(menu)
+    onPick(item)
+  })
+}
+bindTextPopover(textFontTrigger, textFontMenu, (item) => {
+  boardController?.applyTextStyleFromToolbar({ fontFamily: item.dataset.font })
+})
+bindTextPopover(textAlignTrigger, textAlignMenu, (item) => {
+  boardController?.applyTextStyleFromToolbar({ textAlign: item.dataset.align })
+})
 
 cmdCapture.addEventListener('click', () => startUnifiedCapture())
 cmdImport.addEventListener('click', () => {
@@ -2992,9 +3093,16 @@ function syncBackgroundMenu() {
 // 否则下次导入会被上一次的意图劫持。
 boardFileInput.addEventListener('cancel', () => consumePendingImageTool(false))
 
-document.addEventListener('click', () => closeAllCmdMenus())
+document.addEventListener('click', () => closePopovers())
 document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape') closeAllCmdMenus()
+  if (event.key !== 'Escape') return
+  // ⚠ 只关**最上层**一个，不是全关。连着按两次 Esc 才关两层，
+  //   这样用户的每一次 Esc 都有确定的、可预期的效果。
+  //   模态编辑器开着时轮不到这里——它在捕获阶段就把 Esc 拿走了。
+  if (closeTopPopover()) {
+    event.preventDefault()
+    event.stopPropagation()
+  }
 })
 
 

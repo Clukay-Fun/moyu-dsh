@@ -400,38 +400,28 @@
                    单选文本框显示这条，其余情况显示竖栏。 -->
               <div class="text-toolbar" id="text-toolbar" role="toolbar"
                    aria-label="文本框工具" hidden>
-                <button class="txt-btn" data-text="edit" type="button" title="编辑文字">编辑文字</button>
-                <span class="txt-sep"></span>
-                <select class="txt-select" id="text-font-family" aria-label="字体" title="字体">
-                  <option value='system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif'>系统默认</option>
-                  <option value='"Microsoft YaHei", "PingFang SC", sans-serif'>黑体</option>
-                  <option value='"SimSun", "Songti SC", serif'>宋体</option>
-                  <option value='"Segoe UI", Helvetica, Arial, sans-serif'>Segoe UI</option>
-                  <option value='ui-monospace, "SFMono-Regular", Consolas, monospace'>等宽</option>
-                </select>
-                <input class="txt-color" type="color" id="text-fill" aria-label="文字颜色" title="文字颜色" />
-                <button class="txt-btn" data-text="bold" type="button" aria-pressed="false" title="粗体"><b>B</b></button>
-                <select class="txt-select" id="text-align" aria-label="对齐" title="对齐">
-                  <option value="left">左对齐</option>
-                  <option value="center">居中</option>
-                  <option value="right">右对齐</option>
-                </select>
-                <!-- ⚠ 只提供缩放比例，不提供字号：缩放改对象比例，
-                     不动底层 fontSize，避免同一视觉大小有两种表示。 -->
-                <select class="txt-select" id="text-scale" aria-label="缩放比例" title="缩放比例">
-                  <option value="0.5">50%</option>
-                  <option value="0.75">75%</option>
-                  <option value="1" selected>100%</option>
-                  <option value="1.25">125%</option>
-                  <option value="1.5">150%</option>
-                  <option value="2">200%</option>
-                  <option value="3">300%</option>
-                </select>
-                <span class="txt-sep"></span>
+                <!-- 顺序：编排 │ 样式 │ 删除（S2）。
+                     编排四项最常用，放最前；删除单独放末尾并与其他项隔开，
+                     避免和"置底"挨着误点。
+                     ⚠ 没有"编辑文字"——双击文本框是唯一的文字编辑入口，
+                     两个入口会让"当前是不是在编辑"变得不确定。 -->
                 <button class="txt-btn" data-text="copy" type="button" title="复制">复制</button>
                 <button class="txt-btn txt-lock" data-text="lock" type="button" aria-pressed="false" title="锁定">锁定</button>
                 <button class="txt-btn" data-text="front" type="button" title="置顶">置顶</button>
                 <button class="txt-btn" data-text="back" type="button" title="置底">置底</button>
+                <span class="txt-sep"></span>
+                <!-- 字体与对齐改用应用自己的菜单：原生 <select> 的弹窗由系统绘制，
+                     透明度与圆角控制不了，压在画布上会露出下面的内容。 -->
+                <button class="txt-btn txt-trigger" id="text-font-trigger" type="button"
+                        aria-haspopup="true" aria-expanded="false" title="字体">字体</button>
+                <input class="txt-color" type="color" id="text-fill" aria-label="文字颜色" title="文字颜色" />
+                <button class="txt-btn" data-text="bold" type="button" aria-pressed="false" title="粗体"><b>B</b></button>
+                <button class="txt-btn txt-trigger" id="text-align-trigger" type="button"
+                        aria-haspopup="true" aria-expanded="false" title="对齐">对齐</button>
+                <!-- 缩放比例是可输入框（S3）：拖控制点时实时回显，也可手输 -->
+                <input class="txt-scale" id="text-scale" type="text" inputmode="numeric"
+                       value="100%" aria-label="缩放比例" title="缩放比例（10%～1000%）" />
+                <span class="txt-sep"></span>
                 <button class="txt-btn txt-danger" data-text="delete" type="button" title="删除">删除</button>
               </div>
 
@@ -637,8 +627,6 @@
                         title="恢复到最初导入的原图" hidden><span>⟲</span>恢复原图</button>
                 <button class="tool-btn action-btn" data-action="ocr" type="button"
                         title="识别当前编辑结果中的文字"><span>字</span>文字提取</button>
-                <button class="tool-btn action-btn" data-action="pin" type="button"
-                        title="把当前编辑预览钉在桌面"><span>📌</span>钉住</button>
               </div>
 
               <div class="img-editor-stage checkerboard" id="img-editor-stage">
@@ -688,5 +676,20 @@
     </div>
 
     <script type="module" src="./main.js"></script>
+
+    <!-- 应用自己的下拉菜单（S1）。挂在 body 下是为了绕开 .canvas-shell 的
+         overflow: hidden 与祖先层叠上下文；位置由 JS 按触发钮实时算。 -->
+    <div class="app-menu" id="text-font-menu" role="menu" hidden>
+      <button type="button" role="menuitemradio" data-font='system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif'>系统默认</button>
+      <button type="button" role="menuitemradio" data-font='"Microsoft YaHei", "PingFang SC", sans-serif'>黑体</button>
+      <button type="button" role="menuitemradio" data-font='"SimSun", "Songti SC", serif'>宋体</button>
+      <button type="button" role="menuitemradio" data-font='"Segoe UI", Helvetica, Arial, sans-serif'>Segoe UI</button>
+      <button type="button" role="menuitemradio" data-font='ui-monospace, "SFMono-Regular", Consolas, monospace'>等宽</button>
+    </div>
+    <div class="app-menu" id="text-align-menu" role="menu" hidden>
+      <button type="button" role="menuitemradio" data-align="left">左对齐</button>
+      <button type="button" role="menuitemradio" data-align="center">居中</button>
+      <button type="button" role="menuitemradio" data-align="right">右对齐</button>
+    </div>
   </body>
 </html>
