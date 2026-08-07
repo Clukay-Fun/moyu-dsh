@@ -23,6 +23,11 @@
   --foreground: #252734;
   --muted: #707387;
   --faint: #9da0b3;
+  /* 弹层专用底色。--card 是给大面板用的，做到 0.2 才够通透；
+     但菜单里有文字和色块，压在棋盘格上时 0.2 完全看不清，所以另立一档。 */
+  --menu-surface: rgba(255, 255, 255, 0.82);
+  /* 透明画布的棋盘格。比 --hairline 更淡，避免和网格线抢注意力。 */
+  --checker: rgba(20, 22, 40, 0.035);
   --shadow-small: 0 5px 14px rgba(35, 39, 65, 0.08);
   --shadow-panel: 0 20px 55px rgba(35, 39, 65, 0.14);
   --radius: 16px;
@@ -40,6 +45,8 @@
   --foreground: #f0f1f7;
   --muted: #a7aabd;
   --faint: #777b91;
+  --menu-surface: rgba(32, 34, 45, 0.88);
+  --checker: rgba(255, 255, 255, 0.045);
   --shadow-small: 0 5px 14px rgba(0, 0, 0, 0.25);
   --shadow-panel: 0 20px 55px rgba(0, 0, 0, 0.3);
 }
@@ -3499,7 +3506,8 @@ input:focus-visible {
   padding: 5px;
   border: 1px solid var(--border);
   border-radius: 11px;
-  background: var(--card);
+  /* ⚠ 不用 --card：菜单会浮在棋盘格和图片上方，0.2 的底色让文字和色块糊成一片。 */
+  background: var(--menu-surface);
   box-shadow: var(--shadow-panel);
   backdrop-filter: blur(24px) saturate(150%);
 }
@@ -3525,6 +3533,22 @@ input:focus-visible {
 .cmd-menu hr { margin: 5px 6px; border: 0; border-top: 1px solid var(--hairline); }
 
 /* ── 画布外壳：无边框、无圆角、无卡片背景，铺满剩余空间 ── */
+/* 透明区域的棋盘格提示。
+   ⚠ 只能画在**容器**上，绝不进 fabric 场景：一旦成为场景的一部分，
+   导出、钉住、OCR 三条路径就各自都得记得把它摘掉，迟早漏一条。
+   画在画布下方还有个好处——背景设成纯色时 fabric 直接盖住它，
+   不需要任何状态同步，也就不存在"显示与实际不符"的可能。 */
+.checkerboard {
+  /* ⚠ 用 conic-gradient，不要用那套四段 45°/-45° linear-gradient 的老配方：
+     那个配方只在**不透明**色下成立，换成半透明色后四段会相互叠加，
+     画出来是人字形花纹而不是方格。conic 一次成型，也不存在叠色。 */
+  background-image:
+    conic-gradient(var(--checker) 25%, transparent 25% 50%, var(--checker) 50% 75%, transparent 75%);
+  /* 20px = 网格步长(10) 的两倍。取 22 之类的非倍数会和网格线互相干涉，
+     两种图案叠在一起会糊成一片。 */
+  background-size: 20px 20px;
+}
+
 .canvas-shell {
   position: relative;
   flex: 1;
@@ -3841,11 +3865,7 @@ input:focus-visible {
   display: grid;
   place-items: center;
   padding: 20px;
-  background:
-    linear-gradient(45deg, var(--hairline) 25%, transparent 25%) -8px 0 / 16px 16px,
-    linear-gradient(-45deg, var(--hairline) 25%, transparent 25%) -8px 0 / 16px 16px,
-    linear-gradient(45deg, transparent 75%, var(--hairline) 75%) 0 0 / 16px 16px,
-    linear-gradient(-45deg, transparent 75%, var(--hairline) 75%) 0 0 / 16px 16px;
+  /* 棋盘格由 .checkerboard 提供，与汇总画布共用同一套 token */
 }
 
 /* 操作提示浮条：贴在画布区顶部，不拦截鼠标 */

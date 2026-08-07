@@ -17,13 +17,13 @@ export class BoardOverlay {
     this.rulerYCanvas = document.createElement('canvas')
     this.rulerX.append(this.rulerXCanvas)
     this.rulerY.append(this.rulerYCanvas)
-    this.theme = { line: 'rgba(65, 68, 90, 0.16)', major: 'rgba(65, 68, 90, 0.42)', text: '#9da0b3' }
+    this.theme = { line: 'rgba(65, 68, 90, 0.16)', major: 'rgba(65, 68, 90, 0.42)', text: '#9da0b3', grid: 'rgba(65, 68, 90, 0.07)' }
   }
 
   setTheme(dark) {
     this.theme = dark
-      ? { line: 'rgba(255,255,255,0.12)', major: 'rgba(255,255,255,0.32)', text: '#777b91' }
-      : { line: 'rgba(65, 68, 90, 0.16)', major: 'rgba(65, 68, 90, 0.42)', text: '#9da0b3' }
+      ? { line: 'rgba(255,255,255,0.12)', major: 'rgba(255,255,255,0.32)', text: '#777b91', grid: 'rgba(255,255,255,0.06)' }
+      : { line: 'rgba(65, 68, 90, 0.16)', major: 'rgba(65, 68, 90, 0.42)', text: '#9da0b3', grid: 'rgba(65, 68, 90, 0.07)' }
   }
 
   #fit(canvas, cssWidth, cssHeight) {
@@ -109,7 +109,9 @@ export class BoardOverlay {
     // 网格：缩放过小时线会糊成一片，低于 4px 间距就不画
     if (showGrid && GRID.step * zoom >= 4) {
       const { xs, ys } = gridLines(viewport)
-      ctx.strokeStyle = this.theme.line
+      // ⚠ 用 grid 而不是 line：line 同时在画标尺刻度，调淡它会把刻度一起调没。
+      //   网格要比棋盘格和参考线都淡，三者叠在一起时才分得清谁是谁。
+      ctx.strokeStyle = this.theme.grid
       ctx.lineWidth = 1
       ctx.beginPath()
       for (const x of xs) {
