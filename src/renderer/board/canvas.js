@@ -63,7 +63,11 @@ export class BoardCanvas {
     this.canvas = new fabric.Canvas(elementId, {
       backgroundColor: '#ffffff',
       preserveObjectStacking: true, // 选中不改变 z 序：z 序只由场景图决定
-      selection: true
+      selection: true,
+      // ⚠ fabric 默认 fireMiddleClick 为 false，中键事件根本不会派发到
+      //   mouse:down——下面那段 `opt.e.button === 1` 的中键平移判断因此
+      //   从来没被执行过（F-08）。空格+左键那条路径正常，所以一直没人发现。
+      fireMiddleClick: true
     })
 
     this.canvas.on('object:modified', (event) => {
@@ -81,6 +85,12 @@ export class BoardCanvas {
         object.setCoords()
       }
     })
+    // 变换进行中通知上层跟随（S2）。三个事件都要接：只接 moving 的话，
+    // 拖手柄缩放和旋转时工具栏会僵在原地。这里**只发信号**，不写场景、
+    // 不动 fabric 对象——写回仍然只在 object:modified 发生一次。
+    for (const type of ['object:moving', 'object:scaling', 'object:rotating']) {
+      this.canvas.on(type, () => this.onObjectTransforming?.())
+    }
     // 双击图片进全屏编辑器（U4 / 规格 5.1）。
     // 文本对象的双击归 fabric 自己（进入行内编辑），这里只接图片。
     this.canvas.on('mouse:dblclick', (event) => {
@@ -168,14 +178,20 @@ export class BoardCanvas {
    */
   sceneAabb(object) {
     object.setCoords()
-    const width = object.width * (object.scaleX || 1)
-    const height = object.height * (object.scaleY || 1)
+    // ⚠ 送进矩阵的必须是**未缩放**的半宽半高（F-07）。
+    //   calcTransformMatrix() 自己就含缩放，先乘一遍 scale 再交给它
+    //   等于把缩放算两次：导入的图片恒有 scale≈0.28，算出来的框
+    //   只有真实大小的 28%。这条框同时喂给拖动吸附，等于吸附一直在
+    //   对一个错的框；scale 恰好为 1 的对象（矩形、文本）看不出问题，
+    //   所以一直没暴露。
     const matrix = object.calcTransformMatrix()
+    const halfW = object.width / 2
+    const halfH = object.height / 2
     const xs = []
     const ys = []
     for (const [dx, dy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
       const point = this.fabric.util.transformPoint(
-        new this.fabric.Point(dx * width / 2, dy * height / 2), matrix
+        new this.fabric.Point(dx * halfW, dy * halfH), matrix
       )
       xs.push(point.x)
       ys.push(point.y)
@@ -637,6 +653,24 @@ export class BoardCanvas {
   }
 
   /** 世界坐标矩形 → 画布屏幕坐标矩形（用于让 DOM 工具栏跟随对象）。 */
+  /**
+   * 当前选中对象的**实时**屏幕矩形，供浮动工具栏跟随（S2）。
+   *
+   * ⚠ 不能用场景里的 `unionBounds(nodes)` 代替：拖动、缩放、旋转期间
+   * 场景还没写回（写回发生在 object:modified），读场景会让工具栏
+   * 慢一整个手势。这里直接读 fabric 的当前形态。
+   *
+   * 几何口径与场景一致：`sceneAabb()` 是旋转后的外接框且不含描边，
+   * 与 `nodeBounds()` 同源，两边不会因为算法不同而错位。
+   *
+   * @returns {{x:number,y:number,width:number,height:number}|null}
+   */
+  liveSelectionRect() {
+    const active = this.canvas?.getActiveObject()
+    if (!active) return null
+    return this.toScreenRect(this.sceneAabb(active))
+  }
+
   toScreenRect(box) {
     const vt = this.canvas.viewportTransform
     const zoom = vt[0] || 1

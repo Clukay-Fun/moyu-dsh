@@ -127,8 +127,18 @@ export class BoardController {
     // 对齐线只是拖动期间的视觉提示，任何"拖动结束"的信号都要清掉它：
     // 抬手、变换提交、取消选择、拖动被中断。漏掉任何一条都会留下红虚线。
     this.canvas.onPointerUp = () => this.clearAlignLines()
-    this.canvas.onSelectionCleared = () => this.clearAlignLines()
-    this.canvas.onViewportChanged = () => this.renderOverlay()
+    this.canvas.onSelectionCleared = () => {
+      this.clearAlignLines()
+      this.#syncObjectToolbar()
+    }
+    // 视口一变，工具栏的屏幕位置就变了。缩放、滚轮平移、中键/Space 平移、
+    // 适应内容、重置视口全都走这条回调，所以挂在这里一处就够。
+    this.canvas.onViewportChanged = () => {
+      this.renderOverlay()
+      this.#scheduleToolbarSync()
+    }
+    // 拖动 / 缩放 / 旋转进行中跟随。按帧合并，不写场景、不进历史。
+    this.canvas.onObjectTransforming = () => this.#scheduleToolbarSync()
     this.canvas.onWheelZoom = (deltaY, point) => this.zoomByWheel(deltaY, point)
     this.ready = true
 
@@ -220,8 +230,21 @@ export class BoardController {
     this.#afterChange(false)
   }
 
+  /**
+   * 画布当前是否真的在屏幕上。
+   *
+   * ⚠ 不要再用「某个类名在不在」来判断（F-06）：这里原先查的是 `active`，
+   * 而 `activateUnifiedCanvas()` 加的类叫 `active-surface`，两者永不相等，
+   * 于是它**恒为 false**——受它守卫的 Delete/Backspace 删除与 Ctrl+Z 撤销
+   * 从来没生效过，而且因为按键"没反应"不报错，一直没人发现。
+   *
+   * 改用 `offsetParent`：元素或其任一祖先 `display:none` 时它为 null，
+   * 正好就是"模块没显示"。不依赖任何具体类名，改样式也不会再漂移。
+   */
   isVisible() {
-    return Boolean(this.dom?.pane && !this.dom.pane.hidden && this.dom.pane.classList.contains('active'))
+    const pane = this.dom?.pane
+    if (!pane || pane.hidden) return false
+    return pane.offsetParent !== null
   }
 
   fit() {
@@ -581,39 +604,79 @@ export class BoardController {
     this.renderOverlay()
   }
 
+  /**
+   * 合并高频的工具栏跟随更新（S2）。
+   *
+   * `object:moving` 在一次拖动里能触发上百次。每次都同步布局会让工具栏
+   * 抖得比对象还厉害，所以按帧合并：一帧内来多少次都只算最后一次。
+   */
+  #scheduleToolbarSync() {
+    if (this.toolbarFrame) return
+    this.toolbarFrame = requestAnimationFrame(() => {
+      this.toolbarFrame = null
+      this.#syncObjectToolbar()
+    })
+  }
+
+  /** 取消待执行的跟随更新。隐藏工具栏时必须调用，否则下一帧又把它摆回来。 */
+  #cancelToolbarSync() {
+    if (!this.toolbarFrame) return
+    cancelAnimationFrame(this.toolbarFrame)
+    this.toolbarFrame = null
+  }
+
+  /**
+   * 切走模块时收起浮动工具栏（S2）。
+   *
+   * 画布不可见时不该有残留的浮动层，更不该留着一个 rAF 在下一帧
+   * 把它摆回来——切回来时会先看到工具栏停在旧位置再跳走。
+   */
+  hideFloatingToolbars() {
+    this.#cancelToolbarSync()
+    if (this.dom?.objectToolbar) this.dom.objectToolbar.hidden = true
+    if (this.dom?.objectMoreMenu) this.dom.objectMoreMenu.hidden = true
+  }
+
   #syncObjectToolbar() {
     const toolbar = this.dom.objectToolbar
     if (!toolbar) return
+    // 不可见时一律收起：模块切换没有专门的事件，这里做兜底。
+    if (!this.isVisible()) { this.#cancelToolbarSync(); toolbar.hidden = true; return }
     const ids = this.selection
-    if (!ids.length) { toolbar.hidden = true; return }
+    if (!ids.length) { this.#cancelToolbarSync(); toolbar.hidden = true; return }
 
     const nodes = ids
       .map((id) => this.scene.nodes.find((n) => n.id === id))
       .filter(Boolean)
-    if (!nodes.length) { toolbar.hidden = true; return }
+    if (!nodes.length) { this.#cancelToolbarSync(); toolbar.hidden = true; return }
 
-    const box = unionBounds(nodes)
-    const view = this.canvas.toScreenRect(box)
+    // 位置口径：优先读 fabric 的**实时**形态。拖动 / 缩放 / 旋转期间场景
+    // 还没写回（写回只在 object:modified 发生），读场景会让工具栏慢一整个
+    // 手势。两条路径的几何算法同源——liveSelectionRect() 用 sceneAabb()，
+    // unionBounds() 用 nodeBounds()，都是旋转后外接框且不含描边。
+    const view = this.canvas.liveSelectionRect()
+      ?? this.canvas.toScreenRect(unionBounds(nodes))
     const stage = this.dom.stage.getBoundingClientRect()
     const size = toolbar.getBoundingClientRect()
     const width = size.width || 40
     const height = size.height || 120
     const gap = 8
 
-    // 右侧放不下就翻到左侧
+    // 右侧放不下就翻到左侧；两侧都不足时钳制在可视区内
     const flip = view.x + view.width + gap + width > stage.width
     const left = flip
       ? Math.max(gap, view.x - width - gap)
       : Math.min(stage.width - width - gap, view.x + view.width + gap)
-    // 纵向居中并钳制在可视区域内
+    // 顶部与对象外接框顶部对齐（S2），不再纵向居中——
+    // 居中会让高对象的工具栏飘到画面中央，与对象的关联看不出来。
     const top = Math.min(
-      Math.max(gap, view.y + view.height / 2 - height / 2),
+      Math.max(gap, view.y),
       Math.max(gap, stage.height - height - gap)
     )
 
     toolbar.classList.toggle('flipped', flip)
-    toolbar.style.left = `${Math.round(left)}px`
-    toolbar.style.top = `${Math.round(top)}px`
+    // ⚠ 只改 transform，不改 left/top：后者每帧都会触发布局，拖动时肉眼可见地抖。
+    toolbar.style.transform = `translate3d(${Math.round(left)}px, ${Math.round(top)}px, 0)`
 
     const single = nodes.length === 1
     const locked = nodes.some((n) => isNodeLocked(n))
@@ -1280,7 +1343,10 @@ export class BoardController {
       getGrid: () => ({ show: this.showGrid, snap: this.snapGrid }),
       // 场景坐标 ↔ 屏幕坐标的换算依据。验收要在对象**真实所在的位置**发鼠标
       // 事件，"图应该在画布中间"是个会骗人的假设。
-      getViewport: () => ({ ...this.canvas.viewportRect(), zoom: this.zoom })
+      getViewport: () => ({ ...this.canvas.viewportRect(), zoom: this.zoom }),
+      // 浮动工具栏的定位依据。验收要能直接比对"实现算出来的框"与
+      // "场景推出来的框"，否则只能靠倒推猜。
+      getSelectionScreenRect: () => this.canvas.liveSelectionRect()
     })
   }
 }

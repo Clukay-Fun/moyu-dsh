@@ -449,6 +449,10 @@ function activateModule(module, action = '') {
   } else if (module === 'video') {
     setFormatAction(state.selections.video)
   }
+
+  // 离开画布时收起浮动工具栏，并取消待执行的跟随更新（S2）。
+  // 不收的话，切回来会先看到它停在旧位置再跳走。
+  if (module !== 'image') boardController?.hideFloatingToolbars()
 }
 
 const pdfActionConfig = {
