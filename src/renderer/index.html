@@ -394,6 +394,47 @@
                   </button>
                 </div>
               </div>
+              <!-- ══ S5 · 文本框横向浮动工具栏 ══
+                   常驻展开，不折叠。位于文本框旋转后外接框的上方，
+                   跟随对象变换与视口。与竖向对象侧栏互斥：
+                   单选文本框显示这条，其余情况显示竖栏。 -->
+              <div class="text-toolbar" id="text-toolbar" role="toolbar"
+                   aria-label="文本框工具" hidden>
+                <button class="txt-btn" data-text="edit" type="button" title="编辑文字">编辑文字</button>
+                <span class="txt-sep"></span>
+                <select class="txt-select" id="text-font-family" aria-label="字体" title="字体">
+                  <option value='system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif'>系统默认</option>
+                  <option value='"Microsoft YaHei", "PingFang SC", sans-serif'>黑体</option>
+                  <option value='"SimSun", "Songti SC", serif'>宋体</option>
+                  <option value='"Segoe UI", Helvetica, Arial, sans-serif'>Segoe UI</option>
+                  <option value='ui-monospace, "SFMono-Regular", Consolas, monospace'>等宽</option>
+                </select>
+                <input class="txt-color" type="color" id="text-fill" aria-label="文字颜色" title="文字颜色" />
+                <button class="txt-btn" data-text="bold" type="button" aria-pressed="false" title="粗体"><b>B</b></button>
+                <select class="txt-select" id="text-align" aria-label="对齐" title="对齐">
+                  <option value="left">左对齐</option>
+                  <option value="center">居中</option>
+                  <option value="right">右对齐</option>
+                </select>
+                <!-- ⚠ 只提供缩放比例，不提供字号：缩放改对象比例，
+                     不动底层 fontSize，避免同一视觉大小有两种表示。 -->
+                <select class="txt-select" id="text-scale" aria-label="缩放比例" title="缩放比例">
+                  <option value="0.5">50%</option>
+                  <option value="0.75">75%</option>
+                  <option value="1" selected>100%</option>
+                  <option value="1.25">125%</option>
+                  <option value="1.5">150%</option>
+                  <option value="2">200%</option>
+                  <option value="3">300%</option>
+                </select>
+                <span class="txt-sep"></span>
+                <button class="txt-btn" data-text="copy" type="button" title="复制">复制</button>
+                <button class="txt-btn txt-lock" data-text="lock" type="button" aria-pressed="false" title="锁定">锁定</button>
+                <button class="txt-btn" data-text="front" type="button" title="置顶">置顶</button>
+                <button class="txt-btn" data-text="back" type="button" title="置底">置底</button>
+                <button class="txt-btn txt-danger" data-text="delete" type="button" title="删除">删除</button>
+              </div>
+
               <div class="canvas-empty" id="board-empty">
                       <div class="empty-icon">▦</div>
                       <div>截图、导入或粘贴图片，都会落到这块画布上</div>
@@ -422,16 +463,6 @@
                     <button class="gbtn" id="board-add-textbox" type="button">插入文本框</button>
                     <button class="gbtn" id="board-connect" type="button" aria-pressed="false" disabled hidden>连接</button>
                     <span class="toolbar-space"></span>
-                    <div class="board-text-style" id="board-text-style" hidden>
-                      <label>字号<input type="number" id="board-font-size" min="8" max="200" step="1" /></label>
-                      <label>颜色<input type="color" id="board-font-color" /></label>
-                      <button class="gbtn" id="board-font-bold" type="button" aria-pressed="false">粗体</button>
-                      <select id="board-text-align" aria-label="对齐">
-                        <option value="left">左对齐</option>
-                        <option value="center">居中</option>
-                        <option value="right">右对齐</option>
-                      </select>
-                    </div>
                     <div class="board-layer-group">
                       <button class="gbtn" id="board-front" type="button" disabled>置顶</button>
                       <button class="gbtn" id="board-forward" type="button" disabled>上移</button>

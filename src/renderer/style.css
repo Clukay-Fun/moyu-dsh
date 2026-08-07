@@ -3622,6 +3622,84 @@ input:focus-visible {
 }
 .object-toolbar[hidden] { display: none; }
 
+/* ══ S5 · 文本框横向浮动工具栏 ══
+   常驻展开，不折叠——文本样式是高频操作，藏进菜单每次都要多一次点击。
+   位置同竖栏：只走 transform，不改 left/top。 */
+.text-toolbar {
+  position: absolute;
+  z-index: 14;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 6px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--menu-surface);
+  box-shadow: var(--shadow-small);
+  backdrop-filter: blur(20px) saturate(150%);
+  will-change: transform;
+}
+.text-toolbar[hidden] { display: none; }
+
+.txt-btn {
+  padding: 5px 9px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: transform 140ms cubic-bezier(0.23, 1, 0.32, 1),
+              color 140ms ease, background-color 140ms ease;
+}
+@media (hover: hover) and (pointer: fine) {
+  .txt-btn:hover:not(:disabled) { color: var(--accent); background: var(--accent-10); }
+}
+.txt-btn:active:not(:disabled) { transform: scale(0.97); }
+.txt-btn[aria-pressed="true"] { color: var(--accent); background: var(--accent-18); }
+.txt-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.txt-btn.txt-danger { color: #d54f50; }
+.txt-btn.txt-danger:disabled { color: var(--muted); }
+
+.txt-select {
+  height: 26px;
+  max-width: 104px;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card-thin);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 12px;
+}
+.txt-select:disabled { opacity: 0.35; }
+
+.txt-color {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: none;
+  cursor: pointer;
+}
+.txt-color:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.txt-sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 2px;
+  background: var(--hairline);
+}
+
+/* 锁定态：只留解锁 / 复制 / 删除，其余禁用但**不隐藏**——
+   隐藏会让工具栏宽度突变，用户以为按钮消失了 */
+.text-toolbar.locked .txt-select,
+.text-toolbar.locked .txt-color { opacity: 0.35; }
+
 .object-toolbar .obj-group {
   display: flex;
   flex-direction: column;

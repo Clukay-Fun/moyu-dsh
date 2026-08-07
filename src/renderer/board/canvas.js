@@ -550,8 +550,14 @@ export class BoardCanvas {
       if (!isTextNode(node)) continue
       const object = this.objects.get(node.id)
       if (!object) continue
-      const width = object.width * (object.scaleX || 1)
-      const height = object.height * (object.scaleY || 1)
+      // ⚠ 写**基础**宽高，不乘 scale——与 #writeBackText 同一口径（F-11）。
+      //   node.width 的语义是未缩放的基础宽度，缩放单独存在 node.scaleX。
+      //   乘了 scale 就等于把缩放写进基础宽度，而 scaleX 还留着，
+      //   下一次渲染再叠一遍，每渲染一次放大一次。
+      //   在 S5 之前 UI 没有任何入口能把 scale 改成 1 以外的值，
+      //   所以这个错误一直乘的是 1，看不出来。
+      const width = object.width
+      const height = object.height
       if (Math.abs(node.width - width) > 0.01 || Math.abs(node.height - height) > 0.01) {
         setNodeMetrics(this.scene, node.id, { width, height })
         changed = true
@@ -653,6 +659,32 @@ export class BoardCanvas {
   }
 
   /** 世界坐标矩形 → 画布屏幕坐标矩形（用于让 DOM 工具栏跟随对象）。 */
+  /** 进入某个文本节点的行内编辑态。与画布上双击等价。 */
+  beginTextEditing(nodeId) {
+    const object = this.objects.get(nodeId)
+    if (!object || typeof object.enterEditing !== 'function') return false
+    this.canvas.setActiveObject(object)
+    object.enterEditing()
+    object.selectAll?.()
+    this.canvas.requestRenderAll()
+    return true
+  }
+
+  /**
+   * 让正在行内编辑的对象**正常退出**编辑态。
+   *
+   * ⚠ 不能靠 render() 重建来"顺便"结束编辑：重建正在编辑的 Textbox 会抛
+   * `TypeError: reading 'fire'`。exitEditing() 走 fabric 自己的收尾路径，
+   * 顺带触发 text:editing:exited，内容与排版尺寸也就一并写回了。
+   */
+  exitTextEditing() {
+    const active = this.canvas?.getActiveObject()
+    if (!active?.isEditing) return false
+    active.exitEditing()
+    this.canvas.requestRenderAll()
+    return true
+  }
+
   /**
    * 当前选中对象的**实时**屏幕矩形，供浮动工具栏跟随（S2）。
    *

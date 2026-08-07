@@ -29,7 +29,8 @@ import {
   isNodeLocked,
   nodeBounds,
   setSceneBackground,
-  setSceneGrid
+  setSceneGrid,
+  setNodeScale
 } from './scene.js'
 import { BoardCanvas } from './canvas.js'
 import { BoardHistory } from './history.js'
@@ -151,16 +152,6 @@ export class BoardController {
     dom.back.addEventListener('click', () => this.#applyLayer(sendToBack))
     dom.addText.addEventListener('click', () => this.addText('text'))
     dom.addTextBox.addEventListener('click', () => this.addText('textbox'))
-    dom.fontSize.addEventListener('change', () =>
-      this.#applyTextStyle({ fontSize: Number(dom.fontSize.value) }))
-    dom.fontColor.addEventListener('change', () =>
-      this.#applyTextStyle({ fill: dom.fontColor.value }))
-    dom.fontBold.addEventListener('click', () => {
-      const on = dom.fontBold.getAttribute('aria-pressed') === 'true'
-      this.#applyTextStyle({ fontWeight: on ? 'normal' : 'bold' })
-    })
-    dom.textAlign.addEventListener('change', () =>
-      this.#applyTextStyle({ textAlign: dom.textAlign.value }))
     dom.connect.addEventListener('click', () => this.toggleConnectMode())
     dom.edgeShape.addEventListener('change', () =>
       this.#applyEdgeStyle({ shape: dom.edgeShape.value }))
@@ -180,6 +171,33 @@ export class BoardController {
     dom.save.addEventListener('click', () => this.save(false))
     dom.saveAs.addEventListener('click', () => this.save(true))
     dom.open.addEventListener('click', () => this.open())
+
+    // ── S5 · 文本框横向工具栏 ──────────────────────────────
+    // ⚠ 三条都必须做，缺一条就会出问题：
+    //   · stopPropagation：不加的话点击冒到 document，会被"点空白取消选择"
+    //     的兜底逻辑清掉选中，工具栏当场消失；
+    //   · mousedown 上 preventDefault：不加的话点击会把焦点从画布抢走，
+    //     正在行内编辑的 Textbox 触发 blur，用户以为只是改个颜色，
+    //     结果编辑态被中断；
+    //   · 改样式前先 #exitTextEditing()：行内编辑中直接重建对象会抛
+    //     TypeError: reading 'fire'，这个坑 U4 踩过。
+    dom.textToolbar?.addEventListener('mousedown', (event) => {
+      if (event.target.closest('select, input')) return // 下拉与取色器需要原生焦点
+      event.preventDefault()
+    })
+    dom.textToolbar?.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-text]')
+      if (!button) return
+      event.stopPropagation()
+      this.#onTextAction(button.dataset.text)
+    })
+    dom.textFontFamily?.addEventListener('change', () =>
+      this.#applyTextStyle({ fontFamily: dom.textFontFamily.value }))
+    dom.textFill?.addEventListener('change', () =>
+      this.#applyTextStyle({ fill: dom.textFill.value }))
+    dom.textAlignSelect?.addEventListener('change', () =>
+      this.#applyTextStyle({ textAlign: dom.textAlignSelect.value }))
+    dom.textScale?.addEventListener('change', () => this.#applyTextScale(Number(dom.textScale.value)))
 
     dom.objectToolbar?.addEventListener('click', (event) => {
       const button = event.target.closest('[data-obj]')
@@ -254,6 +272,19 @@ export class BoardController {
    * 否则会把还原动作又压进栈里。
    */
   async #afterChange(commit = true) {
+    // 合并事务进行中：本次改动不单独入历史，交给事务结束时统一推一条。
+    // ⚠ 不能简单丢弃 commit——脏标记与恢复调度仍然要走。
+    if (commit && this.mergingHistory) {
+      this.dirty = true
+      this.#reportDirty()
+      this.recovery?.schedule()
+      await this.canvas.render()
+      this.#syncControls()
+      this.#syncStatus()
+      this.#syncObjectToolbar()
+      this.renderOverlay()
+      return
+    }
     if (commit) {
       this.history.push(this.scene)
       this.dirty = true
@@ -374,11 +405,93 @@ export class BoardController {
       .filter((node) => isTextNode(node))
   }
 
+  /**
+   * 把若干次 #afterChange 合并成**一条**历史（S5）。
+   *
+   * 场景：文本框正在行内编辑时点了"改颜色"。必须先 exitEditing()——
+   * 直接重建正在编辑的 Textbox 会抛 TypeError: reading 'fire'——
+   * 而 exitEditing 会触发 text:editing:exited → 写回文本 → 一条历史，
+   * 紧接着改样式又是一条。用户只做了一个动作，撤销却要按两次。
+   *
+   * 这里把中间的推送压掉，末尾统一推一条。
+   */
+  async #withMergedHistory(fn) {
+    if (this.mergingHistory) return fn()
+    this.mergingHistory = true
+    try {
+      await fn()
+    } finally {
+      this.mergingHistory = false
+    }
+    await this.#afterChange()
+  }
+
+  /** 横向工具栏的按钮动作。层级/复制/锁定/删除复用竖栏那套实现，不另写一份。 */
+  #onTextAction(action) {
+    const ids = this.selection
+    if (!ids.length) return
+    switch (action) {
+      case 'edit': this.#enterTextEditing(ids[0]); return
+      case 'bold': {
+        const node = this.scene.nodes.find((n) => n.id === ids[0])
+        const on = node?.style?.fontWeight === 'bold'
+        this.#applyTextStyle({ fontWeight: on ? 'normal' : 'bold' })
+        return
+      }
+      // 其余与竖栏同义，直接转过去——两套实现迟早会漂移
+      default: this.#onObjectAction(action)
+    }
+  }
+
+  /**
+   * 缩放比例（S5）。
+   *
+   * ⚠ 改的是**对象比例**，不动底层 fontSize：同一个视觉大小如果既能用
+   * 字号表示又能用缩放表示，保存 / 重开 / 导出三处迟早对不上。
+   */
+  #applyTextScale(scale) {
+    if (!Number.isFinite(scale) || scale <= 0) return
+    const nodes = this.#selectedTextNodes()
+    if (!nodes.length) return
+    return this.#withMergedHistory(() => {
+      this.#exitTextEditing()
+      for (const node of nodes) setNodeScale(this.scene, node.id, scale)
+      this.#afterChange()
+    })
+  }
+
+  /** 双击进入行内编辑，与画布上双击文本框等价。 */
+  #enterTextEditing(nodeId) {
+    const node = this.scene.nodes.find((n) => n.id === nodeId)
+    if (!node || !isTextNode(node)) return
+    if (isNodeLocked(node)) {
+      this.onStatus({ warn: '该文本框已锁定，请先解锁再编辑' })
+      return
+    }
+    this.canvas.beginTextEditing(nodeId)
+  }
+
+  /**
+   * 让正在行内编辑的文本框**正常退出**编辑态。
+   *
+   * 直接改样式会触发 render() 重建对象，而重建正在编辑的 Textbox 会抛
+   * `TypeError: reading 'fire'`。exitEditing() 走 fabric 自己的收尾路径，
+   * 内容与排版尺寸也会顺带写回，所以整个操作仍然只产生一条历史。
+   */
+  #exitTextEditing() {
+    this.canvas.exitTextEditing()
+  }
+
   #applyTextStyle(patch) {
     const nodes = this.#selectedTextNodes()
     if (!nodes.length) return
-    for (const node of nodes) setNodeStyle(this.scene, node.id, patch)
-    this.#afterChange()
+    // 行内编辑中改样式：先正常退出（否则重建对象会抛 TypeError: reading 'fire'），
+    // 退出与改样式合并成一条历史——用户只做了一个动作。
+    return this.#withMergedHistory(() => {
+      this.#exitTextEditing()
+      for (const node of nodes) setNodeStyle(this.scene, node.id, patch)
+      this.#afterChange()
+    })
   }
 
   toggleConnectMode() {
@@ -626,18 +739,92 @@ export class BoardController {
     if (this.dom?.objectToolbar) this.dom.objectToolbar.hidden = true
   }
 
+  /**
+   * 文本框横向工具栏的定位与状态（S5）。
+   *
+   * 位置口径与竖栏完全一致：旋转后外接框（`sceneAabb()`，不含描边），
+   * 只是贴在**上方**而不是侧面。放不下时翻到下方，两边都不足时钳制。
+   */
+  #placeTextToolbar(node) {
+    const bar = this.dom.textToolbar
+    if (!bar) return
+    const view = this.canvas.liveSelectionRect()
+      ?? this.canvas.toScreenRect(unionBounds([node]))
+    const stage = this.dom.stage.getBoundingClientRect()
+    const size = bar.getBoundingClientRect()
+    const width = size.width || 420
+    const height = size.height || 36
+    const gap = 8
+
+    // 上方放不下就翻到下方
+    const below = view.y - gap - height < 0
+    const top = below
+      ? Math.min(stage.height - height - gap, view.y + view.height + gap)
+      : view.y - height - gap
+    // 与外接框左对齐，超出右边界时整体左移
+    const left = Math.min(
+      Math.max(gap, view.x),
+      Math.max(gap, stage.width - width - gap)
+    )
+    bar.classList.toggle('below', below)
+    bar.style.transform = `translate3d(${Math.round(left)}px, ${Math.round(Math.max(gap, top))}px, 0)`
+
+    // 控件取值对齐场景真值，避免显示与实际不符
+    const locked = isNodeLocked(node)
+    const style = node.style || {}
+    const dom = this.dom
+    if (dom.textFontFamily) dom.textFontFamily.value = style.fontFamily ?? dom.textFontFamily.value
+    if (dom.textFill) dom.textFill.value = style.fill ?? '#000000'
+    if (dom.textAlignSelect) dom.textAlignSelect.value = style.textAlign ?? 'left'
+    if (dom.textScale) {
+      // 缩放比例只在下拉里有对应档位时回显；手动拖过控制点的任意比例
+      // 不硬塞进去，否则会把 137% 显示成 125% 这种假信息
+      const current = String(node.scaleX ?? 1)
+      const match = [...dom.textScale.options].some((o) => o.value === current)
+      dom.textScale.value = match ? current : ''
+    }
+    const boldBtn = bar.querySelector('[data-text="bold"]')
+    if (boldBtn) boldBtn.setAttribute('aria-pressed', String(style.fontWeight === 'bold'))
+    const lockBtn = bar.querySelector('[data-text="lock"]')
+    if (lockBtn) {
+      lockBtn.setAttribute('aria-pressed', String(locked))
+      lockBtn.textContent = locked ? '已锁定' : '锁定'
+      lockBtn.title = locked ? '点击解锁' : '锁定后不可移动、缩放、旋转与编辑'
+    }
+    // 锁定后只留解锁 / 复制 / 删除可用。禁用而不隐藏——隐藏会让工具栏
+    // 宽度突变，用户会以为按钮没了。
+    bar.classList.toggle('locked', locked)
+    const enabled = new Set(['lock', 'copy', 'delete'])
+    for (const button of bar.querySelectorAll('[data-text]')) {
+      button.disabled = locked && !enabled.has(button.dataset.text)
+    }
+    for (const control of bar.querySelectorAll('select, input')) control.disabled = locked
+  }
+
   #syncObjectToolbar() {
     const toolbar = this.dom.objectToolbar
+    const textBar = this.dom.textToolbar
     if (!toolbar) return
+    const hideAll = () => {
+      this.#cancelToolbarSync()
+      toolbar.hidden = true
+      if (textBar) textBar.hidden = true
+    }
     // 不可见时一律收起：模块切换没有专门的事件，这里做兜底。
-    if (!this.isVisible()) { this.#cancelToolbarSync(); toolbar.hidden = true; return }
+    if (!this.isVisible()) { hideAll(); return }
     const ids = this.selection
-    if (!ids.length) { this.#cancelToolbarSync(); toolbar.hidden = true; return }
+    if (!ids.length) { hideAll(); return }
 
     const nodes = ids
       .map((id) => this.scene.nodes.find((n) => n.id === id))
       .filter(Boolean)
-    if (!nodes.length) { this.#cancelToolbarSync(); toolbar.hidden = true; return }
+    if (!nodes.length) { hideAll(); return }
+
+    // 两条工具栏**互斥**：单选文本框走横栏，其余（图片、多选、混合选择）
+    // 走竖栏。同时出现会互相遮挡，而且"该点哪个"对用户不明确。
+    const textOnly = nodes.length === 1 && isTextNode(nodes[0])
+    if (textBar) textBar.hidden = !textOnly
+    if (textOnly) { toolbar.hidden = true; this.#placeTextToolbar(nodes[0]); return }
 
     // 位置口径：优先读 fabric 的**实时**形态。拖动 / 缩放 / 旋转期间场景
     // 还没写回（写回只在 object:modified 发生），读场景会让工具栏慢一整个
@@ -724,16 +911,8 @@ export class BoardController {
     const has = this.selection.length > 0
     const single = this.selection.length === 1
     this.dom.deleteButton.disabled = !has
-    // 文本样式栏只在选中文本节点时出现，避免出现改不动的控件
-    const textNodes = this.#selectedTextNodes()
-    this.dom.textStyle.hidden = textNodes.length === 0
-    if (textNodes.length) {
-      const first = textNodes[0]
-      this.dom.fontSize.value = String(first.style.fontSize)
-      this.dom.fontColor.value = first.style.fill
-      this.dom.fontBold.setAttribute('aria-pressed', String(first.style.fontWeight === 'bold'))
-      this.dom.textAlign.value = first.style.textAlign
-    }
+    // 文本样式已整体移到横向浮动工具栏（S5），右侧不再保留第二个入口——
+    // 同一能力两处入口，两边的可用条件与取值同步迟早会漂移。
 
     // 连接按钮：选中恰好一个节点时可用；连接中显示按下态
     this.dom.connect.disabled = !single && !this.connectFrom
