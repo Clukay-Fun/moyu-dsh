@@ -59,6 +59,11 @@ async function connect(pick) {
 }
 
 async function shot(conn, name) {
+  // ⚠ 摸鱼计时器每分钟跳一次。不固定的话，跨分钟拍的两张必然有差异，
+  //   而且它在右上角，会把差异包围盒撑到整幅图宽，掩盖真正的改动区域。
+  await conn.send('Runtime.evaluate', {
+    expression: `(() => { const t = document.querySelector('#mochi-time'); if (t) t.textContent = '00:00'; return 1 })()`
+  }).catch(() => {})
   const r = await conn.send('Page.captureScreenshot', { format: 'png' })
   const buf = Buffer.from(r.result.data, 'base64')
   const file = join(OUT, `${String(++shots).padStart(2, '0')}-${name}.png`)
