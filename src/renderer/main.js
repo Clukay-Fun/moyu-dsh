@@ -417,7 +417,29 @@ function renderSubmenu(module) {
   submenu.classList.add('show')
 }
 
-function activateModule(module, action = '') {
+const entryAnimations = new WeakMap()
+
+function animateEntry(element, { duration = 160, distance = 6, horizontal = false } = {}) {
+  if (!element) return
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches
+  entryAnimations.get(element)?.cancel()
+  const transform = horizontal ? `translateX(${distance}px)` : `translateY(${distance}px)`
+  const animation = element.animate(
+    reduced
+      ? [{ opacity: 0.65 }, { opacity: 1 }]
+      : [{ opacity: 0.25, transform }, { opacity: 1, transform: 'translate(0, 0)' }],
+    { duration: reduced ? 100 : duration, easing: 'cubic-bezier(0.23, 1, 0.32, 1)' }
+  )
+  entryAnimations.set(element, animation)
+  const release = () => {
+    if (entryAnimations.get(element) === animation) entryAnimations.delete(element)
+  }
+  animation.addEventListener('finish', release, { once: true })
+  animation.addEventListener('cancel', release, { once: true })
+}
+
+function activateModule(module, action = '', animate = false) {
+  const changed = state.module !== module
   state.module = module
 
   document.querySelectorAll('.nav-ic').forEach((button) => {
@@ -426,9 +448,12 @@ function activateModule(module, action = '') {
     button.setAttribute('aria-current', isActive ? 'page' : 'false')
   })
 
+  let activePage = null
   document.querySelectorAll('.page').forEach((page) => {
+    if (page.id === `page-${module}`) activePage = page
     page.classList.toggle('active', page.id === `page-${module}`)
   })
+  if (animate && changed) animateEntry(activePage, { duration: 180, distance: 7 })
 
   const deferredMilestone = module === 'pdf' ? deferredPdfActions.get(action) : null
 
@@ -987,9 +1012,11 @@ function updatePdfState(action) {
   renderPdfWatermarkState()
 }
 
-function chooseSubmenu(module, action) {
+function chooseSubmenu(module, action, animate = false) {
+  const changed = state.selections[module] !== action
   if (module === 'video') {
     setFormatAction(action)
+    if (animate && changed) animateEntry(document.querySelector('#page-video'), { duration: 120, distance: 3 })
     return
   }
   state.selections[module] = action
@@ -1000,17 +1027,18 @@ function chooseSubmenu(module, action) {
   } else if (module === 'bc') {
     selectBarcodeType(action, true)
   }
+  if (animate && changed) animateEntry(document.querySelector(`#page-${module}`), { duration: 120, distance: 3 })
 }
 
 document.querySelector('.rail').addEventListener('click', (event) => {
   const button = event.target.closest('.nav-ic')
-  if (button) activateModule(button.dataset.module)
+  if (button) activateModule(button.dataset.module, '', event.detail > 0)
 })
 
 submenu.addEventListener('click', (event) => {
   const button = event.target.closest('.submenu-item')
   if (button && !button.dataset.milestone) {
-    chooseSubmenu(button.dataset.module, button.dataset.action)
+    chooseSubmenu(button.dataset.module, button.dataset.action, event.detail > 0)
   }
 })
 
@@ -4347,7 +4375,8 @@ function selectBarcodeType(typeName, replaceValue = false) {
   generateBarcode()
 }
 
-function setBarcodeMode(mode) {
+function setBarcodeMode(mode, animate = false) {
+  const changed = state.barcodeMode !== mode
   state.barcodeMode = mode
   const isSingle = mode === 'single'
   barcodeSingleTab.classList.toggle('on', isSingle)
@@ -4356,6 +4385,12 @@ function setBarcodeMode(mode) {
   barcodeBatchTab.setAttribute('aria-selected', String(!isSingle))
   barcodeSinglePane.classList.toggle('active', isSingle)
   barcodeBatchPane.classList.toggle('active', !isSingle)
+  barcodeSingleTab.parentElement.dataset.mode = mode
+  if (animate && changed) animateEntry(isSingle ? barcodeSinglePane : barcodeBatchPane, {
+    duration: 140,
+    distance: isSingle ? -4 : 4,
+    horizontal: true
+  })
 }
 
 function parseBatchValues(rawValue) {
@@ -4562,8 +4597,8 @@ copyBarcodeVectorButton.addEventListener('click', copyBarcodeVector)
 openBarcodeIllustratorButton.addEventListener('click', () => runBarcodeCom('illustrator', openBarcodeIllustratorButton))
 openBarcodePhotoshopButton.addEventListener('click', () => runBarcodeCom('photoshop', openBarcodePhotoshopButton))
 copyBarcodeUngroupedButton.addEventListener('click', () => void copyBarcodeUngrouped())
-barcodeSingleTab.addEventListener('click', () => setBarcodeMode('single'))
-barcodeBatchTab.addEventListener('click', () => setBarcodeMode('batch'))
+barcodeSingleTab.addEventListener('click', (event) => setBarcodeMode('single', event.detail > 0))
+barcodeBatchTab.addEventListener('click', (event) => setBarcodeMode('batch', event.detail > 0))
 generateBarcodeBatchButton.addEventListener('click', generateBarcodeBatch)
 saveBarcodeBatchSvgButton.addEventListener('click', () => saveBarcodeBatch('svg'))
 saveBarcodeBatchPngButton.addEventListener('click', () => saveBarcodeBatch('png'))
