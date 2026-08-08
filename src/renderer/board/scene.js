@@ -228,7 +228,22 @@ export function addImageNode(scene, { assetId, x = 0, y = 0, width, height }) {
  * 不动基础字号与基础宽高。这样"重置缩放"才有可回到的基准，
  * 包围盒也只有一处口径（width × scaleX）。
  */
-export function addTextBoxNode(scene, { text = '双击编辑文本', x = 0, y = 0, width, style = {} }) {
+/**
+ * 新建文本框的**占位内容**（F-12）。
+ *
+ * ⚠ 它是"占位"而不是普通文本：首次双击应当自动全选，让用户直接输入即覆盖。
+ * 不加 schema 字段来标记，而是靠"文本是否仍等于这个常量"判断——
+ * 加字段要动容器版本、要写迁移，而收益只是区分一个用户几乎不会手打出来的
+ * 字符串。用户真打出这六个字，全选一次也没有坏处。
+ */
+export const TEXTBOX_PLACEHOLDER = '双击编辑文本'
+
+/** 该文本框是否仍是未编辑过的占位状态。 */
+export function isPlaceholderText(node) {
+  return isTextNode(node) && node.text === TEXTBOX_PLACEHOLDER
+}
+
+export function addTextBoxNode(scene, { text = TEXTBOX_PLACEHOLDER, x = 0, y = 0, width, style = {} }) {
   const merged = { ...TEXT_DEFAULTS, ...TEXTBOX_DEFAULTS, ...style }
   const node = {
     id: nextBoardId('tb'),

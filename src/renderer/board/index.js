@@ -191,8 +191,31 @@ export class BoardController {
       event.stopPropagation()
       this.#onTextAction(button.dataset.text)
     })
-    dom.textFill?.addEventListener('change', () =>
-      this.#applyTextStyle({ fill: dom.textFill.value }))
+    /**
+     * 文字颜色（F-12）。
+     *
+     * ⚠ 原生取色器是**系统窗口**，打开时会把焦点从渲染进程夺走。
+     * macOS 上尤其明显——色盘是独立窗口，画布随即失焦、选择被清掉，
+     * 等用户选完颜色回来，`#selectedTextNodes()` 已经是空的，颜色落空。
+     *
+     * 所以在打开前**冻结**当前选中的文本节点 id，之后一律按冻结的那份应用。
+     * 同时监听 input 与 change：某些平台拖动色盘只发 input，
+     * 只听 change 会让"拖着选色"看不到实时效果。
+     */
+    const freezeFillTarget = () => {
+      this.fillTargets = this.#selectedTextNodes().map((n) => n.id)
+    }
+    dom.textFill?.addEventListener('mousedown', freezeFillTarget)
+    dom.textFill?.addEventListener('focus', freezeFillTarget)
+    const applyFill = () => {
+      // 没有冻结目标时回退到当前选择——不是所有路径都会先经过 mousedown
+      const ids = this.fillTargets?.length
+        ? this.fillTargets
+        : this.#selectedTextNodes().map((n) => n.id)
+      this.#applyTextStyleTo(ids, { fill: dom.textFill.value })
+    }
+    dom.textFill?.addEventListener('input', applyFill)
+    dom.textFill?.addEventListener('change', applyFill)
 
     // ── 缩放比例输入框（S3）──
     dom.textScale?.addEventListener('keydown', (event) => {
@@ -551,6 +574,22 @@ export class BoardController {
     this.canvas.exitTextEditing()
   }
 
+  /**
+   * 按**给定 id** 应用文本样式，而不是"当前选中"。
+   * 取色器一类会夺走焦点的控件必须走这条路——等它回来时选择可能已经没了。
+   */
+  #applyTextStyleTo(ids, patch) {
+    const targets = (ids || [])
+      .map((id) => this.scene.nodes.find((n) => n.id === id))
+      .filter((n) => n && isTextNode(n))
+    if (!targets.length) return
+    return this.#withMergedHistory(() => {
+      this.#exitTextEditing()
+      for (const node of targets) setNodeStyle(this.scene, node.id, patch)
+      this.#afterChange()
+    })
+  }
+
   #applyTextStyle(patch) {
     const nodes = this.#selectedTextNodes()
     if (!nodes.length) return
@@ -825,7 +864,8 @@ export class BoardController {
     const height = size.height || 36
     // 固定**屏幕**间距，不随画布缩放变化——间距是给手指/鼠标留的余量，
     // 它跟画布缩放没关系。10px 刚好躲开控制点（半径 11px 的一半）。
-    const GAP = 10
+    // F-12：10px 在 Windows 上目视偏挤，提到 14px（最终值按实机观感定）
+    const GAP = 14
 
     // 默认在**下方**：文本框上方通常是正文内容，工具栏压上去挡视线；
     // 下方放不下再翻到上方。

@@ -13,6 +13,7 @@ import {
   setNodeText,
   setNodeMetrics,
   isTextNode,
+  isPlaceholderText,
   isNodeLocked,
   setNodeRotation,
   setNodeScale,
@@ -95,8 +96,12 @@ export class BoardCanvas {
     // 文本对象的双击归 fabric 自己（进入行内编辑），这里只接图片。
     this.canvas.on('mouse:dblclick', (event) => {
       const object = event.target
-      if (!object?.boardNodeId || object.boardNodeType !== 'image') return
-      this.onImageDoubleClick?.(object.boardNodeId)
+      if (!object?.boardNodeId) return
+      if (object.boardNodeType === 'image') {
+        this.onImageDoubleClick?.(object.boardNodeId)
+        return
+      }
+      this.#applyEditingSelection(object)
     })
     this.canvas.on('selection:created', () => this.#emitSelection())
     this.canvas.on('selection:updated', () => this.#emitSelection())
@@ -134,6 +139,44 @@ export class BoardCanvas {
       // 抬手即视为拖动结束——即使没有产生 object:modified（比如原地按一下），
       // 也要把对齐线清掉，否则红虚线会留在画面上。
       this.onPointerUp?.()
+    })
+  }
+
+  /**
+   * 双击进入编辑时的选区策略（F-12）。
+   *
+   * **占位内容自动全选**，用户直接输入即覆盖；已有真实文字只留光标。
+   * 不这么做的话，光标停在末尾，输入会追加成「双击编辑文本abc」——
+   * 这就是 Windows 验收截图里那个"叠加"。
+   *
+   * ⚠ 必须挂在 `mouse:dblclick` 上，不能挂 `text:editing:entered`。
+   *   fabric 的进入编辑发生在**第二次单击的 mouseup**（判定 __lastSelected），
+   *   比 dblclick 早一步；在那里设选区会被随后的 selectWord() 覆盖。
+   *   实测：中文没有词边界，selectWord 的结果还不稳定，同一对象
+   *   第一次落在 [6,6]（等于没选）、第二次却是 [0,9]（全选）。
+   *
+   * ⚠ 必须走 setSelectionStart/End，不能直接赋值 selectionStart/End：
+   *   直接赋值只改 fabric 对象，**不同步隐藏 textarea**，
+   *   而真正接收键盘输入的是那个 textarea。
+   */
+  #applyEditingSelection(object) {
+    const node = this.scene?.nodes.find((n) => n.id === object?.boardNodeId)
+    if (!node) return
+    const placeholder = isPlaceholderText(node)
+    // ⚠ 还要**再延后一帧**。fabric 的 _handleEvent 先在 canvas 上发
+    //   `mouse:dblclick`（也就是这里），**之后**才调对象自己的
+    //   doubleClickHandler → selectWord()。在本回调里直接设选区仍会被覆盖。
+    //   延后一帧，才轮到我们最后落笔。
+    requestAnimationFrame(() => {
+      if (!object.isEditing) return
+      if (placeholder) {
+        object.selectAll?.()
+      } else {
+        const at = object.selectionStart
+        object.setSelectionStart?.(at)
+        object.setSelectionEnd?.(at)
+      }
+      object.canvas?.requestRenderAll()
     })
   }
 
@@ -338,13 +381,16 @@ export class BoardCanvas {
     //
     //   退出编辑用 suspendSync 挡住事件回写，改为在这里直接落库，
     //   避免 onChange → #afterChange → render() 递归。
-    const editing = this.canvas.getActiveObject()
-    if (editing?.isEditing) {
-      this.suspendSync = true
-      editing.exitEditing()
-      this.suspendSync = false
-      this.#applyTextMetrics(editing)
-    }
+    //   F-12 修订：**推迟**而不是打断。原来的做法是"先退出编辑再重建"，
+    //   但用户正在打字时任何一次重绘都会把编辑态踢掉，光标位置、输入法
+    //   候选窗一起没了——Windows 上表现为输入过程中文字"跳"。
+    //   现在改成**跳过**：编辑态里从头到尾只有一个视觉对象。
+    //   跳过不会丢状态——退出编辑必然触发 text:editing:exited →
+    //   #writeBackText → onChange('text') → 控制器的 #afterChange() →
+    //   render()，被推迟的那次改动在那时一并生效。
+    //   （不在这里自己调 render()：渲染统一由控制器驱动，
+    //     canvas.js 自行重绘会绕开历史与状态同步。）
+    if (this.canvas.getActiveObject()?.isEditing) return
     this.suspendSync = true
     const selected = new Set(this.getSelectedIds())
     this.canvas.discardActiveObject()
@@ -385,7 +431,13 @@ export class BoardCanvas {
       this.canvas.setActiveObject(restore[0])
     } else if (restore.length > 1) {
       const selection = new this.fabric.ActiveSelection(restore, { canvas: this.canvas })
-      // 规格 2.1：多选只允许整体移动与等比缩放，不允许整体旋转
+      // ⚠ 多选也要套自定义控制点（F-12）。之前漏了这一句，多选用的是
+      //   fabric 默认样式——小蓝方块、默认边框，与单选的 11px 白色圆角
+      //   手柄完全两个样子。视觉不一致之外，命中区也退回默认尺寸。
+      applyBoardControls(selection)
+      applyLockedOutline(selection, false)
+      // 规格 2.1：多选只允许整体移动与等比缩放，不允许整体旋转。
+      // 旋转柄因此隐藏——显示一个按下去没反应的手柄比没有更糟。
       selection.set({ lockRotation: true, lockUniScaling: true })
       selection.setControlsVisibility({ mtr: false })
       this.canvas.setActiveObject(selection)
