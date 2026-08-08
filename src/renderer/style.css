@@ -665,7 +665,7 @@ label {
 
 .glass-card {
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: var(--r-lg);
   background: var(--card);
   box-shadow: var(--shadow-small), inset 0 1px rgba(255, 255, 255, 0.36);
   backdrop-filter: blur(22px) saturate(145%);
@@ -673,11 +673,15 @@ label {
 
 .gbtn,
 .primary {
-  height: 35px;
-  padding: 0 14px;
-  border-radius: var(--radius-small);
+  height: var(--h-lg);
+  padding: 0 var(--sp-4);
+  border-radius: var(--r-md);
   cursor: pointer;
-  transition: 140ms ease;
+  transition: transform var(--dur-press) var(--ease-out),
+              color var(--dur-press) ease,
+              border-color var(--dur-press) ease,
+              background-color var(--dur-press) ease,
+              filter var(--dur-press) ease;
 }
 
 .gbtn {
@@ -733,7 +737,7 @@ label {
   display: flex;
   flex: none;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-3);
 }
 
 .toolbar-wrap {
@@ -743,7 +747,7 @@ label {
 .toolbar-hint {
   margin-left: auto;
   color: var(--faint);
-  font-size: 12px;
+  font-size: var(--fs-md);
   text-align: right;
 }
 
@@ -1212,9 +1216,9 @@ label {
 .toggle-wrap {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-3);
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--fs-md);
   cursor: pointer;
 }
 
@@ -1266,7 +1270,7 @@ label {
   padding: 10px 14px 9px;
   border-bottom: 1px solid var(--hairline);
   color: var(--faint);
-  font-size: 11px;
+  font-size: var(--fs-sm);
   font-weight: 600;
 }
 
@@ -1320,7 +1324,7 @@ label {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 9px;
+  gap: var(--sp-3);
   color: var(--faint);
   text-align: center;
 }
@@ -1331,7 +1335,7 @@ label {
   width: 48px;
   height: 48px;
   place-items: center;
-  border-radius: 14px;
+  border-radius: var(--r-md);
   color: var(--accent);
   background: var(--accent-10);
   font-size: 11px;
@@ -1339,7 +1343,7 @@ label {
 }
 
 .empty small {
-  font-size: 11px;
+  font-size: var(--fs-sm);
 }
 
 .file-list .empty.hidden {
@@ -1363,7 +1367,7 @@ label {
   padding: 6px 14px;
   border-bottom: 1px solid var(--hairline);
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--fs-md);
 }
 
 .pdf-file-row .cell-name {
@@ -1391,7 +1395,7 @@ label {
   height: 25px;
   margin-left: 8px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--r-sm);
   color: var(--faint);
   background: transparent;
   cursor: pointer;
@@ -1407,10 +1411,10 @@ label {
   display: flex;
   flex: none;
   align-items: center;
-  gap: 12px;
-  padding: 11px 15px;
+  gap: var(--sp-4);
+  padding: var(--sp-4) var(--sp-5);
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--fs-md);
 }
 
 .result #pdf-result-text {
@@ -1504,35 +1508,35 @@ label {
   min-height: 0;
   flex: 1;
   grid-template-columns: minmax(0, 1fr) 240px;
-  gap: 14px;
+  gap: var(--sp-4);
 }
 
 .barcode-work {
   display: flex;
   min-height: 0;
   flex-direction: column;
-  padding: 16px;
+  padding: var(--sp-5);
 }
 
 .barcode-mode-switch {
   display: flex;
   width: fit-content;
-  gap: 3px;
-  margin-bottom: 12px;
-  padding: 3px;
+  gap: var(--sp-1);
+  margin-bottom: var(--sp-4);
+  padding: var(--sp-1);
   border: 1px solid var(--border);
-  border-radius: var(--radius-small);
+  border-radius: var(--r-md);
   background: var(--card-thin);
 }
 
 .barcode-mode-switch button {
-  height: 29px;
-  padding: 0 13px;
+  height: var(--h-sm);
+  padding: 0 var(--sp-4);
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--r-sm);
   color: var(--muted);
   background: transparent;
-  font-size: 12px;
+  font-size: var(--fs-md);
   cursor: pointer;
 }
 
@@ -1548,7 +1552,7 @@ label {
   min-height: 0;
   flex: 1;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--sp-4);
 }
 
 .barcode-pane.active {
@@ -1557,7 +1561,7 @@ label {
 
 .barcode-input {
   display: flex;
-  gap: 8px;
+  gap: var(--sp-3);
 }
 
 .barcode-input input {
@@ -1566,7 +1570,7 @@ label {
   flex: 1;
   padding: 0 14px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-small);
+  border-radius: var(--r-md);
   outline: 0;
   color: var(--foreground);
   background: var(--card-thin);
@@ -1585,7 +1589,7 @@ label {
   justify-content: center;
   padding: 6%;
   border: 1px solid var(--border);
-  border-radius: var(--radius-small);
+  border-radius: var(--r-md);
   background:
     repeating-conic-gradient(rgba(0, 0, 0, 0.022) 0% 25%, transparent 0% 50%) 50% / 20px 20px,
     rgba(255, 255, 255, 0.08);
@@ -1619,7 +1623,7 @@ label {
   display: grid;
   flex: none;
   grid-template-columns: minmax(0, 1fr) 140px;
-  gap: 9px;
+  gap: var(--sp-3);
 }
 
 .batch-input-row textarea {
@@ -1627,7 +1631,7 @@ label {
   padding: 10px 12px;
   resize: vertical;
   border: 1px solid var(--border);
-  border-radius: var(--radius-small);
+  border-radius: var(--r-md);
   outline: 0;
   color: var(--foreground);
   background: var(--card-thin);
@@ -1642,7 +1646,7 @@ label {
 .batch-actions {
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: var(--sp-2);
 }
 
 .batch-actions button {
@@ -1662,7 +1666,7 @@ label {
   flex: 1;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   align-content: start;
-  gap: 8px;
+  gap: var(--sp-3);
   overflow: auto;
 }
 
@@ -1671,10 +1675,10 @@ label {
   min-width: 0;
   min-height: 112px;
   grid-template-rows: 1fr auto;
-  gap: 7px;
+  gap: var(--sp-2);
   padding: 9px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--r-md);
   background: rgba(255, 255, 255, 0.12);
 }
 
@@ -1735,11 +1739,11 @@ label {
 .control-card {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--sp-4);
 }
 
 .control-card {
-  padding: 14px;
+  padding: var(--sp-4);
 }
 
 .barcode-font-picker,
@@ -1747,7 +1751,7 @@ label {
   display: grid;
   grid-template-columns: 1fr auto;
   align-items: center;
-  gap: 7px;
+  gap: var(--sp-2);
   color: var(--faint);
   font-size: 10px;
 }
@@ -1755,10 +1759,10 @@ label {
 .barcode-font-picker select,
 .barcode-preset-picker select {
   width: 124px;
-  height: 34px;
+  height: var(--h-md);
   padding: 0 8px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--r-sm);
   outline: 0;
   color: var(--foreground);
   background: var(--card-thin);
@@ -1803,14 +1807,14 @@ label {
 .format-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 6px;
+  gap: var(--sp-2);
 }
 
 .format-grid button,
 .app-button {
   padding: 8px 4px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--r-sm);
   color: var(--muted);
   background: transparent;
   cursor: pointer;
@@ -1825,7 +1829,7 @@ label {
 
 .app-grid {
   display: flex;
-  gap: 8px;
+  gap: var(--sp-3);
 }
 
 .app-button {
@@ -1833,7 +1837,7 @@ label {
   flex: 1;
   flex-direction: column;
   align-items: center;
-  gap: 5px;
+  gap: var(--sp-1);
 }
 
 .app-button b {
@@ -2642,37 +2646,37 @@ label {
   display: grid;
   overflow: auto;
   grid-template-columns: minmax(0, 1fr) 250px;
-  gap: 14px;
+  gap: var(--sp-4);
 }
 
 .setting-card {
-  padding: 20px;
+  padding: var(--sp-5);
 }
 
 .setting-card h2 {
-  margin: 0 0 5px;
-  font-size: 18px;
+  margin: 0 0 var(--sp-1);
+  font-size: var(--fs-lg);
 }
 
 .setting-card > p {
-  margin: 0 0 16px;
+  margin: 0 0 var(--sp-5);
   color: var(--faint);
-  font-size: 12px;
+  font-size: var(--fs-md);
 }
 
 .theme-options {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--sp-3);
 }
 
 .theme-option {
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 8px 12px;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
   border: 1px solid var(--border);
-  border-radius: var(--radius-small);
+  border-radius: var(--r-md);
   cursor: pointer;
 }
 
@@ -2686,26 +2690,26 @@ label {
 }
 
 .color-picker-section {
-  margin-top: 20px;
-  padding-top: 16px;
+  margin-top: var(--sp-5);
+  padding-top: var(--sp-5);
   border-top: 1px solid var(--hairline);
 }
 
 .color-picker-section h2 {
-  font-size: 15px;
+  font-size: var(--fs-lg);
 }
 
 .color-picker-section > p {
   margin: 0;
   color: var(--faint);
-  font-size: 12px;
+  font-size: var(--fs-md);
 }
 
 .color-picker-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 22px;
-  margin-top: 14px;
+  gap: var(--sp-5);
+  margin-top: var(--sp-4);
 }
 
 .wheel-wrap {
@@ -2740,8 +2744,8 @@ label {
 .slider-row {
   display: flex;
   align-items: center;
-  gap: 9px;
-  margin-bottom: 12px;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
 }
 
 .slider-row b {
@@ -2777,14 +2781,14 @@ label {
 .color-preview {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: var(--sp-3);
 }
 
 .color-preview input {
   width: 84px;
   padding: 7px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--r-sm);
   outline: 0;
   color: var(--foreground);
   background: var(--card-thin);
@@ -2795,7 +2799,7 @@ label {
   width: 32px;
   height: 32px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--r-sm);
   background: var(--accent);
 }
 
@@ -2878,9 +2882,9 @@ label {
 .format-runtime-state {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: var(--sp-2);
   color: var(--faint);
-  font-size: 12px;
+  font-size: var(--fs-md);
 }
 
 .format-runtime-state i {
@@ -2903,7 +2907,7 @@ label {
   min-height: 0;
   flex: 1;
   grid-template-columns: minmax(360px, 1fr) 250px;
-  gap: 12px;
+  gap: var(--sp-4);
 }
 
 .format-file-panel {
@@ -2916,7 +2920,7 @@ label {
 .format-file-item {
   display: grid;
   grid-template-columns: 42px minmax(0, 1fr) 72px minmax(90px, auto) 28px;
-  gap: 8px;
+  gap: var(--sp-3);
   align-items: center;
 }
 
@@ -2925,7 +2929,7 @@ label {
   padding: 0 13px;
   border-bottom: 1px solid var(--hairline);
   color: var(--faint);
-  font-size: 11px;
+  font-size: var(--fs-sm);
   font-weight: 650;
 }
 
@@ -2940,7 +2944,7 @@ label {
   padding: 6px 4px;
   border-bottom: 1px solid var(--hairline);
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--fs-sm);
 }
 
 .format-file-item:last-child {
@@ -2966,13 +2970,13 @@ label {
 
 .format-file-item .format-name b {
   color: var(--foreground);
-  font-size: 12px;
+  font-size: var(--fs-md);
 }
 
 .format-file-item .format-name small {
   margin-top: 3px;
   color: var(--faint);
-  font-size: 10px;
+  font-size: var(--fs-xs);
 }
 
 .format-file-item .format-size {
@@ -3004,7 +3008,7 @@ label {
   height: 26px;
   padding: 0;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--r-sm);
   color: var(--faint);
   background: transparent;
   cursor: pointer;
@@ -3033,15 +3037,15 @@ label {
   display: grid;
   min-height: 0;
   grid-template-rows: auto minmax(0, 1fr) auto auto;
-  gap: 14px;
-  padding: 16px;
+  gap: var(--sp-4);
+  padding: var(--sp-5);
   overflow: hidden;
 }
 
 .format-action-copy {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
+  gap: var(--sp-3);
 }
 
 .format-action-copy > span {
@@ -3050,7 +3054,7 @@ label {
   height: 42px;
   flex: none;
   place-items: center;
-  border-radius: 12px;
+  border-radius: var(--r-md);
   color: var(--accent);
   background: var(--accent-10);
   font-size: 10px;
@@ -3060,14 +3064,14 @@ label {
 .format-action-copy p {
   margin: 4px 0 0;
   color: var(--faint);
-  font-size: 11px;
+  font-size: var(--fs-sm);
   line-height: 1.45;
 }
 
 .format-options {
   display: grid;
   min-height: 0;
-  gap: 11px;
+  gap: var(--sp-4);
   padding-right: 3px;
   overflow: auto;
 }
@@ -3075,19 +3079,19 @@ label {
 .format-options label {
   display: grid;
   grid-template-columns: 1fr auto;
-  gap: 6px;
+  gap: var(--sp-2);
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--fs-sm);
 }
 
 .format-options select,
 .format-options input[type="number"] {
   grid-column: 1 / -1;
   width: 100%;
-  height: 34px;
+  height: var(--h-md);
   padding: 0 9px;
   border: 1px solid var(--border);
-  border-radius: 9px;
+  border-radius: var(--r-sm);
   outline: 0;
   color: var(--foreground);
   background: var(--card-thin);
@@ -3101,22 +3105,22 @@ label {
 
 .format-engine-card {
   display: grid;
-  gap: 3px;
-  padding: 11px;
+  gap: var(--sp-1);
+  padding: var(--sp-4);
   border: 1px solid var(--hairline);
-  border-radius: 11px;
+  border-radius: var(--r-md);
   background: var(--card-thin);
 }
 
 .format-engine-card span,
 .format-engine-card small {
   color: var(--faint);
-  font-size: 10px;
+  font-size: var(--fs-xs);
 }
 
 .format-control-actions {
   display: grid;
-  gap: 8px;
+  gap: var(--sp-3);
   margin: auto -16px -16px;
   padding: 12px 16px 16px;
   border-top: 1px solid var(--hairline);
@@ -3136,7 +3140,7 @@ label {
 .format-result-bar {
   display: grid;
   grid-template-columns: minmax(120px, 1fr) minmax(180px, auto) auto;
-  gap: 12px;
+  gap: var(--sp-4);
   align-items: center;
   min-height: 54px;
   padding: 9px 12px;
@@ -3160,7 +3164,7 @@ label {
 
 #format-status-text {
   color: var(--faint);
-  font-size: 11px;
+  font-size: var(--fs-sm);
   text-align: right;
 }
 
