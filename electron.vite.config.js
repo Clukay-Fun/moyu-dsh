@@ -1,6 +1,6 @@
 import { defineConfig } from 'electron-vite'
 import { resolve } from 'node:path'
-import { spritePlugin } from './build/sprite-plugin.mjs'
+import { spritePlugin } from './scripts/icons/sprite-plugin.mjs'
 
 export default defineConfig({
   main: {},
