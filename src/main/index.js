@@ -802,6 +802,17 @@ function createWindow() {
     }
   })
 
+  // 窗口从最小化/隐藏恢复后通知渲染端重新激活画布（F-15）。
+  // ⚠ 'restore' 与 'show' 都要接：最小化恢复走 restore，
+  //   而截图流程用的是 hide/show，走的是 show，两条路都会让
+  //   keyup / mouse:up 这类"结束事件"丢失。
+  for (const evt of ['restore', 'show', 'focus']) {
+    mainWindow.on(evt, () => {
+      if (mainWindow.isDestroyed()) return
+      mainWindow.webContents.send('window:revive')
+    })
+  }
+
   mainWindow.once('ready-to-show', () => {
     mainWindow.show()
   })

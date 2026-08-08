@@ -3117,6 +3117,10 @@ shortcutEnabled?.addEventListener('change', () => {
   void applyShortcut(shortcutEnabled.checked ? (shortcutCurrent || 'Control+Shift+A') : null)
 })
 
+// 窗口恢复后重新激活画布（F-15）。挂在这里而不是控制器内部：
+// 控制器是懒创建的，没打开过画布时不该因为窗口恢复就把它建出来。
+window.api.onWindowRevive?.(() => boardController?.reviveAfterRestore())
+
 void loadShortcut()
 
 cmdCapture.addEventListener('click', () => startUnifiedCapture())

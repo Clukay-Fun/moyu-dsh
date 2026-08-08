@@ -38,6 +38,12 @@ contextBridge.exposeInMainWorld(
     reportShortcutReady: () => ipcRenderer.send('shortcut:ready'),
     saveImageFile: (payload) => ipcRenderer.invoke('image:save-file', payload),
     // 全局截图快捷键设置（F-16）
+    // 窗口恢复后重新激活画布（F-15）
+    onWindowRevive: (handler) => {
+      const listener = () => handler()
+      ipcRenderer.on('window:revive', listener)
+      return () => ipcRenderer.removeListener('window:revive', listener)
+    },
     getCaptureShortcut: () => ipcRenderer.invoke('shortcut:get'),
     setCaptureShortcut: (payload) => ipcRenderer.invoke('shortcut:set', payload),
     resetCaptureShortcut: () => ipcRenderer.invoke('shortcut:reset'),

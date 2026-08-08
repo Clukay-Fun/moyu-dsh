@@ -122,6 +122,10 @@ export class BoardCanvas {
     this.panning = null
     document.addEventListener('keydown', (e) => { if (e.code === 'Space') this.spaceDown = true })
     document.addEventListener('keyup', (e) => { if (e.code === 'Space') this.spaceDown = false })
+    // ⚠ 窗口失焦时 keyup **不会到达**（最小化、切到别的应用、系统截图界面
+    //   抢走焦点都算）。不清的话 spaceDown 卡在 true，回来之后每次左键拖
+    //   都变成平移，选不中任何东西——而用户根本不知道自己"按着空格"。
+    window.addEventListener('blur', () => this.resetInteractionState())
     this.canvas.on('mouse:down', (opt) => {
       if (opt.e.button === 1 || this.spaceDown) {
         this.panning = { x: opt.e.clientX, y: opt.e.clientY }
@@ -178,6 +182,45 @@ export class BoardCanvas {
       }
       object.canvas?.requestRenderAll()
     })
+  }
+
+  /**
+   * 复位所有**瞬时**交互状态（F-15）。
+   *
+   * 这些标志都靠"成对的结束事件"来清除——keyup 清 spaceDown、
+   * mouse:up 清 panning。而窗口最小化 / 失焦时，结束事件**根本不会到达**，
+   * 标志就卡在中间态：回来之后左键拖变成平移、框选不可用，
+   * 用户还得先滚一下滚轮"撞"回正常。
+   *
+   * 只动交互状态，**不碰视口与场景**——恢复窗口不该让画布跳位置。
+   */
+  resetInteractionState() {
+    this.spaceDown = false
+    this.panning = null
+    if (this.canvas) {
+      this.canvas.selection = true
+      // 中键派发是构造时设的，这里再确认一次：将来若有人在别处改了它，
+      // 至少恢复窗口能把它拨回来。
+      this.canvas.fireMiddleClick = true
+    }
+  }
+
+  /**
+   * 窗口恢复后重新同步（F-15）。
+   *
+   * 尺寸由 setDimensions 内部的 calcOffset 一并处理；这里额外做两件事：
+   * 复位瞬时交互状态，并保住视口——resize 不应改变用户当前看的位置。
+   */
+  revive(width, height) {
+    this.resetInteractionState()
+    if (!this.canvas) return
+    const viewport = [...this.canvas.viewportTransform]
+    if (width > 0 && height > 0) this.canvas.setDimensions({ width, height })
+    // setDimensions 不会动 viewportTransform，但显式还原一次成本极低，
+    // 而一旦哪天它变了，这里能兜住"恢复窗口后画布跳到原点"这种事故。
+    this.canvas.setViewportTransform(viewport)
+    this.canvas.calcOffset()
+    this.canvas.requestRenderAll()
   }
 
   attach(scene, store) {

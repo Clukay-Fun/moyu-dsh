@@ -299,9 +299,26 @@ export class BoardController {
   fit() {
     if (!this.ready || !this.dom) return
     const rect = this.dom.stage.getBoundingClientRect()
+    // 最小化时 stage 是 0×0。这里必须**跳过**——按 0 尺寸 setDimensions
+    // 会把画布内容清掉，恢复窗口后是一片空白。
     if (rect.width < 1 || rect.height < 1) return
     this.canvas.resize(Math.round(rect.width), Math.round(rect.height))
     this.renderOverlay()
+  }
+
+  /**
+   * 窗口从最小化恢复后重新激活画布（F-15）。
+   *
+   * 最小化期间 stage 是 0×0，`fit()` 会跳过；而 keyup / mouse:up 这些
+   * "结束事件"在窗口不可见时也不会到达，交互标志卡在中间态。
+   * 结果就是恢复后中键平移失效，得先滚一次滚轮才"活过来"。
+   */
+  reviveAfterRestore() {
+    if (!this.ready || !this.dom) return
+    const rect = this.dom.stage.getBoundingClientRect()
+    this.canvas.revive(Math.round(rect.width), Math.round(rect.height))
+    this.renderOverlay()
+    this.#syncObjectToolbar()
   }
 
   /**
