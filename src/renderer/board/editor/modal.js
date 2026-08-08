@@ -658,7 +658,7 @@ export class ImageEditorModal {
     const ro = this.readOnly
     for (const button of this.rail.querySelectorAll('[data-tool]')) button.disabled = ro
     this.commitBtn.disabled = ro
-    this.commitBtn.title = ro ? '图片已锁定，解锁后才能保存修改' : ''
+    this.commitBtn.dataset.tip = ro ? '图片已锁定，解锁后才能保存修改' : ''
     this.undoBtn.disabled = ro
     this.redoBtn.disabled = ro
     this.root.classList.toggle('read-only', ro)

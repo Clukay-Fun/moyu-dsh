@@ -1,3 +1,7 @@
+import { installTooltips } from './tooltip.js'
+
+installTooltips()
+
 const pinId = new URLSearchParams(location.search).get('pin')
 const frame = document.querySelector('#pin-frame')
 const image = document.querySelector('#pin-image')

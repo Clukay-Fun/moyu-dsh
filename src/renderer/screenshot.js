@@ -1,3 +1,7 @@
+import { installTooltips } from './tooltip.js'
+
+installTooltips()
+
 const canvas = document.querySelector('#capture-canvas')
 const context = canvas.getContext('2d')
 const sizeLabel = document.querySelector('#selection-size')

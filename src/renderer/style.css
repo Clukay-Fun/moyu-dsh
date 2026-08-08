@@ -347,6 +347,9 @@ label {
   background: rgba(247, 248, 251, 0.97);
   box-shadow: var(--shadow-panel);
   backdrop-filter: blur(34px) saturate(150%);
+  transform-origin: top left;
+  transition: opacity var(--dur-popover) var(--ease-out),
+              transform var(--dur-popover) var(--ease-out);
 }
 
 [data-theme="dark"] .search-results {
@@ -481,7 +484,10 @@ label {
   font-size: 11px;
   font-weight: 700;
   cursor: pointer;
-  transition: 140ms ease;
+  transition: transform var(--dur-press) var(--ease-out),
+              color var(--dur-press) ease,
+              border-color var(--dur-press) ease,
+              background-color var(--dur-press) ease;
 }
 
 .nav-ic:hover {
@@ -507,30 +513,6 @@ label {
     linear-gradient(160deg, rgba(255, 255, 255, 0.32), rgba(255, 255, 255, 0.1));
   box-shadow: inset 0 1px rgba(255, 255, 255, 0.68), 0 4px 14px rgba(35, 39, 65, 0.09);
   backdrop-filter: blur(20px);
-}
-
-.nav-ic::after {
-  position: absolute;
-  top: 50%;
-  left: 48px;
-  z-index: var(--z-popover);
-  padding: 4px 8px;
-  border-radius: 7px;
-  color: #fff;
-  background: rgba(30, 32, 42, 0.92);
-  content: attr(data-tip);
-  font-size: 11px;
-  font-weight: 400;
-  opacity: 0;
-  pointer-events: none;
-  transform: translate(-4px, -50%);
-  transition: 140ms ease;
-  white-space: nowrap;
-}
-
-.nav-ic:hover::after {
-  opacity: 1;
-  transform: translate(0, -50%);
 }
 
 .submenu {
@@ -574,7 +556,10 @@ label {
   font: 13px var(--font);
   text-align: left;
   cursor: pointer;
-  transition: 130ms ease;
+  transition: transform var(--dur-press) var(--ease-out),
+              color var(--dur-press) ease,
+              border-color var(--dur-press) ease,
+              background-color var(--dur-press) ease;
 }
 
 .submenu-item:hover {
@@ -673,6 +658,10 @@ label {
 
 .gbtn,
 .primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
   height: var(--h-lg);
   padding: 0 var(--sp-4);
   border-radius: var(--r-md);
@@ -1245,7 +1234,7 @@ label {
   background: #fff;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
   content: "";
-  transition: 140ms ease;
+  transition: transform var(--dur-press) var(--ease-out);
 }
 
 .toggle-wrap input:checked + .toggle {
@@ -2866,7 +2855,7 @@ label {
   opacity: 0;
   pointer-events: none;
   transform: translateY(8px);
-  transition: 180ms ease;
+  transition: opacity 180ms var(--ease-out), transform 180ms var(--ease-out);
   backdrop-filter: blur(24px);
 }
 
@@ -3564,6 +3553,10 @@ label {
 }
 
 .cbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
   padding: 7px 13px;
   border: 1px solid var(--border);
   border-radius: var(--radius-small);
@@ -3624,8 +3617,11 @@ label {
   background: var(--menu-surface);
   box-shadow: var(--shadow-panel);
   backdrop-filter: blur(24px) saturate(150%);
+  transform-origin: top left;
+  transition: opacity var(--dur-popover) var(--ease-out),
+              transform var(--dur-popover) var(--ease-out);
 }
-.cmd-menu.align-right { left: auto; right: 0; }
+.cmd-menu.align-right { left: auto; right: 0; transform-origin: top right; }
 .cmd-menu[hidden] { display: none; }
 .cmd-menu button {
   display: block;
@@ -3805,6 +3801,9 @@ label {
   background: var(--menu-surface);
   box-shadow: var(--shadow-panel);
   backdrop-filter: blur(24px) saturate(150%);
+  transform-origin: top left;
+  transition: opacity var(--dur-popover) var(--ease-out),
+              transform var(--dur-popover) var(--ease-out);
 }
 .app-menu[hidden] { display: none; }
 .app-menu button {
@@ -3826,6 +3825,15 @@ label {
 }
 .app-menu button[aria-checked="true"]::after { content: " ✓"; color: var(--accent); }
 
+@starting-style {
+  .search-results.open,
+  .cmd-menu:not([hidden]),
+  .app-menu:not([hidden]) {
+    opacity: 0;
+    transform: translateY(-2px) scale(0.98);
+  }
+}
+
 /* 触发钮：外观与工具栏其他按钮一致，右侧带一个下拉标记 */
 .txt-trigger::after { content: " ▾"; color: var(--faint); font-size: var(--fs-xs); }
 
@@ -3840,6 +3848,13 @@ label {
   cursor: pointer;
   transition: transform 140ms cubic-bezier(0.23, 1, 0.32, 1),
               color 140ms ease, background-color 140ms ease;
+}
+.txt-btn.icon-only {
+  display: inline-grid;
+  width: var(--icon-btn-sm);
+  height: var(--icon-btn-sm);
+  place-items: center;
+  padding: 0;
 }
 @media (hover: hover) and (pointer: fine) {
   .txt-btn:hover:not(:disabled) { color: var(--accent); background: var(--accent-10); }

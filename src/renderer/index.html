@@ -65,7 +65,7 @@
                 <div class="crumb">PDF › <b id="pdf-crumb">转 PNG</b></div>
                 <div class="toolbar toolbar-wrap">
                   <button class="gbtn" id="pdf-add-files" type="button"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-add"></use></svg> 上传 PDF</button>
-                  <button class="gbtn ghost" id="pdf-clear-files" type="button">清空</button>
+                  <button class="gbtn ghost" id="pdf-clear-files" type="button"><svg class="ic" aria-hidden="true"><use href="#ic-clear"></use></svg>清空</button>
                   <div class="pdf-options" id="pdf-options"></div>
                   <span class="toolbar-hint" id="pdf-hint">上传 PDF 文件后执行“转 PNG”</span>
                 </div>
@@ -194,8 +194,8 @@
                   <span id="pdf-result-text">添加文件后即可处理</span>
                   <button class="gbtn pdf-output-picker" id="choose-pdf-output" type="button">选择输出位置</button>
                   <span class="pdf-output-path" id="pdf-output-path">尚未选择</span>
-                  <button class="primary" id="run-pdf-action" type="button" disabled>开始转 PNG</button>
-                  <button class="gbtn open" id="open-pdf-output" type="button" disabled>打开所在位置</button>
+                  <button class="primary" id="run-pdf-action" type="button" disabled><svg class="ic" aria-hidden="true"><use href="#ic-play"></use></svg>开始转 PNG</button>
+                  <button class="gbtn open" id="open-pdf-output" type="button" disabled><svg class="ic" aria-hidden="true"><use href="#ic-open"></use></svg>打开所在位置</button>
                 </div>
                 <input id="pdf-file-input" type="file" accept="application/pdf,.pdf" hidden />
                 <input id="pdf-insert-pages-input" type="file" accept="application/pdf,.pdf" multiple hidden />
@@ -206,13 +206,13 @@
                 <div class="toolbar toolbar-wrap">
                   <button class="gbtn" id="illustrator-add-files" type="button"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-add"></use></svg> 添加文件</button>
                   <button class="gbtn" id="illustrator-add-folder" type="button"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-folder-add"></use></svg> 文件夹</button>
-                  <button class="gbtn ghost" id="illustrator-clear" type="button" disabled>清空</button>
+                  <button class="gbtn ghost" id="illustrator-clear" type="button" disabled><svg class="ic" aria-hidden="true"><use href="#ic-clear"></use></svg>清空</button>
                   <label class="toggle-wrap"><input id="illustrator-same-directory" type="checkbox" checked /><span class="toggle"></span>与原文件同目录</label>
                   <span class="toolbar-space"></span>
-                  <button class="primary illustrator-run" type="button" data-illustrator-action="standard-pdf" disabled>导出 PDF</button>
+                  <button class="primary illustrator-run" type="button" data-illustrator-action="standard-pdf" disabled><svg class="ic" aria-hidden="true"><use href="#ic-export"></use></svg>导出 PDF</button>
                   <button class="gbtn illustrator-run" type="button" data-illustrator-action="minimal-pdf" disabled>最小化 PDF</button>
                   <button class="gbtn illustrator-run" type="button" data-illustrator-action="outline" disabled>文字转曲</button>
-                  <button class="gbtn danger" id="illustrator-stop" type="button" disabled>停止任务</button>
+                  <button class="gbtn danger" id="illustrator-stop" type="button" disabled><svg class="ic" aria-hidden="true"><use href="#ic-stop"></use></svg>停止任务</button>
                 </div>
                 <div class="glass-card file-list">
                   <div class="file-head">
@@ -229,7 +229,7 @@
                 <div class="glass-card run-card">
                   <div class="progress-track"><div class="progress-fill" id="illustrator-progress-fill"></div></div>
                   <span class="progress-text" id="illustrator-progress-text">等待任务</span>
-                  <button class="gbtn open" id="illustrator-open-output" type="button" disabled>打开输出</button>
+                  <button class="gbtn open" id="illustrator-open-output" type="button" disabled><svg class="ic" aria-hidden="true"><use href="#ic-open"></use></svg>打开输出</button>
                 </div>
                 <div class="glass-card log-card"><div class="log-inner" id="illustrator-log">等待添加 Illustrator 文件。</div></div>
               </section>
@@ -258,7 +258,7 @@
                       <div class="batch-input-row">
                         <textarea id="barcode-batch-value" rows="4" placeholder="每行一个编码；粘贴 CSV 时读取第一列"></textarea>
                         <div class="batch-actions">
-                          <button class="primary" id="generate-barcode-batch" type="button">批量生成</button>
+                          <button class="primary" id="generate-barcode-batch" type="button"><svg class="ic" aria-hidden="true"><use href="#ic-play"></use></svg>批量生成</button>
                           <button class="gbtn" id="save-barcode-batch-svg" type="button" disabled>保存全部 SVG</button>
                           <button class="gbtn" id="save-barcode-batch-png" type="button" disabled>保存全部 PNG</button>
                         </div>
@@ -328,12 +328,12 @@
                   <div class="canvas-command-bar">
                     <!-- 删除滚动截图后只剩一种截图方式，分裂按钮的下拉不再有内容，
                          整体收敛为单按钮。 -->
-                    <button class="cbtn primary" id="cmd-capture" type="button">区域截图</button>
-                    <button class="cbtn" id="cmd-import" type="button">导入图片</button>
-                    <button class="cbtn" id="cmd-text" type="button">文本框</button>
+                    <button class="cbtn primary" id="cmd-capture" type="button"><svg class="ic" aria-hidden="true"><use href="#ic-capture"></use></svg>区域截图</button>
+                    <button class="cbtn" id="cmd-import" type="button"><svg class="ic" aria-hidden="true"><use href="#ic-import"></use></svg>导入图片</button>
+                    <button class="cbtn" id="cmd-text" type="button"><svg class="ic" aria-hidden="true"><use href="#ic-textbox"></use></svg>文本框</button>
                     <div class="menu-wrap">
                       <button class="cbtn" id="cmd-project" type="button"
-                              aria-haspopup="true" aria-expanded="false">项目 ▾</button>
+                              aria-haspopup="true" aria-expanded="false"><svg class="ic" aria-hidden="true"><use href="#ic-project"></use></svg>项目<svg class="ic ic-sm" aria-hidden="true"><use href="#ic-chevron-down"></use></svg></button>
                       <div class="cmd-menu" id="project-menu" role="menu" hidden>
                         <button type="button" role="menuitem" data-project="new">新建</button>
                         <button type="button" role="menuitem" data-project="open">打开项目</button>
@@ -350,7 +350,7 @@
                     <canvas id="board-canvas-element"></canvas>
                     <div class="canvas-actions">
                       <button class="cbtn ghost" id="cmd-background" type="button"
-                              aria-haspopup="true" aria-expanded="false">背景</button>
+                              aria-haspopup="true" aria-expanded="false"><svg class="ic" aria-hidden="true"><use href="#ic-background"></use></svg>背景</button>
                       <div class="cmd-menu align-right" id="background-menu" role="menu" hidden>
                         <button type="button" role="menuitem" data-bg="transparent" aria-checked="true">透明</button>
                         <button type="button" role="menuitem" data-bg="custom">自定义颜色…</button>
@@ -371,7 +371,7 @@
               <!-- 跟随选中对象的竖向工具栏：屏幕固定尺寸，不随画布缩放 -->
               <div class="object-toolbar" id="object-toolbar" hidden>
                 <button class="obj-btn obj-collapse" data-obj="collapse" type="button"
-                        title="收起工具栏" aria-label="收起工具栏"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-collapse-left"></use></svg></button>
+                        data-tip="收起工具栏" aria-label="收起工具栏"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-collapse-left"></use></svg></button>
                 <div class="obj-group" id="obj-actions">
                   <!-- 主操作：图标 + 短标签。整个矩形可点，不依赖单个字符。 -->
                   <button class="obj-btn" data-obj="edit" type="button">
@@ -405,24 +405,24 @@
                      避免和"置底"挨着误点。
                      ⚠ 没有"编辑文字"——双击文本框是唯一的文字编辑入口，
                      两个入口会让"当前是不是在编辑"变得不确定。 -->
-                <button class="txt-btn" data-text="copy" type="button" title="复制">复制</button>
-                <button class="txt-btn txt-lock" data-text="lock" type="button" aria-pressed="false" title="锁定">锁定</button>
-                <button class="txt-btn" data-text="front" type="button" title="置顶">置顶</button>
-                <button class="txt-btn" data-text="back" type="button" title="置底">置底</button>
+                <button class="txt-btn icon-only" data-text="copy" type="button" aria-label="复制" data-tip="复制"><svg class="ic" aria-hidden="true"><use href="#ic-copy"></use></svg></button>
+                <button class="txt-btn txt-lock icon-only" data-text="lock" type="button" aria-pressed="false" aria-label="锁定" data-tip="锁定"><svg class="ic" aria-hidden="true"><use href="#ic-unlock"></use></svg></button>
+                <button class="txt-btn icon-only" data-text="front" type="button" aria-label="置顶" data-tip="置顶"><svg class="ic" aria-hidden="true"><use href="#ic-bring-front"></use></svg></button>
+                <button class="txt-btn icon-only" data-text="back" type="button" aria-label="置底" data-tip="置底"><svg class="ic" aria-hidden="true"><use href="#ic-send-back"></use></svg></button>
                 <span class="txt-sep"></span>
                 <!-- 字体与对齐改用应用自己的菜单：原生 <select> 的弹窗由系统绘制，
                      透明度与圆角控制不了，压在画布上会露出下面的内容。 -->
                 <button class="txt-btn txt-trigger" id="text-font-trigger" type="button"
-                        aria-haspopup="true" aria-expanded="false" title="字体">字体</button>
-                <input class="txt-color" type="color" id="text-fill" aria-label="文字颜色" title="文字颜色" />
-                <button class="txt-btn" data-text="bold" type="button" aria-pressed="false" title="粗体"><b>B</b></button>
+                        aria-haspopup="true" aria-expanded="false" data-tip="字体">字体</button>
+                <input class="txt-color" type="color" id="text-fill" aria-label="文字颜色" data-tip="文字颜色" />
+                <button class="txt-btn icon-only" data-text="bold" type="button" aria-pressed="false" aria-label="粗体" data-tip="粗体"><svg class="ic" aria-hidden="true"><use href="#ic-bold"></use></svg></button>
                 <button class="txt-btn txt-trigger" id="text-align-trigger" type="button"
-                        aria-haspopup="true" aria-expanded="false" title="对齐">对齐</button>
+                        aria-haspopup="true" aria-expanded="false" data-tip="对齐">对齐</button>
                 <!-- 缩放比例是可输入框（S3）：拖控制点时实时回显，也可手输 -->
                 <input class="txt-scale" id="text-scale" type="text" inputmode="numeric"
-                       value="100%" aria-label="缩放比例" title="缩放比例（10%～1000%）" />
+                       value="100%" aria-label="缩放比例" data-tip="缩放比例（10%～1000%）" />
                 <span class="txt-sep"></span>
-                <button class="txt-btn txt-danger" data-text="delete" type="button" title="删除">删除</button>
+                <button class="txt-btn txt-danger icon-only" data-text="delete" type="button" aria-label="删除" data-tip="删除"><svg class="ic" aria-hidden="true"><use href="#ic-delete"></use></svg></button>
               </div>
 
               <div class="canvas-empty" id="board-empty">
@@ -503,7 +503,7 @@
                 <div class="toolbar toolbar-wrap">
                   <button class="gbtn" id="format-pick-files" type="button"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-add"></use></svg> 添加视频</button>
                   <button class="gbtn" id="format-pick-folder" type="button"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-folder-add"></use></svg> 文件夹</button>
-                  <button class="gbtn ghost" id="format-clear-inputs" type="button">清空</button>
+                  <button class="gbtn ghost" id="format-clear-inputs" type="button"><svg class="ic" aria-hidden="true"><use href="#ic-clear"></use></svg>清空</button>
                   <span class="toolbar-space"></span>
                   <span class="format-runtime-state" id="format-runtime-state"><i></i>检查转换引擎…</span>
                 </div>
@@ -538,7 +538,7 @@
                       <small id="format-engine-status">等待检查</small>
                     </div>
                     <div class="format-control-actions">
-                      <button class="primary format-run" id="format-run-task" type="button" disabled>开始视频转换</button>
+                      <button class="primary format-run" id="format-run-task" type="button" disabled><svg class="ic" aria-hidden="true"><use href="#ic-play"></use></svg>开始视频转换</button>
                       <button class="gbtn format-cancel" id="format-cancel-task" type="button" hidden>取消任务</button>
                     </div>
                   </aside>
@@ -546,7 +546,7 @@
                 <div class="glass-card format-result-bar">
                   <div class="format-progress-track"><span id="format-progress-fill"></span></div>
                   <span id="format-status-text">添加文件后可开始</span>
-                  <button class="gbtn" id="format-save-results" type="button" disabled>保存结果</button>
+                  <button class="gbtn" id="format-save-results" type="button" disabled><svg class="ic" aria-hidden="true"><use href="#ic-save"></use></svg>保存结果</button>
                 </div>
               </section>
 
@@ -622,29 +622,29 @@
               <b id="img-editor-title">编辑图片</b>
               <span class="img-editor-size" id="img-editor-size"></span>
               <span class="toolbar-space"></span>
-              <button class="gbtn" id="img-editor-undo" type="button" title="撤销 (Ctrl+Z)" disabled><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-undo"></use></svg> 撤销</button>
-              <button class="gbtn" id="img-editor-redo" type="button" title="重做 (Ctrl+Shift+Z)" disabled><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-redo"></use></svg> 重做</button>
+              <button class="gbtn" id="img-editor-undo" type="button" data-tip="撤销 (Ctrl+Z)" disabled><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-undo"></use></svg> 撤销</button>
+              <button class="gbtn" id="img-editor-redo" type="button" data-tip="重做 (Ctrl+Shift+Z)" disabled><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-redo"></use></svg> 重做</button>
               <button class="gbtn ghost" id="img-editor-cancel" type="button">取消</button>
-              <button class="primary" id="img-editor-commit" type="button">完成</button>
+              <button class="primary" id="img-editor-commit" type="button"><svg class="ic" aria-hidden="true"><use href="#ic-check"></use></svg>完成</button>
             </div>
 
             <div class="img-editor-body">
               <div class="img-editor-rail" id="img-editor-rail" role="toolbar" aria-label="编辑工具">
-                <button class="tool-btn" data-tool="crop" type="button" title="裁切"><svg class="ic ic-lg" aria-hidden="true" focusable="false"><use href="#ic-tool-crop"></use></svg>裁切</button>
-                <button class="tool-btn" data-tool="adjust" type="button" title="调色"><svg class="ic ic-lg" aria-hidden="true" focusable="false"><use href="#ic-tool-adjust"></use></svg>调色</button>
-                <button class="tool-btn" data-tool="mosaic" type="button" title="马赛克"><svg class="ic ic-lg" aria-hidden="true" focusable="false"><use href="#ic-tool-mosaic"></use></svg>马赛克</button>
-                <button class="tool-btn" data-tool="doodle" type="button" title="涂鸦"><svg class="ic ic-lg" aria-hidden="true" focusable="false"><use href="#ic-tool-doodle"></use></svg>涂鸦</button>
-                <button class="tool-btn" data-tool="rect" type="button" title="矩形"><svg class="ic ic-lg" aria-hidden="true" focusable="false"><use href="#ic-tool-rect"></use></svg>矩形</button>
-                <button class="tool-btn" data-tool="arrow" type="button" title="箭头"><svg class="ic ic-lg" aria-hidden="true" focusable="false"><use href="#ic-tool-arrow"></use></svg>箭头</button>
-                <button class="tool-btn" data-tool="text" type="button" title="文字"><svg class="ic ic-lg" aria-hidden="true" focusable="false"><use href="#ic-tool-text"></use></svg>文字</button>
+                <button class="tool-btn" data-tool="crop" type="button" data-tip="裁切"><svg class="ic ic-lg" aria-hidden="true" focusable="false"><use href="#ic-tool-crop"></use></svg>裁切</button>
+                <button class="tool-btn" data-tool="adjust" type="button" data-tip="调色"><svg class="ic ic-lg" aria-hidden="true" focusable="false"><use href="#ic-tool-adjust"></use></svg>调色</button>
+                <button class="tool-btn" data-tool="mosaic" type="button" data-tip="马赛克"><svg class="ic ic-lg" aria-hidden="true" focusable="false"><use href="#ic-tool-mosaic"></use></svg>马赛克</button>
+                <button class="tool-btn" data-tool="doodle" type="button" data-tip="涂鸦"><svg class="ic ic-lg" aria-hidden="true" focusable="false"><use href="#ic-tool-doodle"></use></svg>涂鸦</button>
+                <button class="tool-btn" data-tool="rect" type="button" data-tip="矩形"><svg class="ic ic-lg" aria-hidden="true" focusable="false"><use href="#ic-tool-rect"></use></svg>矩形</button>
+                <button class="tool-btn" data-tool="arrow" type="button" data-tip="箭头"><svg class="ic ic-lg" aria-hidden="true" focusable="false"><use href="#ic-tool-arrow"></use></svg>箭头</button>
+                <button class="tool-btn" data-tool="text" type="button" data-tip="文字"><svg class="ic ic-lg" aria-hidden="true" focusable="false"><use href="#ic-tool-text"></use></svg>文字</button>
 
                 <!-- ⚠ 分隔线以下是**动作**不是工具：点了立刻执行完，
                      没有按下态，也不进撤销栈（见 session.js 的 EDITOR_ACTIONS）。 -->
                 <hr class="rail-split" />
                 <button class="tool-btn action-btn" data-action="restore" type="button"
-                        title="恢复到最初导入的原图" hidden><svg class="ic ic-lg" aria-hidden="true" focusable="false"><use href="#ic-action-restore"></use></svg>恢复原图</button>
+                        data-tip="恢复到最初导入的原图" hidden><svg class="ic ic-lg" aria-hidden="true" focusable="false"><use href="#ic-action-restore"></use></svg>恢复原图</button>
                 <button class="tool-btn action-btn" data-action="ocr" type="button"
-                        title="识别当前编辑结果中的文字"><svg class="ic ic-lg" aria-hidden="true" focusable="false"><use href="#ic-action-ocr"></use></svg>文字提取</button>
+                        data-tip="识别当前编辑结果中的文字"><svg class="ic ic-lg" aria-hidden="true" focusable="false"><use href="#ic-action-ocr"></use></svg>文字提取</button>
               </div>
 
               <div class="img-editor-stage checkerboard" id="img-editor-stage">

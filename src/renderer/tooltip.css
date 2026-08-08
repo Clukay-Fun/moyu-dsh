@@ -1,0 +1,35 @@
+.app-tooltip {
+  position: fixed;
+  z-index: 100;
+  max-width: min(280px, calc(100vw - 16px));
+  padding: 5px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 7px;
+  color: #fff;
+  background: rgba(27, 29, 38, 0.94);
+  box-shadow: 0 5px 16px rgba(12, 14, 20, 0.2);
+  font: 11px/1.35 "Segoe UI", "PingFang SC", "Microsoft YaHei UI", sans-serif;
+  opacity: 1;
+  pointer-events: none;
+  transform: translateY(0) scale(1);
+  transform-origin: center bottom;
+  transition: opacity 140ms cubic-bezier(0.23, 1, 0.32, 1),
+              transform 140ms cubic-bezier(0.23, 1, 0.32, 1);
+  white-space: normal;
+}
+
+.app-tooltip[data-side="bottom"] { transform-origin: center top; }
+.app-tooltip[data-instant],
+.app-tooltip[data-keyboard] { transition-duration: 0ms; }
+.app-tooltip[hidden] { display: none; }
+
+@starting-style {
+  .app-tooltip:not([data-instant]):not([data-keyboard]) {
+    opacity: 0;
+    transform: translateY(2px) scale(0.97);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-tooltip { transition-duration: 0ms; }
+}

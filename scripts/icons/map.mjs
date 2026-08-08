@@ -71,6 +71,13 @@ export const ICON_MAP = {
   warning: 'triangle-alert',
   info: 'info',
   'folder-add': 'folder-plus',
+  project: 'folder-cog',
+  background: 'palette',
+  textbox: 'text-cursor-input',
+  clear: 'eraser',
+  previous: 'chevron-left',
+  next: 'chevron-right',
+  stop: 'square',
 
   // ── 独立窗口：截图覆盖层与钉图（V3a）──
   // ⚠ 与主窗口共用同一份 sprite 和同一套语义名。同一语义只能对一个图标：

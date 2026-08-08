@@ -915,8 +915,10 @@ export class BoardController {
     const lockBtn = bar.querySelector('[data-text="lock"]')
     if (lockBtn) {
       lockBtn.setAttribute('aria-pressed', String(locked))
-      lockBtn.textContent = locked ? '已锁定' : '锁定'
-      lockBtn.title = locked ? '点击解锁' : '锁定后不可移动、缩放、旋转与编辑'
+      const label = locked ? '点击解锁' : '锁定后不可移动、缩放、旋转与编辑'
+      lockBtn.setAttribute('aria-label', locked ? '解锁' : '锁定')
+      lockBtn.dataset.tip = label
+      lockBtn.querySelector('use')?.setAttribute('href', locked ? '#ic-lock' : '#ic-unlock')
     }
     // 锁定后只留解锁 / 复制 / 删除可用。禁用而不隐藏——隐藏会让工具栏
     // 宽度突变，用户会以为按钮没了。
@@ -1038,7 +1040,7 @@ export class BoardController {
     const lockButton = this.dom.objectToolbar.querySelector('[data-obj="lock"]')
     if (lockButton) {
       lockButton.setAttribute('aria-pressed', String(locked))
-      lockButton.title = locked ? '点击解锁' : '锁定后不可移动、缩放、旋转与编辑'
+      lockButton.dataset.tip = locked ? '点击解锁' : '锁定后不可移动、缩放、旋转与编辑'
       const icon = lockButton.querySelector('.obj-ic')
       const label = lockButton.querySelector('.obj-label')
       // ⚠ 切 <use href>，不再写 textContent（V2）。

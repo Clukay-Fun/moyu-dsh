@@ -9,6 +9,7 @@ import { BoardController } from './board/index.js'
 import { ImageEditorModal } from './board/editor/modal.js'
 import { RecoveryScheduler } from './board/recovery.js'
 import { cleanIpcError, illustratorFailureHint, isComCancelled } from './comErrors.js'
+import { installTooltips } from './tooltip.js'
 import {
   isGenericType, renderGenericBarcode, computeGenericGeometry, genericRasterSize, resolveGenericTypeName,
   GENERIC_DEFAULTS, CODE39_DEFAULTS, CODABAR_DEFAULTS, MSI_DEFAULTS
@@ -34,6 +35,7 @@ globalThis.fabric = fabric
 const eraserBrushReady = import('fabric/src/mixins/eraser_brush.mixin.js')
   .then(() => fabric.EraserBrush)
 GlobalWorkerOptions.workerSrc = pdfWorkerUrl
+installTooltips()
 
 const appLogoUrl = new URL('../../assets/app-icon.png', import.meta.url).href
 
