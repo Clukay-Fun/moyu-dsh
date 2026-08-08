@@ -41,6 +41,34 @@
   --z-toast: 60;
   --z-modal: 80;           /* 全屏模态编辑器 */
   --z-chrome: 20;          /* 顶栏等应用外壳 */
+
+  /* ══ V1 · 图标与交互 Token ══
+     ⚠ 本片**只定义**，不迁移既有样式。项目里现存 74 种 padding 组合、
+     17 种圆角值，一次性收敛会让基础设施阶段失控。旧值在 V3b 按模块逐步
+     收敛；**新代码一律用这里的变量**。 */
+
+  /* 图标尺寸：14 行内密集 / 16 默认按钮 / 20 主导航 */
+  --ic-sm: 14px;
+  --ic-md: 16px;
+  --ic-lg: 20px;
+  /* 描边 1.75 而非 Lucide 默认的 2：本项目边框与分隔线都很细，2 会显得笨重。
+     也不用 1.5——Windows 小尺寸下 1.5 可能被舍入到几乎看不见。 */
+  --ic-stroke: 1.75;
+
+  /* 图标按钮的点击区。视觉是图标本身，命中区由这三档保证。 */
+  --icon-btn-sm: 28px;
+  --icon-btn-md: 32px;
+  --icon-btn-lg: 36px;
+
+  /* 焦点环。只在键盘 Tab 时出现，鼠标点击不显示。 */
+  --focus-ring-color: var(--accent);
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
+
+  /* 动效。按压要快到几乎无感，弹层要能被看清但不拖沓。 */
+  --dur-press: 140ms;
+  --dur-popover: 160ms;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   /* 例外：组件**内部**的微层叠（空态压在画布上、提示压在按钮上一类，
      数值都 < 10 且不跨组件）不纳入本表，硬编码即可——把它们也变量化
      只会让这张表失去"跨组件顺序"的含义。 */
@@ -103,11 +131,9 @@ label {
   -webkit-tap-highlight-color: transparent;
 }
 
-button:focus-visible,
-input:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
+/* 焦点环统一在下方的 :where(...) 规则里定义（V1）。
+   这里原先有一条硬编码 2px/accent 的规则，与 token 并存等于两个真值源，
+   已合并。 */
 
 .window-shell {
   position: relative;
@@ -3104,6 +3130,38 @@ input:focus-visible {
   text-align: right;
 }
 
+/* ══ V1 · 图标基类 ══
+   尺寸与描边全部走 token；颜色用 currentColor，自动跟随按钮的 color，
+   亮暗主题不需要两套图标。 */
+.ic {
+  width: var(--ic-md);
+  height: var(--ic-md);
+  stroke-width: var(--ic-stroke);
+  flex: none;
+  /* 图标是装饰，可读名称由按钮的 aria-label 提供，不让读屏重复念 */
+  pointer-events: none;
+}
+.ic-sm { width: var(--ic-sm); height: var(--ic-sm); }
+.ic-lg { width: var(--ic-lg); height: var(--ic-lg); }
+
+/* ══ V1 · 键盘焦点环 ══
+   ⚠ 不用 `*:focus-visible`。全局通配会把焦点环套到 div、span 这类
+   本不该获得焦点的元素上（它们可能因为 contenteditable 或第三方库
+   意外可聚焦），出现"焦点框飘在奇怪位置"。这里只覆盖**真实可交互**元素。
+   用 :where() 保持零特异性，任何组件都能覆盖它而不必写 !important。 */
+:where(
+  button,
+  a,
+  input,
+  select,
+  textarea,
+  [tabindex]:not([tabindex="-1"])
+):focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset);
+  border-radius: inherit;
+}
+
 .checkerboard {
   background-color: rgba(255, 255, 255, 0.2);
   background-image:
@@ -4171,4 +4229,42 @@ input:focus-visible {
   .img-editor-swatch {
     transition-duration: 1ms;
   }
+}
+
+
+/* ══ V1 · 减弱动效 ══
+   关掉**位移、缩放与模糊**，保留颜色与透明度过渡——后者帮助理解状态变化，
+   不会引起前庭不适。不是一刀切把所有动画设成 0。 */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+  :where(button, a, .txt-btn, .tool-btn, .obj-btn, .cbtn, .gbtn, .nav-ic):active {
+    transform: none !important;
+  }
+  .cmd-menu, .app-menu, .img-editor, .toast {
+    transition-property: opacity !important;
+  }
+}
+
+
+/* ══ V1 · 把被 outline:none 抹掉的焦点环补回来 ══
+   下面这些选择器为了去掉**鼠标点击**时的焦点框写了 outline: none。
+   而上面的通用焦点规则用了 :where()，特异性为 0，会被它们盖掉——
+   结果就是这些输入控件按 Tab 时完全看不到焦点。
+   这里按同样的选择器补一条 :focus-visible，只在**键盘**聚焦时出现。
+   ⚠ 新增控件如果也要去掉鼠标焦点框，记得同步加进这份名单。 */
+#ocr-result:focus-visible,
+.barcode-input input:focus-visible,
+.barcode-preset-picker select:focus-visible,
+.batch-input-row textarea:focus-visible,
+.color-preview input:focus-visible,
+.format-options input[type="number"]:focus-visible,
+.image-panel select:focus-visible,
+.pdf-options input:focus-visible,
+.pdf-watermark-controls select:focus-visible,
+.search input:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset);
 }
