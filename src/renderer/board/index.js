@@ -1041,7 +1041,11 @@ export class BoardController {
       lockButton.title = locked ? '点击解锁' : '锁定后不可移动、缩放、旋转与编辑'
       const icon = lockButton.querySelector('.obj-ic')
       const label = lockButton.querySelector('.obj-label')
-      if (icon) icon.textContent = locked ? '🔒' : '🔓'
+      // ⚠ 切 <use href>，不再写 textContent（V2）。
+      //   写字符的做法在 Windows 上会渲染成彩色 emoji，与周围线性图标割裂；
+      //   而且 svg 元素的 textContent 赋值会把 <use> 直接冲掉，图标消失。
+      const useEl = icon?.querySelector('use')
+      if (useEl) useEl.setAttribute('href', locked ? '#ic-lock' : '#ic-unlock')
       if (label) label.textContent = locked ? '已锁定' : '锁定'
     }
 

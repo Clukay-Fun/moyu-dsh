@@ -54,7 +54,7 @@
             <button class="nav-ic" type="button" data-module="image" data-tip="图片" aria-label="图片">▧</button>
             <button class="nav-ic" type="button" data-module="video" data-tip="格式工厂" aria-label="格式工厂">▶</button>
             <div class="rail-spacer"></div>
-            <button class="nav-ic" type="button" data-module="more" data-tip="设置" aria-label="设置">⚙</button>
+            <button class="nav-ic" type="button" data-module="more" data-tip="设置" aria-label="设置"><svg class="ic ic-lg" aria-hidden="true" focusable="false"><use href="#ic-nav-settings"></use></svg></button>
           </nav>
 
           <aside class="submenu" id="submenu" aria-label="模块功能"></aside>
@@ -371,26 +371,26 @@
               <!-- 跟随选中对象的竖向工具栏：屏幕固定尺寸，不随画布缩放 -->
               <div class="object-toolbar" id="object-toolbar" hidden>
                 <button class="obj-btn obj-collapse" data-obj="collapse" type="button"
-                        title="收起工具栏" aria-label="收起工具栏"><span aria-hidden="true">‹</span></button>
+                        title="收起工具栏" aria-label="收起工具栏"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-collapse-left"></use></svg></button>
                 <div class="obj-group" id="obj-actions">
                   <!-- 主操作：图标 + 短标签。整个矩形可点，不依赖单个字符。 -->
                   <button class="obj-btn" data-obj="edit" type="button">
                     <span class="obj-ic" aria-hidden="true">✎</span><span class="obj-label">编辑</span>
                   </button>
                   <button class="obj-btn" data-obj="copy" type="button">
-                    <span class="obj-ic" aria-hidden="true">⧉</span><span class="obj-label">复制</span>
+                    <svg class="ic obj-ic" aria-hidden="true" focusable="false"><use href="#ic-copy"></use></svg><span class="obj-label">复制</span>
                   </button>
                   <button class="obj-btn obj-lock" data-obj="lock" type="button" aria-pressed="false">
-                    <span class="obj-ic" aria-hidden="true">🔓</span><span class="obj-label">锁定</span>
+                    <svg class="ic obj-ic" aria-hidden="true" focusable="false"><use href="#ic-unlock"></use></svg><span class="obj-label">锁定</span>
                   </button>
                   <button class="obj-btn" data-obj="front" type="button">
-                    <span class="obj-ic" aria-hidden="true">⤒</span><span class="obj-label">置顶</span>
+                    <svg class="ic obj-ic" aria-hidden="true" focusable="false"><use href="#ic-bring-front"></use></svg><span class="obj-label">置顶</span>
                   </button>
                   <button class="obj-btn" data-obj="back" type="button">
-                    <span class="obj-ic" aria-hidden="true">⤓</span><span class="obj-label">置底</span>
+                    <svg class="ic obj-ic" aria-hidden="true" focusable="false"><use href="#ic-send-back"></use></svg><span class="obj-label">置底</span>
                   </button>
                   <button class="obj-btn obj-danger" data-obj="delete" type="button">
-                    <span class="obj-ic" aria-hidden="true">🗑</span><span class="obj-label">删除</span>
+                    <svg class="ic obj-ic" aria-hidden="true" focusable="false"><use href="#ic-delete"></use></svg><span class="obj-label">删除</span>
                   </button>
                 </div>
               </div>
@@ -486,9 +486,9 @@
                     <div class="board-view-group">
                       <button class="gbtn" id="board-undo" type="button" disabled>撤销</button>
                       <button class="gbtn" id="board-redo" type="button" disabled>重做</button>
-                      <button class="gbtn" id="board-zoom-out" aria-label="缩小" type="button">−</button>
+                      <button class="gbtn" id="board-zoom-out" aria-label="缩小" type="button"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-zoom-out"></use></svg></button>
                       <span id="board-zoom-label">100%</span>
-                      <button class="gbtn" id="board-zoom-in" aria-label="放大" type="button">＋</button>
+                      <button class="gbtn" id="board-zoom-in" aria-label="放大" type="button"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-zoom-in"></use></svg></button>
                       <button class="gbtn" id="board-zoom-fit" type="button">适应</button>
                       <button class="gbtn" id="board-zoom-reset" aria-label="缩放重置为 100%" type="button">100%</button>
                     </div>
@@ -622,8 +622,8 @@
               <b id="img-editor-title">编辑图片</b>
               <span class="img-editor-size" id="img-editor-size"></span>
               <span class="toolbar-space"></span>
-              <button class="gbtn" id="img-editor-undo" type="button" title="撤销 (Ctrl+Z)" disabled>↶ 撤销</button>
-              <button class="gbtn" id="img-editor-redo" type="button" title="重做 (Ctrl+Shift+Z)" disabled>↷ 重做</button>
+              <button class="gbtn" id="img-editor-undo" type="button" title="撤销 (Ctrl+Z)" disabled><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-undo"></use></svg> 撤销</button>
+              <button class="gbtn" id="img-editor-redo" type="button" title="重做 (Ctrl+Shift+Z)" disabled><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-redo"></use></svg> 重做</button>
               <button class="gbtn ghost" id="img-editor-cancel" type="button">取消</button>
               <button class="primary" id="img-editor-commit" type="button">完成</button>
             </div>

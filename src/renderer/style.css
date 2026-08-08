@@ -3900,11 +3900,9 @@ label {
 .obj-btn[hidden] { display: none; }
 
 .obj-ic {
-  display: grid;
-  place-items: center;
+  /* 尺寸由 .ic 的 token 给（16px），这里只负责在 18px 栅格里居中。
+     font-size 已无意义——里面是 svg 不是字符了（V2）。 */
   width: 18px;
-  font-size: 13px;
-  line-height: 1;
 }
 .obj-label { white-space: nowrap; }
 
@@ -4076,6 +4074,8 @@ label {
 }
 
 .tool-btn span { font-size: 17px; line-height: 1; }
+/* 图标与文字混排时，图标要跟着基线走 */
+.gbtn > .ic, .cbtn > .ic { vertical-align: -3px; margin-right: 2px; }
 
 /* 工具与动作之间的分隔。动作不是模式——点了立刻执行完、没有按下态，
    视觉上必须和上面那组分开，否则用户会以为点了"钉住"就进入了钉住模式。 */
@@ -4267,4 +4267,16 @@ label {
 .search input:focus-visible {
   outline: var(--focus-ring-width) solid var(--focus-ring-color);
   outline-offset: var(--focus-ring-offset);
+}
+
+/* ══ 图标 sprite 容器 ══
+   ⚠ 必须脱离文档流。sprite 默认是 display:inline，即使 width/height 都是 0，
+   它所在的**行盒**照样占位——实测把整个界面下推了 20px，
+   而 svg 自身的 getBoundingClientRect().height 仍然是 0，
+   只查它的高度是查不出来的。 */
+#icon-sprite {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
 }

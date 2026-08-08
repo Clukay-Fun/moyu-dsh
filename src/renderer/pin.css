@@ -122,3 +122,15 @@ body {
 #pin-status.show {
   opacity: 1;
 }
+
+/* ══ 图标 sprite 容器 ══
+   ⚠ 必须脱离文档流。sprite 默认是 display:inline，即使 width/height 都是 0，
+   它所在的**行盒**照样占位——实测把整个界面下推了 20px，
+   而 svg 自身的 getBoundingClientRect().height 仍然是 0，
+   只查它的高度是查不出来的。 */
+#icon-sprite {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
