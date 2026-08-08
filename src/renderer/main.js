@@ -2999,6 +2999,126 @@ bindTextPopover(textAlignTrigger, textAlignMenu, (item) => {
   boardController?.applyTextStyleFromToolbar({ textAlign: item.dataset.align })
 })
 
+// ══ F-16 · 全局截图快捷键设置 ══════════════════════════════
+//
+// 用**录制**而不是让用户手打加速键字符串：手打必然会写出
+// "ctrl+shift+a"、"Ctrl + Shift + A" 这类 Electron 不认的形式，
+// 然后得到一个语焉不详的失败。录制则天然只产出合法组合。
+const shortcutButton = document.querySelector('#shortcut-capture')
+const shortcutReset = document.querySelector('#shortcut-reset')
+const shortcutEnabled = document.querySelector('#shortcut-enabled')
+const shortcutStatus = document.querySelector('#shortcut-status')
+
+let shortcutRecording = false
+let shortcutCurrent = null
+
+function setShortcutStatus(text, kind = '') {
+  if (!shortcutStatus) return
+  shortcutStatus.textContent = text
+  shortcutStatus.className = `shortcut-status${kind ? ' ' + kind : ''}`
+}
+
+function paintShortcut(accelerator, disabled) {
+  shortcutCurrent = accelerator
+  if (shortcutButton) {
+    shortcutButton.textContent = accelerator || '未设置'
+    shortcutButton.disabled = Boolean(disabled)
+  }
+  if (shortcutEnabled) shortcutEnabled.checked = !disabled
+}
+
+/** 把 KeyboardEvent 翻成 Electron 的 accelerator。 */
+function toAccelerator(event) {
+  const mods = []
+  if (event.ctrlKey) mods.push('Control')
+  if (event.metaKey) mods.push('Command')
+  if (event.altKey) mods.push('Alt')
+  if (event.shiftKey) mods.push('Shift')
+  const key = event.key
+  // 只按了修饰键：还没构成组合，继续等
+  if (['Control', 'Meta', 'Alt', 'Shift'].includes(key)) return null
+  if (!mods.length) return null // 全局快捷键必须带修饰键，否则会吃掉普通按键
+  let name = key.length === 1 ? key.toUpperCase() : key
+  if (name === ' ') name = 'Space'
+  if (name.startsWith('Arrow')) name = name.slice(5)
+  return [...mods, name].join('+')
+}
+
+async function loadShortcut() {
+  if (!shortcutButton) return
+  try {
+    const info = await window.api.getCaptureShortcut()
+    paintShortcut(info.accelerator, info.disabled)
+    setShortcutStatus(info.disabled
+      ? '已关闭。可继续用界面上的截图按钮。'
+      : `当前生效：${info.accelerator}`)
+  } catch (error) {
+    setShortcutStatus(`读取设置失败：${cleanIpcError(error?.message ?? error)}`, 'error')
+  }
+}
+
+async function applyShortcut(accelerator) {
+  try {
+    const result = await window.api.setCaptureShortcut({ accelerator })
+    paintShortcut(result.accelerator, result.disabled)
+    if (result.ok) {
+      setShortcutStatus(result.disabled ? '已关闭全局快捷键。' : `已生效：${result.accelerator}`, 'ok')
+    } else {
+      // 失败时主进程已回滚到原设置，这里如实说明发生了什么
+      setShortcutStatus(result.message || '设置失败，已保留原有快捷键。', 'error')
+    }
+  } catch (error) {
+    setShortcutStatus(`设置失败：${cleanIpcError(error?.message ?? error)}`, 'error')
+  }
+}
+
+shortcutButton?.addEventListener('click', () => {
+  shortcutRecording = true
+  shortcutButton.classList.add('recording')
+  shortcutButton.textContent = '按下新的组合…'
+  setShortcutStatus('按下组合键，或按 Esc 取消。')
+})
+
+// 捕获阶段：录制时要抢在应用其他快捷键之前拿到按键
+document.addEventListener('keydown', (event) => {
+  if (!shortcutRecording) return
+  event.preventDefault()
+  event.stopPropagation()
+  const finish = () => {
+    shortcutRecording = false
+    shortcutButton.classList.remove('recording')
+  }
+  if (event.key === 'Escape') {
+    finish()
+    paintShortcut(shortcutCurrent, !shortcutEnabled?.checked)
+    setShortcutStatus('已取消，未做修改。')
+    return
+  }
+  const accelerator = toAccelerator(event)
+  if (!accelerator) return // 只按了修饰键，继续等
+  finish()
+  void applyShortcut(accelerator)
+}, true)
+
+shortcutReset?.addEventListener('click', async () => {
+  try {
+    const result = await window.api.resetCaptureShortcut()
+    paintShortcut(result.accelerator, false)
+    setShortcutStatus(result.ok ? `已恢复默认：${result.accelerator}` : (result.message || '恢复失败'),
+      result.ok ? 'ok' : 'error')
+    if (shortcutEnabled) shortcutEnabled.checked = true
+  } catch (error) {
+    setShortcutStatus(`恢复失败：${cleanIpcError(error?.message ?? error)}`, 'error')
+  }
+})
+
+shortcutEnabled?.addEventListener('change', () => {
+  // 关闭传 null；重新启用则恢复上一次的组合，没有就用默认
+  void applyShortcut(shortcutEnabled.checked ? (shortcutCurrent || 'Control+Shift+A') : null)
+})
+
+void loadShortcut()
+
 cmdCapture.addEventListener('click', () => startUnifiedCapture())
 cmdImport.addEventListener('click', () => {
   activateUnifiedCanvas()

@@ -3663,6 +3663,32 @@ input:focus-visible {
 }
 .text-toolbar[hidden] { display: none; }
 
+/* ══ F-16 · 快捷键设置 ══ */
+.shortcut-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+.shortcut-input {
+  min-width: 190px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.3px;
+}
+/* 录制中：用主题色描边表明"正在等你按键"，比换文案更快被感知 */
+.shortcut-input.recording {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-10);
+}
+.shortcut-status {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.shortcut-status.error { color: #d54f50; }
+.shortcut-status.ok { color: var(--accent); }
+
 /* ══ S1 · 应用自己的下拉菜单 ══
    原生 <select> 的弹窗由系统绘制，透明度、圆角、模糊都控制不了，
    压在画布上会露出下面的内容。这里只替换**确实存在遮挡问题**的那几个

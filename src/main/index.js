@@ -15,7 +15,7 @@ import {
 import { createWorker, OEM } from 'tesseract.js'
 import sharp from 'sharp'
 import { spawn } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { createHash, randomUUID } from 'node:crypto'
 import {
   copyFile,
@@ -2311,16 +2311,58 @@ ipcMain.handle('screenshot:pin-close', (event, pinId) => {
   return { status: 'closed' }
 })
 
-// ── 全局截图快捷键（规格 6）────────────────────────────────
+// ── 全局截图快捷键（规格 6 / F-16）──────────────────────────
 //
-// 固定 Ctrl+Shift+A，本版不提供自定义。
 // 只在应用运行期间有效，退出时注销——全局快捷键是进程级资源，
 // 不注销会一直占着，直到下次开机。
 //
-// 写字面量 'Control+Shift+A' 而不是 'CommandOrControl+...'：
-// 规格要的就是 Ctrl+Shift+A。macOS 上它是 Control+Shift+A，
-// 本版不对 macOS 作承诺，正式验收只看 Windows。
-const CAPTURE_SHORTCUT = 'Control+Shift+A'
+// F-16：默认 Ctrl+Shift+A 与飞书冲突。这类冲突**不是两边都能同时解决的**，
+// 所以不去抢占，改为让用户自己改或关掉。设置存在 userData 下，
+// 与工程文件分开。
+const DEFAULT_CAPTURE_SHORTCUT = 'Control+Shift+A'
+const SHORTCUT_SETTINGS_FILE = () => join(app.getPath('userData'), 'shortcuts.json')
+
+/** 当前生效的加速键；null 表示用户主动关闭了全局快捷键。 */
+let captureShortcut = DEFAULT_CAPTURE_SHORTCUT
+
+function readShortcutSettings() {
+  try {
+    const raw = readFileSync(SHORTCUT_SETTINGS_FILE(), 'utf8')
+    const parsed = JSON.parse(raw)
+    // 显式的 null 表示"用户关掉了"，与"没配过"不同，不能被默认值覆盖
+    if (Object.prototype.hasOwnProperty.call(parsed, 'capture')) {
+      return parsed.capture === null ? null : String(parsed.capture)
+    }
+  } catch { /* 文件不存在或损坏都按默认处理 */ }
+  return DEFAULT_CAPTURE_SHORTCUT
+}
+
+function writeShortcutSettings(accelerator) {
+  try {
+    writeFileSync(SHORTCUT_SETTINGS_FILE(), JSON.stringify({ capture: accelerator }, null, 2), 'utf8')
+    return true
+  } catch (error) {
+    console.error('保存快捷键设置失败：', error)
+    return false
+  }
+}
+
+/**
+ * 校验加速键字符串。
+ *
+ * Electron 的 register 对畸形字符串会**抛错**而不是返回 false，
+ * 不先校验的话用户随手输入的内容会把注册流程打断。
+ */
+function isValidAccelerator(accelerator) {
+  if (typeof accelerator !== 'string' || !accelerator.trim()) return false
+  const parts = accelerator.split('+').map((p) => p.trim()).filter(Boolean)
+  if (parts.length < 2) return false // 全局快捷键必须带修饰键，否则会吃掉普通按键
+  const mods = new Set(['Command', 'Cmd', 'Control', 'Ctrl', 'CommandOrControl',
+    'CmdOrCtrl', 'Alt', 'Option', 'AltGr', 'Shift', 'Super', 'Meta'])
+  const key = parts[parts.length - 1]
+  if (mods.has(key)) return false // 末位必须是真实按键，不能只有修饰键
+  return parts.slice(0, -1).every((p) => mods.has(p))
+}
 
 /** 注册失败的提示；渲染端就绪前先攒着，就绪后再送一次。 */
 let pendingShortcutNotice = null
@@ -2351,10 +2393,38 @@ function triggerCaptureShortcut() {
   mainWindow.webContents.send('shortcut:capture')
 }
 
+/**
+ * 按当前设置注册快捷键。
+ *
+ * 三种结果都要明确告诉用户，不能静默：
+ *   · 关闭   —— 用户主动选择，不算失败
+ *   · 成功   —— 显示当前生效的组合
+ *   · 被占用 —— **明确说"已被其他应用占用"**，不含糊成"注册失败"
+ */
+/** 当前已注册成功的加速键，用于精确注销。null 表示当前没有注册任何键。 */
+let registeredShortcut = null
+
 function registerCaptureShortcut() {
+  // ⚠ 只注销**自己上一次注册的那个**，不要用 unregisterAll()。
+  //   unregisterAll 会清掉进程里所有全局快捷键——现在只有一个所以看不出
+  //   问题，但将来任何一个新增的全局键都会被这里悄悄清掉。
+  if (registeredShortcut) {
+    try { globalShortcut.unregister(registeredShortcut) } catch { /* 已经没了就算了 */ }
+    registeredShortcut = null
+  }
+  if (captureShortcut === null) {
+    notifyShortcutStatus({ ok: true, disabled: true, accelerator: null,
+      message: '全局截图快捷键已关闭，可继续用界面上的截图按钮。' })
+    return { ok: true, disabled: true }
+  }
+  if (!isValidAccelerator(captureShortcut)) {
+    notifyShortcutStatus({ ok: false, accelerator: captureShortcut,
+      message: `快捷键「${captureShortcut}」格式无效，需要至少一个修饰键加一个普通按键。` })
+    return { ok: false, reason: 'invalid' }
+  }
   let ok = false
   try {
-    ok = globalShortcut.register(CAPTURE_SHORTCUT, triggerCaptureShortcut)
+    ok = globalShortcut.register(captureShortcut, triggerCaptureShortcut)
   } catch {
     ok = false
   }
@@ -2362,15 +2432,68 @@ function registerCaptureShortcut() {
   if (!ok) {
     notifyShortcutStatus({
       ok: false,
-      accelerator: CAPTURE_SHORTCUT,
-      message: `全局截图快捷键 ${CAPTURE_SHORTCUT} 被其他软件占用，未能注册。` +
-        '可以继续用界面上的截图按钮。'
+      accelerator: captureShortcut,
+      reason: 'taken',
+      message: `快捷键 ${captureShortcut} 已被其他应用占用，未能注册。` +
+        '可以在设置里换一个组合，或关闭全局快捷键；界面上的截图按钮不受影响。'
     })
-    return false
+    return { ok: false, reason: 'taken' }
   }
-  notifyShortcutStatus({ ok: true, accelerator: CAPTURE_SHORTCUT })
-  return true
+  registeredShortcut = captureShortcut
+  notifyShortcutStatus({ ok: true, accelerator: captureShortcut })
+  return { ok: true, accelerator: captureShortcut }
 }
+
+// ── 设置页用的 IPC ──────────────────────────────────────────
+
+ipcMain.handle('shortcut:get', () => ({
+  accelerator: captureShortcut,
+  default: DEFAULT_CAPTURE_SHORTCUT,
+  disabled: captureShortcut === null
+}))
+
+/**
+ * 修改快捷键。
+ *
+ * ⚠ 新组合注册失败时必须**回滚到旧的**并重新注册——否则用户填了一个被占用的
+ * 组合，结果连原来能用的那个也没了，等于把功能弄丢。
+ */
+ipcMain.handle('shortcut:set', (event, payload) => {
+  assertMainWindowSender(event)
+  const next = payload?.accelerator ?? null
+  if (next !== null && !isValidAccelerator(next)) {
+    return { ok: false, reason: 'invalid', accelerator: captureShortcut,
+      message: '需要至少一个修饰键加一个普通按键，例如 Control+Shift+A。' }
+  }
+  const previous = captureShortcut
+  captureShortcut = next
+  const result = registerCaptureShortcut()
+  if (!result.ok) {
+    captureShortcut = previous
+    registerCaptureShortcut() // 把原来能用的那个恢复回去
+    return { ok: false, reason: result.reason, accelerator: previous,
+      message: result.reason === 'taken'
+        ? `${next} 已被其他应用占用，已保留原有设置。`
+        : `${next} 格式无效，已保留原有设置。` }
+  }
+  writeShortcutSettings(captureShortcut)
+  return { ok: true, accelerator: captureShortcut, disabled: captureShortcut === null }
+})
+
+ipcMain.handle('shortcut:reset', (event) => {
+  assertMainWindowSender(event)
+  const previous = captureShortcut
+  captureShortcut = DEFAULT_CAPTURE_SHORTCUT
+  const result = registerCaptureShortcut()
+  if (!result.ok) {
+    captureShortcut = previous
+    registerCaptureShortcut()
+    return { ok: false, reason: result.reason, accelerator: previous,
+      message: `默认组合 ${DEFAULT_CAPTURE_SHORTCUT} 当前被其他应用占用，已保留原有设置。` }
+  }
+  writeShortcutSettings(captureShortcut)
+  return { ok: true, accelerator: captureShortcut }
+})
 
 // 渲染端就绪后补发注册结果
 ipcMain.on('shortcut:ready', (event) => {
@@ -2388,6 +2511,8 @@ app.whenReady().then(() => {
     if (dockIcon && !dockIcon.isEmpty()) app.dock.setIcon(dockIcon)
   }
   createWindow()
+  // 启动时按用户设置注册；没配过就是默认组合（F-16）
+  captureShortcut = readShortcutSettings()
   registerCaptureShortcut()
 
   app.on('activate', () => {

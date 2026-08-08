@@ -37,6 +37,10 @@ contextBridge.exposeInMainWorld(
     },
     reportShortcutReady: () => ipcRenderer.send('shortcut:ready'),
     saveImageFile: (payload) => ipcRenderer.invoke('image:save-file', payload),
+    // 全局截图快捷键设置（F-16）
+    getCaptureShortcut: () => ipcRenderer.invoke('shortcut:get'),
+    setCaptureShortcut: (payload) => ipcRenderer.invoke('shortcut:set', payload),
+    resetCaptureShortcut: () => ipcRenderer.invoke('shortcut:reset'),
     pickIllustratorFiles: () => ipcRenderer.invoke('illustrator:pick-files'),
     pickIllustratorFolder: () => ipcRenderer.invoke('illustrator:pick-folder'),
     removeIllustratorInputs: (inputIds) => ipcRenderer.invoke('illustrator:remove-inputs', inputIds),
