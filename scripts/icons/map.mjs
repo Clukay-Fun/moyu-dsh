@@ -69,5 +69,13 @@ export const ICON_MAP = {
   'align-right': 'align-right',
   'chevron-down': 'chevron-down',
   warning: 'triangle-alert',
-  info: 'info'
+  info: 'info',
+  'folder-add': 'folder-plus',
+
+  // ── 独立窗口：截图覆盖层与钉图（V3a）──
+  // ⚠ 与主窗口共用同一份 sprite 和同一套语义名。同一语义只能对一个图标：
+  //   "删除"全应用都是 trash-2，"关闭"都是 x，不允许某个窗口自成一套。
+  'opacity-down': 'sun-dim',
+  'opacity-up': 'sun',
+  download: 'download'
 }

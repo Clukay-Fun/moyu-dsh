@@ -27,7 +27,7 @@
 
           <div class="search-wrap">
             <label class="search" for="feature-search">
-              <span aria-hidden="true">⌕</span>
+              <svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-search"></use></svg>
               <input
                 id="feature-search"
                 type="search"
@@ -64,7 +64,7 @@
               <section class="page active" id="page-pdf">
                 <div class="crumb">PDF › <b id="pdf-crumb">转 PNG</b></div>
                 <div class="toolbar toolbar-wrap">
-                  <button class="gbtn" id="pdf-add-files" type="button">＋ 上传 PDF</button>
+                  <button class="gbtn" id="pdf-add-files" type="button"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-add"></use></svg> 上传 PDF</button>
                   <button class="gbtn ghost" id="pdf-clear-files" type="button">清空</button>
                   <div class="pdf-options" id="pdf-options"></div>
                   <span class="toolbar-hint" id="pdf-hint">上传 PDF 文件后执行“转 PNG”</span>
@@ -90,7 +90,7 @@
                           <b>上传文件</b>
                           <span>选择文件后可在下方预览</span>
                         </div>
-                        <button class="gbtn" id="pdf-watermark-add-files" type="button">＋ 上传 PDF</button>
+                        <button class="gbtn" id="pdf-watermark-add-files" type="button"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-add"></use></svg> 上传 PDF</button>
                       </header>
                       <div class="pdf-watermark-file-list" id="pdf-watermark-file-list"></div>
                     </section>
@@ -204,8 +204,8 @@
               <section class="page" id="page-ai">
                 <div class="crumb">Illustrator › <b>批量处理</b></div>
                 <div class="toolbar toolbar-wrap">
-                  <button class="gbtn" id="illustrator-add-files" type="button">＋ 添加文件</button>
-                  <button class="gbtn" id="illustrator-add-folder" type="button">＋ 文件夹</button>
+                  <button class="gbtn" id="illustrator-add-files" type="button"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-add"></use></svg> 添加文件</button>
+                  <button class="gbtn" id="illustrator-add-folder" type="button"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-folder-add"></use></svg> 文件夹</button>
                   <button class="gbtn ghost" id="illustrator-clear" type="button" disabled>清空</button>
                   <label class="toggle-wrap"><input id="illustrator-same-directory" type="checkbox" checked /><span class="toggle"></span>与原文件同目录</label>
                   <span class="toolbar-space"></span>
@@ -375,7 +375,7 @@
                 <div class="obj-group" id="obj-actions">
                   <!-- 主操作：图标 + 短标签。整个矩形可点，不依赖单个字符。 -->
                   <button class="obj-btn" data-obj="edit" type="button">
-                    <span class="obj-ic" aria-hidden="true">✎</span><span class="obj-label">编辑</span>
+                    <svg class="ic obj-ic" aria-hidden="true" focusable="false"><use href="#ic-edit"></use></svg><span class="obj-label">编辑</span>
                   </button>
                   <button class="obj-btn" data-obj="copy" type="button">
                     <svg class="ic obj-ic" aria-hidden="true" focusable="false"><use href="#ic-copy"></use></svg><span class="obj-label">复制</span>
@@ -501,8 +501,8 @@
               <section class="page" id="page-video">
                 <div class="crumb">格式工厂 › <b id="format-crumb">视频转换</b></div>
                 <div class="toolbar toolbar-wrap">
-                  <button class="gbtn" id="format-pick-files" type="button">＋ 添加视频</button>
-                  <button class="gbtn" id="format-pick-folder" type="button">＋ 文件夹</button>
+                  <button class="gbtn" id="format-pick-files" type="button"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-add"></use></svg> 添加视频</button>
+                  <button class="gbtn" id="format-pick-folder" type="button"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-folder-add"></use></svg> 文件夹</button>
                   <button class="gbtn ghost" id="format-clear-inputs" type="button">清空</button>
                   <span class="toolbar-space"></span>
                   <span class="format-runtime-state" id="format-runtime-state"><i></i>检查转换引擎…</span>
@@ -630,21 +630,21 @@
 
             <div class="img-editor-body">
               <div class="img-editor-rail" id="img-editor-rail" role="toolbar" aria-label="编辑工具">
-                <button class="tool-btn" data-tool="crop" type="button" title="裁切"><span>⌗</span>裁切</button>
-                <button class="tool-btn" data-tool="adjust" type="button" title="调色"><span>◑</span>调色</button>
-                <button class="tool-btn" data-tool="mosaic" type="button" title="马赛克"><span>▒</span>马赛克</button>
-                <button class="tool-btn" data-tool="doodle" type="button" title="涂鸦"><span>✎</span>涂鸦</button>
-                <button class="tool-btn" data-tool="rect" type="button" title="矩形"><span>▢</span>矩形</button>
-                <button class="tool-btn" data-tool="arrow" type="button" title="箭头"><span>↗</span>箭头</button>
-                <button class="tool-btn" data-tool="text" type="button" title="文字"><span>T</span>文字</button>
+                <button class="tool-btn" data-tool="crop" type="button" title="裁切"><svg class="ic ic-lg" aria-hidden="true" focusable="false"><use href="#ic-tool-crop"></use></svg>裁切</button>
+                <button class="tool-btn" data-tool="adjust" type="button" title="调色"><svg class="ic ic-lg" aria-hidden="true" focusable="false"><use href="#ic-tool-adjust"></use></svg>调色</button>
+                <button class="tool-btn" data-tool="mosaic" type="button" title="马赛克"><svg class="ic ic-lg" aria-hidden="true" focusable="false"><use href="#ic-tool-mosaic"></use></svg>马赛克</button>
+                <button class="tool-btn" data-tool="doodle" type="button" title="涂鸦"><svg class="ic ic-lg" aria-hidden="true" focusable="false"><use href="#ic-tool-doodle"></use></svg>涂鸦</button>
+                <button class="tool-btn" data-tool="rect" type="button" title="矩形"><svg class="ic ic-lg" aria-hidden="true" focusable="false"><use href="#ic-tool-rect"></use></svg>矩形</button>
+                <button class="tool-btn" data-tool="arrow" type="button" title="箭头"><svg class="ic ic-lg" aria-hidden="true" focusable="false"><use href="#ic-tool-arrow"></use></svg>箭头</button>
+                <button class="tool-btn" data-tool="text" type="button" title="文字"><svg class="ic ic-lg" aria-hidden="true" focusable="false"><use href="#ic-tool-text"></use></svg>文字</button>
 
                 <!-- ⚠ 分隔线以下是**动作**不是工具：点了立刻执行完，
                      没有按下态，也不进撤销栈（见 session.js 的 EDITOR_ACTIONS）。 -->
                 <hr class="rail-split" />
                 <button class="tool-btn action-btn" data-action="restore" type="button"
-                        title="恢复到最初导入的原图" hidden><span>⟲</span>恢复原图</button>
+                        title="恢复到最初导入的原图" hidden><svg class="ic ic-lg" aria-hidden="true" focusable="false"><use href="#ic-action-restore"></use></svg>恢复原图</button>
                 <button class="tool-btn action-btn" data-action="ocr" type="button"
-                        title="识别当前编辑结果中的文字"><span>字</span>文字提取</button>
+                        title="识别当前编辑结果中的文字"><svg class="ic ic-lg" aria-hidden="true" focusable="false"><use href="#ic-action-ocr"></use></svg>文字提取</button>
               </div>
 
               <div class="img-editor-stage checkerboard" id="img-editor-stage">
@@ -670,7 +670,7 @@
               <span id="pdf-page-summary">载入 PDF 后可拖拽调序、删除或插入页面</span>
             </div>
             <div class="pdf-page-dialog-actions">
-              <button class="gbtn" id="pdf-insert-pages" type="button">＋ 插入 PDF</button>
+              <button class="gbtn" id="pdf-insert-pages" type="button"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-add"></use></svg> 插入 PDF</button>
               <button class="gbtn" id="pdf-select-all-pages" type="button">全选</button>
               <button class="gbtn" id="pdf-delete-selected-pages" type="button">删除所选</button>
               <button class="gbtn" id="pdf-reset-pages" type="button">恢复</button>

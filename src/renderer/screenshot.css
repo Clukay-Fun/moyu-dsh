@@ -104,3 +104,15 @@ body {
   height: 0;
   overflow: hidden;
 }
+
+/* ══ V3a · 图标基类（与主窗口同一套 token）══
+   独立窗口用的是各自的样式表，但 sprite 与语义名全应用共用，
+   不允许自成一套视觉语言。 */
+.ic {
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.75;
+  flex: none;
+  pointer-events: none;
+}
+.ic-lg { width: 20px; height: 20px; }

@@ -14,19 +14,19 @@
     <canvas id="capture-canvas"></canvas>
     <div class="selection-size" id="selection-size" hidden></div>
     <div class="capture-toolbar" id="capture-toolbar" hidden>
-      <button data-tool="rectangle" aria-label="矩形" title="矩形">▭</button>
-      <button data-tool="ellipse" aria-label="椭圆" title="圆形">○</button>
-      <button data-tool="line" aria-label="直线" title="横线">／</button>
-      <button data-tool="arrow" aria-label="箭头" title="箭头">➜</button>
-      <button data-tool="brush" aria-label="画笔" title="涂鸦">✎</button>
+      <button data-tool="rectangle" aria-label="矩形" title="矩形"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-tool-rect"></use></svg></button>
+      <button data-tool="ellipse" aria-label="椭圆" title="圆形"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-tool-ellipse"></use></svg></button>
+      <button data-tool="line" aria-label="直线" title="横线"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-tool-line"></use></svg></button>
+      <button data-tool="arrow" aria-label="箭头" title="箭头"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-tool-arrow"></use></svg></button>
+      <button data-tool="brush" aria-label="画笔" title="涂鸦"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-tool-doodle"></use></svg></button>
       <button data-tool="text" title="文字">T</button>
-      <button data-tool="mosaic" aria-label="马赛克" title="马赛克">▦</button>
+      <button data-tool="mosaic" aria-label="马赛克" title="马赛克"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-tool-mosaic"></use></svg></button>
       <i></i>
-      <button id="pin-capture" aria-label="钉在桌面" title="钉住">⌖</button>
+      <button id="pin-capture" aria-label="钉在桌面" title="钉住"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-pin"></use></svg></button>
       <button id="ocr-capture" title="提取文本">OCR</button>
-      <button id="save-capture" aria-label="保存" title="另存为">⇩</button>
-      <button id="cancel-capture" aria-label="取消" title="取消">×</button>
-      <button class="primary" id="confirm-capture" aria-label="完成" title="完成">✓</button>
+      <button id="save-capture" aria-label="保存" title="另存为"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-download"></use></svg></button>
+      <button id="cancel-capture" aria-label="取消" title="取消"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-close"></use></svg></button>
+      <button class="primary" id="confirm-capture" aria-label="完成" title="完成"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-check"></use></svg></button>
     </div>
     <div class="capture-tip" id="capture-tip">拖动选择截图区域 · 单击不触发未验证的窗口选取 · Esc 取消</div>
     <script type="module" src="./screenshot.js"></script>
