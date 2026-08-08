@@ -14,6 +14,8 @@
 import { execFileSync } from 'node:child_process'
 import { openSync, readSync, closeSync, existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
+import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 const LAUNCH = process.argv.includes('--launch')
 const line = (k, v) => console.log(`  ${String(k).padEnd(30)} ${v}`)
@@ -169,13 +171,27 @@ if (!running) {
 // ── winax 实测：应用真正用的那条路 ──────────────────────────
 section('winax 连接测试（与应用同一条路径）')
 let winax = null
-try {
-  const require = createRequire(import.meta.url)
-  winax = require('winax')
-  line('winax 模块', '✅ 已加载')
-} catch (e) {
-  line('winax 模块', `❌ 加载失败：${e.message}`)
-  console.log('  winax 是可选依赖，未装或未编译时 COM 功能整体不可用。')
+// ⚠ 脚本可能被拷到仓库外（比如桌面）运行，那里没有 node_modules。
+//   只按脚本位置解析的话，winax 一定加载失败——而那正是最有价值的一节，
+//   假报"未装"会把诊断引向完全错误的方向。所以两个位置都试：
+//   脚本自身目录，以及运行时的当前目录（通常是仓库根）。
+const resolveFrom = [
+  import.meta.url,
+  pathToFileURL(join(process.cwd(), 'noop.js')).href
+]
+let winaxError = null
+for (const base of resolveFrom) {
+  try {
+    winax = createRequire(base)('winax')
+    line('winax 模块', `✅ 已加载（解析自 ${base.startsWith('file') ? base : base}）`)
+    break
+  } catch (e) { winaxError = e }
+}
+if (!winax) {
+  line('winax 模块', `❌ 加载失败：${winaxError?.message}`)
+  console.log('  winax 是可选依赖。若本脚本不在仓库内运行，请改为在仓库根目录执行：')
+  console.log('    node <脚本完整路径>')
+  console.log('  仍失败则说明 winax 未安装或未编译，COM 功能整体不可用。')
 }
 if (winax) {
   const ladder = ['Illustrator.Application', ...versioned]
