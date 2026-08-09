@@ -429,6 +429,7 @@ function renderSubmenu(module, indicatorFromTop = null) {
   const targetTop = activeItem.offsetTop
   if (indicatorFromTop == null) {
     indicator.style.transform = `translate3d(0, ${targetTop}px, 0)`
+    requestAnimationFrame(() => indicator.classList.add('ready'))
     return
   }
 
@@ -436,6 +437,7 @@ function renderSubmenu(module, indicatorFromTop = null) {
   // 强制读取一次布局是为了提交初始 transform；只发生在用户点击切换时。
   indicator.style.transform = `translate3d(0, ${indicatorFromTop}px, 0)`
   indicator.getBoundingClientRect()
+  indicator.classList.add('ready')
   requestAnimationFrame(() => {
     indicator.style.transform = `translate3d(0, ${targetTop}px, 0)`
   })
