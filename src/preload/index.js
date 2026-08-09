@@ -4,6 +4,8 @@ contextBridge.exposeInMainWorld(
   'api',
   Object.freeze({
     ping: () => ipcRenderer.invoke('ping'),
+    getAppInfo: () => ipcRenderer.invoke('app:info'),
+    openExternal: (url) => ipcRenderer.invoke('app:open-external', url),
     probeCom: () => ipcRenderer.invoke('com:probe'),
     saveBarcodeFile: (payload) => ipcRenderer.invoke('barcode:save-file', payload),
     saveBarcodeFiles: (payload) => ipcRenderer.invoke('barcode:save-files', payload),

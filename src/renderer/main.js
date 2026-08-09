@@ -5437,6 +5437,44 @@ document.querySelector('#reset-accent').addEventListener('click', () => {
   applyAccent()
 })
 
+const settingsLayout = document.querySelector('.settings-layout')
+const settingsNavItems = [...document.querySelectorAll('[data-settings-target]')]
+const settingsSections = [...document.querySelectorAll('[data-settings-section]')]
+
+function syncSettingsNavigation() {
+  if (!settingsLayout || !settingsSections.length) return
+  const top = settingsLayout.getBoundingClientRect().top + 18
+  const current = settingsSections.reduce((closest, section) => {
+    const distance = Math.abs(section.getBoundingClientRect().top - top)
+    return distance < closest.distance ? { id: section.id, distance } : closest
+  }, { id: settingsSections[0].id, distance: Infinity })
+  settingsNavItems.forEach((item) => item.classList.toggle('active', item.dataset.settingsTarget === current.id))
+}
+
+settingsNavItems.forEach((item) => {
+  item.addEventListener('click', (event) => {
+    event.preventDefault()
+    const section = document.getElementById(item.dataset.settingsTarget)
+    section?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  })
+})
+
+settingsLayout?.addEventListener('scroll', syncSettingsNavigation, { passive: true })
+
+window.api.getAppInfo().then((info) => {
+  document.querySelector('#app-version').textContent = info.version
+}).catch(() => {
+  document.querySelector('#app-version').textContent = '版本信息不可用'
+})
+
+document.querySelector('#open-github')?.addEventListener('click', async () => {
+  try {
+    await window.api.openExternal('https://github.com/Clukay-Fun/moyu-tools')
+  } catch (error) {
+    showToast(`无法打开 GitHub：${cleanIpcError(error?.message ?? error)}`)
+  }
+})
+
 let colorDragging = false
 
 function pickWheelColor(event) {

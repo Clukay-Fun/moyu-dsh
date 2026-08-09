@@ -869,6 +869,22 @@ function createWindow() {
 }
 
 ipcMain.handle('ping', () => 'pong')
+ipcMain.handle('app:info', (event) => {
+  assertMainWindowSender(event)
+  return { version: app.getVersion() }
+})
+
+const ALLOWED_EXTERNAL_URLS = new Set([
+  'https://github.com/Clukay-Fun/moyu-tools'
+])
+
+ipcMain.handle('app:open-external', async (event, value) => {
+  assertMainWindowSender(event)
+  const url = String(value || '')
+  if (!ALLOWED_EXTERNAL_URLS.has(url)) throw new Error('不允许打开此链接')
+  await shell.openExternal(url)
+  return { status: 'opened' }
+})
 
 ipcMain.handle('com:probe', async (event) => {
   assertMainWindowSender(event)
