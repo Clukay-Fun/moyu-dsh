@@ -377,7 +377,7 @@ let qpdfRunnerPromise = null
 let pdfWatermarkPreviewToken = 0
 const parsedBarcodeFonts = new Map()
 
-function renderSubmenu(module) {
+function renderSubmenu(module, indicatorFromTop = null) {
   const groups = submenuData[module]
 
   if (!groups) {
@@ -387,6 +387,10 @@ function renderSubmenu(module) {
   }
 
   const fragment = document.createDocumentFragment()
+  const indicator = document.createElement('div')
+  indicator.className = 'submenu-indicator'
+  indicator.setAttribute('aria-hidden', 'true')
+  fragment.append(indicator)
 
   groups.forEach((group) => {
     const heading = document.createElement('div')
@@ -415,6 +419,26 @@ function renderSubmenu(module) {
 
   submenu.replaceChildren(fragment)
   submenu.classList.add('show')
+
+  const activeItem = submenu.querySelector('.submenu-item.on')
+  if (!activeItem) {
+    indicator.hidden = true
+    return
+  }
+
+  const targetTop = activeItem.offsetTop
+  if (indicatorFromTop == null) {
+    indicator.style.transform = `translate3d(0, ${targetTop}px, 0)`
+    return
+  }
+
+  // 菜单项会随功能分组重建，选中底板必须先落在旧位置，再移动到新位置。
+  // 强制读取一次布局是为了提交初始 transform；只发生在用户点击切换时。
+  indicator.style.transform = `translate3d(0, ${indicatorFromTop}px, 0)`
+  indicator.getBoundingClientRect()
+  requestAnimationFrame(() => {
+    indicator.style.transform = `translate3d(0, ${targetTop}px, 0)`
+  })
 }
 
 const entryAnimations = new WeakMap()
@@ -1014,20 +1038,23 @@ function updatePdfState(action) {
 
 function chooseSubmenu(module, action, animate = false) {
   const changed = state.selections[module] !== action
+  const previousTop = animate && changed
+    ? submenu.querySelector('.submenu-item.on')?.offsetTop ?? null
+    : null
   if (module === 'video') {
-    setFormatAction(action)
-    if (animate && changed) animateEntry(document.querySelector('#page-video'), { duration: 120, distance: 3 })
+    setFormatAction(action, previousTop)
+    if (animate && changed) animateEntry(document.querySelector('#page-video'), { duration: 160, distance: 5 })
     return
   }
   state.selections[module] = action
-  renderSubmenu(module)
+  renderSubmenu(module, previousTop)
 
   if (module === 'pdf') {
     updatePdfState(action)
   } else if (module === 'bc') {
     selectBarcodeType(action, true)
   }
-  if (animate && changed) animateEntry(document.querySelector(`#page-${module}`), { duration: 120, distance: 3 })
+  if (animate && changed) animateEntry(document.querySelector(`#page-${module}`), { duration: 160, distance: 5 })
 }
 
 document.querySelector('.rail').addEventListener('click', (event) => {
@@ -4877,7 +4904,7 @@ function renderFormatOptions() {
   })
 }
 
-function setFormatAction(action) {
+function setFormatAction(action, indicatorFromTop = null) {
   if (!formatActionConfigs[action]) return
   const previousKind = formatConfig().kind
   state.selections.video = action
@@ -4898,7 +4925,7 @@ function setFormatAction(action) {
   formatProgressFill.style.width = '0'
   formatStatusText.textContent = formatState.inputs.length ? '准备就绪' : '添加文件后可开始'
   renderFormatOptions()
-  renderSubmenu('video')
+  renderSubmenu('video', indicatorFromTop)
   renderFormatFiles()
   loadFormatRuntimeStatus()
 }
