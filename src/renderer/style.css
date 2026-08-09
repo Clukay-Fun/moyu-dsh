@@ -18,6 +18,8 @@
   --panel: rgba(255, 255, 255, 0.27);
   --card: rgba(255, 255, 255, 0.2);
   --card-thin: rgba(255, 255, 255, 0.13);
+  --card-thick: rgba(255, 255, 255, 0.38);
+  --card-solid: rgba(247, 248, 251, 0.97);
   --border: rgba(255, 255, 255, 0.58);
   --hairline: rgba(20, 22, 40, 0.08);
   --foreground: #252734;
@@ -27,6 +29,18 @@
      浮层里有文字和色块，压在棋盘格、图片、控制点上时必须**挡住**下面的东西，
      0.82 仍会透出控制点的轮廓，所以提到 0.95。模糊只是质感，挡不挡得住看 alpha。 */
   --menu-surface: rgba(255, 255, 255, 0.95);
+  --control-height: 36px;
+  --control-bg: rgba(255, 255, 255, 0.2);
+  --control-bg-hover: rgba(255, 255, 255, 0.36);
+  --control-bg-active: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.12);
+  --control-border: rgba(255, 255, 255, 0.58);
+  --control-border-hover: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.42);
+  --selection-bg: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.14);
+  --selection-border: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.34);
+  --canvas-bg: #f4f6f9;
+  --scrollbar-thumb: rgba(92, 98, 121, 0.42);
+  --scrollbar-thumb-hover: rgba(92, 98, 121, 0.64);
+  --scrollbar-track: transparent;
 
   /* ══ 层级常量（S1）══
      所有浮层一律引用这几个变量，不再各模块随手写数字。
@@ -110,6 +124,7 @@
   --checker: rgba(20, 22, 40, 0.035);
   --shadow-small: 0 5px 14px rgba(35, 39, 65, 0.08);
   --shadow-panel: 0 20px 55px rgba(35, 39, 65, 0.14);
+  --shadow: var(--shadow-panel);
   --radius: 16px;
   --radius-small: 10px;
   --font: "Segoe UI", "PingFang SC", "Microsoft YaHei UI", system-ui, sans-serif;
@@ -124,12 +139,24 @@
   --panel: rgba(13, 19, 29, 0.88);
   --card: rgba(28, 37, 52, 0.72);
   --card-thin: rgba(24, 32, 46, 0.62);
+  --card-thick: rgba(29, 39, 55, 0.92);
+  --card-solid: #151d2a;
   --border: rgba(159, 177, 204, 0.18);
   --hairline: rgba(159, 177, 204, 0.12);
   --foreground: #edf3fb;
   --muted: #a8b3c7;
   --faint: #758198;
   --menu-surface: rgba(19, 26, 38, 0.97);
+  --control-bg: rgba(25, 34, 49, 0.82);
+  --control-bg-hover: rgba(35, 46, 65, 0.92);
+  --control-bg-active: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.16);
+  --control-border: rgba(159, 177, 204, 0.2);
+  --control-border-hover: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.52);
+  --selection-bg: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.18);
+  --selection-border: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.42);
+  --canvas-bg: #1b2432;
+  --scrollbar-thumb: rgba(142, 158, 184, 0.48);
+  --scrollbar-thumb-hover: rgba(170, 185, 209, 0.72);
   --checker: rgba(195, 210, 235, 0.055);
   --shadow-small: 0 7px 20px rgba(0, 0, 0, 0.28);
   --shadow-panel: 0 24px 64px rgba(0, 0, 0, 0.42);
@@ -162,6 +189,167 @@ body {
 button,
 input {
   font: inherit;
+}
+
+button,
+input,
+select,
+textarea {
+  color: inherit;
+}
+
+/* ══ 全应用控件基础 ═══════════════════════════════════════
+   各模块可以决定宽度与布局，但底色、边框、焦点和禁用状态只有这一套。
+   原生 select / checkbox / range 在 Windows 深色模式下会各自使用系统
+   颜色，无法与应用主题保持一致，因此在这里统一绘制。 */
+input[type="text"],
+input[type="number"],
+input[type="search"],
+textarea,
+select {
+  border: 1px solid var(--control-border);
+  outline: 0;
+  color: var(--foreground);
+  background-color: var(--control-bg);
+  transition: border-color var(--dur-press) ease,
+              background-color var(--dur-press) ease,
+              box-shadow var(--dur-press) ease;
+}
+
+input[type="text"]:hover:not(:disabled),
+input[type="number"]:hover:not(:disabled),
+input[type="search"]:hover:not(:disabled),
+textarea:hover:not(:disabled),
+select:hover:not(:disabled) {
+  border-color: var(--control-border-hover);
+  background-color: var(--control-bg-hover);
+}
+
+input[type="text"]:focus,
+input[type="number"]:focus,
+input[type="search"]:focus,
+textarea:focus,
+select:focus {
+  border-color: var(--accent);
+  background-color: var(--control-bg-hover);
+  box-shadow: 0 0 0 3px var(--accent-10);
+}
+
+select {
+  min-height: var(--control-height);
+  padding-right: 32px !important;
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--faint) 50%),
+    linear-gradient(135deg, var(--faint) 50%, transparent 50%);
+  background-position:
+    calc(100% - 16px) calc(50% - 2px),
+    calc(100% - 11px) calc(50% - 2px);
+  background-repeat: no-repeat;
+  background-size: 5px 5px, 5px 5px;
+}
+
+select option {
+  color: var(--foreground);
+  background: var(--card-solid);
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  display: inline-grid;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  margin: 0;
+  padding: 0;
+  appearance: none;
+  place-content: center;
+  border: 1px solid var(--control-border);
+  background: var(--control-bg);
+  cursor: pointer;
+  transition: border-color var(--dur-press) ease,
+              background-color var(--dur-press) ease,
+              box-shadow var(--dur-press) ease;
+}
+
+input[type="checkbox"] { border-radius: 5px; }
+input[type="radio"] { border-radius: 50%; }
+
+input[type="checkbox"]::before {
+  width: 8px;
+  height: 5px;
+  border-bottom: 2px solid #fff;
+  border-left: 2px solid #fff;
+  content: "";
+  opacity: 0;
+  transform: translateY(-1px) rotate(-45deg) scale(0.7);
+  transition: opacity var(--dur-press) ease, transform var(--dur-press) var(--ease-out);
+}
+
+input[type="radio"]::before {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #fff;
+  content: "";
+  opacity: 0;
+  transform: scale(0.65);
+  transition: opacity var(--dur-press) ease, transform var(--dur-press) var(--ease-out);
+}
+
+input[type="checkbox"]:checked,
+input[type="radio"]:checked {
+  border-color: var(--accent);
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-10);
+}
+
+input[type="checkbox"]:checked::before,
+input[type="radio"]:checked::before {
+  opacity: 1;
+  transform: translateY(-1px) rotate(-45deg) scale(1);
+}
+
+input[type="radio"]:checked::before { transform: scale(1); }
+
+input[type="range"] {
+  height: 20px;
+  margin: 0;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: var(--r-full);
+  background: var(--hairline);
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  appearance: none;
+  border: 2px solid var(--card-solid);
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 1px 5px var(--accent-28);
+}
+
+input[type="color"] {
+  overflow: hidden;
+  border: 1px solid var(--control-border);
+  background: var(--control-bg);
+  cursor: pointer;
+}
+
+input[type="color"]::-webkit-color-swatch-wrapper { padding: 3px; }
+input[type="color"]::-webkit-color-swatch { border: 0; border-radius: 5px; }
+
+:where(button, input, select, textarea):disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
 }
 
 button,
@@ -336,6 +524,13 @@ label {
   outline: 0;
   color: var(--foreground);
   background: transparent;
+}
+
+.search input:hover,
+.search input:focus {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
 }
 
 .search input::placeholder {
@@ -751,20 +946,20 @@ label {
 }
 
 .gbtn {
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   color: var(--muted);
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--control-bg);
   backdrop-filter: blur(16px);
 }
 
 [data-theme="dark"] .gbtn {
-  background: rgba(27, 36, 51, 0.72);
+  background: var(--control-bg);
 }
 
 .gbtn:hover {
-  border-color: var(--accent-28);
+  border-color: var(--control-border-hover);
   color: var(--accent);
-  background: var(--accent-10);
+  background: var(--control-bg-active);
 }
 
 .gbtn.danger {
@@ -792,9 +987,9 @@ label {
 }
 
 .primary {
-  border: 1px solid rgba(255, 255, 255, 0.4);
+  border: 1px solid var(--accent);
   color: #fff;
-  background: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.84);
+  background: var(--accent);
   box-shadow: 0 4px 12px var(--accent-28);
   font-weight: 650;
 }
@@ -845,13 +1040,13 @@ label {
 
 .pdf-options select,
 .pdf-options input {
-  height: 34px;
+  height: var(--control-height);
   padding: 0 9px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: 8px;
   outline: 0;
   color: var(--foreground);
-  background: var(--card-thin);
+  background-color: var(--control-bg);
 }
 
 .pdf-options input {
@@ -962,13 +1157,13 @@ label {
 .pdf-watermark-controls input,
 .pdf-watermark-controls select {
   width: 100%;
-  height: 34px;
+  height: var(--control-height);
   padding: 0 9px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: 9px;
   outline: 0;
   color: var(--foreground);
-  background: var(--card-thin);
+  background-color: var(--control-bg);
 }
 
 .pdf-watermark-range {
@@ -1606,8 +1801,9 @@ label {
   inset: var(--sp-1) auto var(--sp-1) var(--sp-1);
   width: calc(50% - var(--sp-1));
   border-radius: var(--r-sm);
-  background: rgba(255, 255, 255, 0.25);
-  box-shadow: inset 0 1px rgba(255, 255, 255, 0.48);
+  border: 1px solid var(--selection-border);
+  background: var(--selection-bg);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.08);
   content: "";
   pointer-events: none;
   transform: translateX(0);
@@ -1657,14 +1853,14 @@ label {
 
 .barcode-input input {
   min-width: 0;
-  height: 38px;
+  height: var(--control-height);
   flex: 1;
   padding: 0 14px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: var(--r-md);
   outline: 0;
   color: var(--foreground);
-  background: var(--card-thin);
+  background: var(--control-bg);
 }
 
 .barcode-input input.invalid {
@@ -1682,8 +1878,8 @@ label {
   border: 1px solid var(--border);
   border-radius: var(--r-md);
   background:
-    repeating-conic-gradient(rgba(0, 0, 0, 0.022) 0% 25%, transparent 0% 50%) 50% / 20px 20px,
-    rgba(255, 255, 255, 0.08);
+    repeating-conic-gradient(var(--checker) 0% 25%, transparent 0% 50%) 50% / 20px 20px,
+    var(--canvas-bg);
 }
 
 .artboard svg {
@@ -1721,11 +1917,11 @@ label {
   min-width: 0;
   padding: 10px 12px;
   resize: vertical;
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: var(--r-md);
   outline: 0;
   color: var(--foreground);
-  background: var(--card-thin);
+  background: var(--control-bg);
   font: 12px/1.55 Consolas, monospace;
   user-select: text;
 }
@@ -1850,13 +2046,13 @@ label {
 .barcode-font-picker select,
 .barcode-preset-picker select {
   width: 124px;
-  height: var(--h-md);
+  height: var(--control-height);
   padding: 0 8px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: var(--r-sm);
   outline: 0;
   color: var(--foreground);
-  background: var(--card-thin);
+  background-color: var(--control-bg);
 }
 
 .label {
@@ -1890,8 +2086,8 @@ label {
 
 .segments button.on {
   color: var(--accent);
-  background: rgba(255, 255, 255, 0.2);
-  box-shadow: inset 0 1px rgba(255, 255, 255, 0.45);
+  background: var(--selection-bg);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.08);
   font-weight: 600;
 }
 
@@ -1904,18 +2100,18 @@ label {
 .format-grid button,
 .app-button {
   padding: 8px 4px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: var(--r-sm);
   color: var(--muted);
-  background: transparent;
+  background: var(--control-bg);
   cursor: pointer;
 }
 
 .format-grid button:hover,
 .app-button:hover {
-  border-color: var(--accent-28);
+  border-color: var(--control-border-hover);
   color: var(--accent);
-  background: var(--accent-10);
+  background: var(--control-bg-active);
 }
 
 .app-grid {
@@ -2312,12 +2508,12 @@ label {
 .image-resize-fields input:not([type="checkbox"]),
 .image-resize-fields select {
   width: 100%;
-  height: 36px;
+  height: var(--control-height);
   padding: 0 9px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: 9px;
   color: var(--foreground);
-  background: var(--card-thin);
+  background-color: var(--control-bg);
 }
 
 .image-resize-fields .toggle-wrap,
@@ -2358,23 +2554,23 @@ label {
 .image-panel input[type="number"],
 .image-panel select {
   width: 100%;
-  height: 34px;
+  height: var(--control-height);
   padding: 0 9px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: 8px;
   outline: 0;
   color: var(--foreground);
-  background: var(--card-thin);
+  background-color: var(--control-bg);
   user-select: text;
 }
 
 .image-panel input[type="color"] {
   width: 100%;
-  height: 34px;
+  height: var(--control-height);
   padding: 3px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: 8px;
-  background: var(--card-thin);
+  background: var(--control-bg);
 }
 
 .image-panel input[type="range"] {
@@ -2416,18 +2612,18 @@ label {
 .image-panel .brush-choice button {
   min-width: 0;
   height: 34px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: 7px;
   color: var(--muted);
-  background: transparent;
+  background: var(--control-bg);
   font-size: 10px;
   cursor: pointer;
 }
 
 .image-panel .brush-choice button.on {
-  border-color: var(--accent-28);
+  border-color: var(--selection-border);
   color: var(--accent);
-  background: var(--accent-10);
+  background: var(--selection-bg);
 }
 
 .image-panel .format-choice {
@@ -2438,18 +2634,18 @@ label {
 
 .image-panel .format-choice button {
   height: 32px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: 7px;
   color: var(--muted);
-  background: transparent;
+  background: var(--control-bg);
   font-size: 10px;
   cursor: pointer;
 }
 
 .image-panel .format-choice button.on {
-  border-color: var(--accent-28);
+  border-color: var(--selection-border);
   color: var(--accent);
-  background: var(--accent-10);
+  background: var(--selection-bg);
 }
 
 .image-side {
@@ -2877,12 +3073,13 @@ label {
 
 .color-preview input {
   width: 84px;
+  height: var(--control-height);
   padding: 7px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: var(--r-sm);
   outline: 0;
   color: var(--foreground);
-  background: var(--card-thin);
+  background: var(--control-bg);
   font-family: monospace;
 }
 
@@ -2962,7 +3159,7 @@ label {
 }
 
 [data-theme="dark"] .toast {
-  background: rgba(25, 27, 35, 0.96);
+  background: var(--menu-surface);
 }
 
 .toast.show {
@@ -3179,13 +3376,13 @@ label {
 .format-options input[type="number"] {
   grid-column: 1 / -1;
   width: 100%;
-  height: var(--h-md);
+  height: var(--control-height);
   padding: 0 9px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: var(--r-sm);
   outline: 0;
   color: var(--foreground);
-  background: var(--card-thin);
+  background-color: var(--control-bg);
 }
 
 .format-options input[type="range"] {
@@ -3302,13 +3499,41 @@ label {
   background-size: 18px 18px;
 }
 
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
 }
 
 ::-webkit-scrollbar-thumb {
-  border-radius: 10px;
-  background: var(--faint);
+  min-width: 44px;
+  min-height: 44px;
+  border: 3px solid transparent;
+  border-radius: var(--r-full);
+  background-color: var(--scrollbar-thumb);
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 @media (max-width: 940px) {
@@ -3450,7 +3675,7 @@ label {
   line-height: 1.5;
 }
 .barcode-spec-report dt { color: var(--faint); white-space: nowrap; }
-.barcode-spec-report dd { margin: 0; color: var(--fg); word-break: break-word; }
+.barcode-spec-report dd { margin: 0; color: var(--foreground); word-break: break-word; }
 
 .barcode-preset-picker .barcode-check {
   display: flex;
@@ -3462,8 +3687,8 @@ label {
 }
 
 .barcode-preset-picker .barcode-check input {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   accent-color: var(--accent, #6978e6);
   cursor: pointer;
 }
@@ -3660,10 +3885,10 @@ label {
   justify-content: center;
   gap: var(--sp-2);
   padding: 7px 13px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-small);
   color: var(--foreground);
-  background: var(--card-thin);
+  background: var(--control-bg);
   font: 13px var(--font);
   cursor: pointer;
   transition:
@@ -3673,7 +3898,7 @@ label {
     transform 160ms cubic-bezier(0.23, 1, 0.32, 1);
 }
 @media (hover: hover) and (pointer: fine) {
-  .cbtn:hover { border-color: var(--accent-28); color: var(--accent); }
+  .cbtn:hover { border-color: var(--control-border-hover); color: var(--accent); background: var(--control-bg-hover); }
 }
 .cbtn:active { transform: scale(0.97); }
 .cbtn.primary {
@@ -3682,12 +3907,12 @@ label {
   background: var(--accent);
 }
 @media (hover: hover) and (pointer: fine) {
-  .cbtn.primary:hover { color: #fff; background: rgb(95, 110, 222); }
+  .cbtn.primary:hover { color: #fff; background: var(--accent); filter: brightness(1.06); }
 }
 .cbtn.ghost {
   padding: 5px 10px;
   font-size: 12px;
-  background: var(--card);
+  background: var(--control-bg);
   backdrop-filter: blur(18px) saturate(150%);
 }
 
@@ -3751,6 +3976,7 @@ label {
    画在画布下方还有个好处——背景设成纯色时 fabric 直接盖住它，
    不需要任何状态同步，也就不存在"显示与实际不符"的可能。 */
 .checkerboard {
+  background-color: var(--canvas-bg);
   /* ⚠ 用 conic-gradient，不要用那套四段 45°/-45° linear-gradient 的老配方：
      那个配方只在**不透明**色下成立，换成半透明色后四段会相互叠加，
      画出来是人字形花纹而不是方格。conic 一次成型，也不存在叠色。 */
@@ -3968,12 +4194,12 @@ label {
 .txt-btn.txt-danger:disabled { color: var(--muted); }
 
 .txt-select {
-  height: var(--h-sm);
+  height: var(--control-height);
   max-width: 104px;
   padding: 0 4px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: var(--r-sm);
-  background: var(--card-thin);
+  background-color: var(--control-bg);
   color: var(--foreground);
   font: inherit;
   font-size: var(--fs-md);
@@ -3982,9 +4208,9 @@ label {
 
 .txt-color {
   width: 26px;
-  height: var(--h-sm);
+  height: var(--control-height);
   padding: 0;
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: var(--r-sm);
   background: none;
   cursor: pointer;
@@ -4352,10 +4578,11 @@ label {
 .img-editor-field input[type="number"],
 .img-editor-field select {
   width: 100%;
-  padding: 6px 8px;
-  border: 1px solid var(--border);
+  height: var(--control-height);
+  padding: 0 9px;
+  border: 1px solid var(--control-border);
   border-radius: var(--r-md);
-  background: var(--card);
+  background-color: var(--control-bg);
   color: var(--foreground);
   font: inherit;
   font-size: var(--fs-md);
