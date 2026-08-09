@@ -116,19 +116,23 @@
 }
 
 [data-theme="dark"] {
-  --background: #101116;
-  --panel: rgba(30, 32, 42, 0.44);
-  --card: rgba(38, 40, 52, 0.34);
-  --card-thin: rgba(38, 40, 52, 0.28);
-  --border: rgba(255, 255, 255, 0.12);
-  --hairline: rgba(255, 255, 255, 0.09);
-  --foreground: #f0f1f7;
-  --muted: #a7aabd;
-  --faint: #777b91;
-  --menu-surface: rgba(32, 34, 45, 0.95);
-  --checker: rgba(255, 255, 255, 0.045);
-  --shadow-small: 0 5px 14px rgba(0, 0, 0, 0.25);
-  --shadow-panel: 0 20px 55px rgba(0, 0, 0, 0.3);
+  color-scheme: dark;
+  --accent-r: 126;
+  --accent-g: 145;
+  --accent-b: 255;
+  --background: #0b1018;
+  --panel: rgba(13, 19, 29, 0.88);
+  --card: rgba(28, 37, 52, 0.72);
+  --card-thin: rgba(24, 32, 46, 0.62);
+  --border: rgba(159, 177, 204, 0.18);
+  --hairline: rgba(159, 177, 204, 0.12);
+  --foreground: #edf3fb;
+  --muted: #a8b3c7;
+  --faint: #758198;
+  --menu-surface: rgba(19, 26, 38, 0.97);
+  --checker: rgba(195, 210, 235, 0.055);
+  --shadow-small: 0 7px 20px rgba(0, 0, 0, 0.28);
+  --shadow-panel: 0 24px 64px rgba(0, 0, 0, 0.42);
 }
 
 *,
@@ -216,15 +220,27 @@ label {
 }
 
 [data-theme="dark"] .orb-1 {
-  background: #33205a;
+  background: #294d8c;
 }
 
 [data-theme="dark"] .orb-2 {
-  background: #173b38;
+  background: #174d4b;
 }
 
 [data-theme="dark"] .orb-3 {
-  background: #4d3a1c;
+  background: #49306f;
+}
+
+[data-theme="dark"] .orb {
+  opacity: 0.2;
+}
+
+[data-theme="dark"] .panel {
+  backdrop-filter: blur(32px) saturate(115%);
+}
+
+[data-theme="dark"] .topbar {
+  background: rgba(11, 16, 25, 0.5);
 }
 
 .panel {
@@ -298,7 +314,8 @@ label {
 }
 
 [data-theme="dark"] .search {
-  background: rgba(25, 27, 36, 0.7);
+  background: rgba(16, 23, 35, 0.82);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.06);
 }
 
 .search:focus-within {
@@ -308,7 +325,8 @@ label {
 }
 
 [data-theme="dark"] .search:focus-within {
-  background: rgba(28, 30, 39, 0.92);
+  background: rgba(21, 30, 45, 0.96);
+  box-shadow: 0 0 0 3px var(--accent-10), inset 0 1px rgba(255, 255, 255, 0.07);
 }
 
 .search input {
@@ -353,7 +371,7 @@ label {
 }
 
 [data-theme="dark"] .search-results {
-  background: rgba(25, 27, 35, 0.97);
+  background: var(--menu-surface);
 }
 
 .search-results.open {
@@ -450,6 +468,12 @@ label {
   font-variant-numeric: tabular-nums;
 }
 
+[data-theme="dark"] .mochi {
+  border-color: var(--hairline);
+  background: rgba(28, 37, 52, 0.82);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.06);
+}
+
 .app-body {
   display: flex;
   flex: 1;
@@ -469,6 +493,10 @@ label {
 
 .rail-spacer {
   flex: 1;
+}
+
+[data-theme="dark"] .rail {
+  background: rgba(8, 13, 21, 0.34);
 }
 
 .nav-ic {
@@ -515,6 +543,12 @@ label {
   backdrop-filter: blur(20px);
 }
 
+[data-theme="dark"] .nav-ic.active {
+  border-color: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.38);
+  background: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.14);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.08), 0 6px 18px rgba(0, 0, 0, 0.24);
+}
+
 .submenu {
   position: relative;
   display: none;
@@ -525,6 +559,10 @@ label {
   padding: 14px 12px;
   overflow-y: auto;
   border-right: 1px solid var(--hairline);
+}
+
+[data-theme="dark"] .submenu {
+  background: rgba(12, 18, 28, 0.42);
 }
 
 .submenu-indicator {
@@ -542,6 +580,14 @@ label {
   box-shadow: inset 0 1px rgba(255, 255, 255, 0.55), 0 3px 10px rgba(35, 39, 65, 0.1);
   pointer-events: none;
   will-change: transform;
+}
+
+[data-theme="dark"] .submenu-indicator {
+  border-color: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.36);
+  background:
+    linear-gradient(145deg, rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.18), transparent 82%),
+    rgba(27, 36, 52, 0.88);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.07), 0 6px 18px rgba(0, 0, 0, 0.2);
 }
 
 .submenu-indicator.ready {
@@ -682,6 +728,11 @@ label {
   backdrop-filter: blur(22px) saturate(145%);
 }
 
+[data-theme="dark"] .glass-card {
+  box-shadow: var(--shadow-small), inset 0 1px rgba(255, 255, 255, 0.055);
+  backdrop-filter: blur(22px) saturate(115%);
+}
+
 .gbtn,
 .primary {
   display: inline-flex;
@@ -704,6 +755,10 @@ label {
   color: var(--muted);
   background: rgba(255, 255, 255, 0.08);
   backdrop-filter: blur(16px);
+}
+
+[data-theme="dark"] .gbtn {
+  background: rgba(27, 36, 51, 0.72);
 }
 
 .gbtn:hover {
