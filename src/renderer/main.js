@@ -132,10 +132,10 @@ const barcodeTypes = {
     format: 'codabar',
     icon: 'CB',
     color: '#bd7c65',
-    example: 'A123456A',
+    example: '123456',
     inputMode: 'text',
     maxLength: 48,
-    hint: '支持数字、-$:/.+，可用 A–D 作为起止符'
+    hint: '正文支持数字、-$:/.+；起止符请在右侧选项中设置'
   },
   Auto: {
     format: 'auto',
