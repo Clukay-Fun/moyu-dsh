@@ -15,7 +15,7 @@ const undoButton = document.querySelector('#undo-capture')
 const redoButton = document.querySelector('#redo-capture')
 const colorButton = document.querySelector('#annotation-color')
 const widthButton = document.querySelector('#annotation-width')
-const sessionId = new URLSearchParams(window.location.search).get('session')
+let sessionId = new URLSearchParams(window.location.search).get('session')
 
 const HANDLE_RADIUS = 10
 const HANDLE_SIZE = 8
@@ -570,7 +570,23 @@ window.addEventListener('resize', () => {
   render()
 })
 
-async function initialize() {
+async function initialize(nextSessionId) {
+  sessionId = nextSessionId
+  image = null
+  selection = null
+  interaction = null
+  tool = null
+  draft = null
+  annotations = []
+  redoStack = []
+  busy = false
+  toolbar.hidden = true
+  sizeLabel.hidden = true
+  magnifier.hidden = true
+  closePopover()
+  cancelTextEditor()
+  tip.textContent = '拖动选择截图区域 · Esc 取消'
+  syncHistory()
   const session = await window.api.getScreenshotSession(sessionId)
   image = await createImageBitmap(new Blob([session.data], { type: 'image/png' }))
   canvas.width = window.innerWidth
@@ -580,7 +596,12 @@ async function initialize() {
   await window.api.reportScreenshotReady(sessionId)
 }
 
-initialize().catch((error) => {
-  tip.textContent = error?.message || '截图初始化失败'
-  setTimeout(cancelSelection, 1200)
-})
+function startSession(nextSessionId) {
+  initialize(nextSessionId).catch((error) => {
+    tip.textContent = error?.message || '截图初始化失败'
+    setTimeout(cancelSelection, 1200)
+  })
+}
+
+window.api.onScreenshotSession(startSession)
+if (sessionId) startSession(sessionId)

@@ -86,6 +86,8 @@ const PDF_OUTPUT_TYPES = {
 }
 
 const screenshotSessions = new Map()
+let reusableScreenshotOverlay = null
+let screenshotOverlayReadyPromise = null
 const pinnedScreenshotSessions = new Map()
 const aiInputSessions = new Map()
 const aiResultSessions = new Map()
@@ -859,6 +861,9 @@ function createWindow() {
   mainWindow.on('closed', () => {
     mainWindow = null
     pinnedScreenshotSessions.forEach((session) => session.window.close())
+    if (reusableScreenshotOverlay && !reusableScreenshotOverlay.isDestroyed()) {
+      reusableScreenshotOverlay.destroy()
+    }
   })
 
   if (process.env.ELECTRON_RENDERER_URL) {
@@ -1776,7 +1781,7 @@ async function ensureScreenCaptureKitBinary() {
   return screenCaptureKitBinaryPromise
 }
 
-/** macOS 原生抓屏：排除当前 Electron 应用，再由系统合成其下方真实内容。 */
+/** macOS 原生抓屏：保留屏幕上的全部应用，包括工具箱自身。 */
 async function captureDisplayScreenCaptureKit(display, physicalWidth, physicalHeight) {
   const binary = await ensureScreenCaptureKitBinary()
   const directory = join(app.getPath('temp'), 'moyu-tools-native')
@@ -1785,7 +1790,6 @@ async function captureDisplayScreenCaptureKit(display, physicalWidth, physicalHe
     await runFormatProcess(binary, [
       output,
       String(display.id),
-      String(process.pid),
       String(physicalWidth),
       String(physicalHeight)
     ], {
@@ -1794,7 +1798,9 @@ async function captureDisplayScreenCaptureKit(display, physicalWidth, physicalHe
     const data = await readFile(output)
     const thumbnail = nativeImage.createFromBuffer(data)
     if (thumbnail.isEmpty()) throw new Error('ScreenCaptureKit 返回了无效图像')
-    return { thumbnail, backend: 'ScreenCaptureKit' }
+    // data 已经是 Swift 侧车编码好的 PNG；把它原样交给 renderer，避免主进程
+    // 再做一次 nativeImage.toPNG()（Retina 全屏图会因此多耗约半秒）。
+    return { thumbnail, data, backend: 'ScreenCaptureKit' }
   } finally {
     await unlink(output).catch(() => {})
   }
@@ -1824,7 +1830,10 @@ function createScreenshotOverlay(display) {
       preload: join(__dirname, '../preload/index.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true
+      sandbox: true,
+      // 截图壳常驻隐藏时 Chromium 默认暂停 rAF；关闭节流后才能在显示前
+      // 完成位图解码与两帧绘制，避免“数据已到但窗口迟迟不出现”。
+      backgroundThrottling: false
     }
   })
   overlay.setAlwaysOnTop(true, 'screen-saver')
@@ -1835,9 +1844,46 @@ function createScreenshotOverlay(display) {
   return overlay
 }
 
-function closeScreenshotOverlay(overlay) {
+function hideScreenshotOverlay(overlay) {
   if (!overlay || overlay.isDestroyed()) return
-  overlay.close()
+  overlay.hide()
+}
+
+/**
+ * 截图窗口只创建和加载一次，后续截图仅替换会话数据并重新显示。
+ * 这是参考 electron-screenshots singleWindow 思路的本项目实现，不引入其 React UI。
+ */
+async function ensureScreenshotOverlay(display) {
+  if (reusableScreenshotOverlay && !reusableScreenshotOverlay.isDestroyed()) {
+    reusableScreenshotOverlay.setBounds(display.bounds, false)
+    return reusableScreenshotOverlay
+  }
+  if (screenshotOverlayReadyPromise) return screenshotOverlayReadyPromise
+
+  screenshotOverlayReadyPromise = (async () => {
+    const overlay = createScreenshotOverlay(display)
+    reusableScreenshotOverlay = overlay
+    overlay.on('closed', () => {
+      if (reusableScreenshotOverlay === overlay) reusableScreenshotOverlay = null
+      screenshotOverlayReadyPromise = null
+      for (const [sessionId, session] of screenshotSessions) {
+        if (session.overlay !== overlay) continue
+        screenshotSessions.delete(sessionId)
+        session.owner.send('screenshot:cancelled')
+      }
+    })
+    if (process.env.ELECTRON_RENDERER_URL) {
+      await overlay.loadURL(new URL('screenshot.html', process.env.ELECTRON_RENDERER_URL).toString())
+    } else {
+      await overlay.loadFile(join(__dirname, '../renderer/screenshot.html'))
+    }
+    return overlay
+  })().catch((error) => {
+    reusableScreenshotOverlay = null
+    screenshotOverlayReadyPromise = null
+    throw error
+  })
+  return screenshotOverlayReadyPromise
 }
 
 ipcMain.handle('screenshot:start', async (event) => {
@@ -1855,8 +1901,8 @@ ipcMain.handle('screenshot:start', async (event) => {
     return source ? { thumbnail: source.thumbnail, backend: 'desktopCapturer' } : null
   }
   const grab = async () => {
-    // macOS 不允许回退到整屏 desktopCapturer：它会把工具箱本身捕获进去，
-    // 重新制造“双画面”。原生排除失败时明确报错，让用户修权限/工具链。
+    // macOS 不回退到 desktopCapturer：原生路径负责稳定地保留当前屏幕内容，
+    // 并避免 Electron 在 Stage Manager 下产生错误的显示器边界映射。
     if (process.platform === 'darwin') {
       return captureDisplayScreenCaptureKit(display, physicalWidth, physicalHeight)
     }
@@ -1879,8 +1925,8 @@ ipcMain.handle('screenshot:start', async (event) => {
   }
 
   const sessionId = randomUUID()
-  const data = source.thumbnail.toPNG()
-  const overlay = createScreenshotOverlay(display)
+  const data = source.data || source.thumbnail.toPNG()
+  const overlay = await ensureScreenshotOverlay(display)
   const session = {
     data,
     displayBounds: display.bounds,
@@ -1890,23 +1936,7 @@ ipcMain.handle('screenshot:start', async (event) => {
     overlay
   }
   screenshotSessions.set(sessionId, session)
-  overlay.on('closed', () => {
-    const activeSession = screenshotSessions.get(sessionId)
-    if (activeSession?.overlay === overlay) {
-      screenshotSessions.delete(sessionId)
-      activeSession.owner.send('screenshot:cancelled')
-    }
-  })
-
-  if (process.env.ELECTRON_RENDERER_URL) {
-    const overlayUrl = new URL('screenshot.html', process.env.ELECTRON_RENDERER_URL)
-    overlayUrl.searchParams.set('session', sessionId)
-    await overlay.loadURL(overlayUrl.toString())
-  } else {
-    await overlay.loadFile(join(__dirname, '../renderer/screenshot.html'), {
-      query: { session: sessionId }
-    })
-  }
+  overlay.webContents.send('screenshot:begin-session', sessionId)
 
   return { status: 'started', sessionId }
 })
@@ -1966,7 +1996,7 @@ ipcMain.handle('screenshot:complete', (_event, payload) => {
     data = nativeImage.createFromBuffer(session.data).crop({ x, y, width, height }).toPNG()
   }
   screenshotSessions.delete(payload.sessionId)
-  closeScreenshotOverlay(session.overlay)
+  hideScreenshotOverlay(session.overlay)
   session.owner.send('screenshot:captured', {
     data: new Uint8Array(data),
     width,
@@ -1979,7 +2009,7 @@ ipcMain.handle('screenshot:cancel', (_event, sessionId) => {
   const session = screenshotSessions.get(sessionId)
   if (session) {
     screenshotSessions.delete(sessionId)
-    closeScreenshotOverlay(session.overlay)
+    hideScreenshotOverlay(session.overlay)
     session.owner.send('screenshot:cancelled')
   }
   return { status: 'cancelled' }
@@ -2546,6 +2576,10 @@ app.whenReady().then(() => {
     if (dockIcon && !dockIcon.isEmpty()) app.dock.setIcon(dockIcon)
   }
   createWindow()
+  // 预先加载隐藏的截图壳。后续点击只更新屏幕数据，不再创建窗口或重跑页面初始化。
+  void ensureScreenshotOverlay(screen.getPrimaryDisplay()).catch((error) => {
+    console.warn('截图覆盖层预加载失败：', error?.message || error)
+  })
   // 启动时按用户设置注册；没配过就是默认组合（F-16）
   captureShortcut = readShortcutSettings()
   registerCaptureShortcut()

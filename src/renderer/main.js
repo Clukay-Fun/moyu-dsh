@@ -2861,7 +2861,6 @@ let regionCaptureBusy = false
 async function beginRegionScreenshot() {
   if (regionCaptureBusy) return false
   regionCaptureBusy = true
-  showToast('正在读取屏幕…')
   try {
     await window.api.startScreenshot()
     return true
