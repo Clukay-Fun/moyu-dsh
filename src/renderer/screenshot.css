@@ -1,6 +1,13 @@
 :root {
-  color-scheme: dark;
+  color-scheme: light;
   font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif;
+  --capture-blue: #2878f0;
+  --capture-blue-soft: #eaf2ff;
+  --capture-ink: #263244;
+  --capture-muted: #667085;
+  --capture-border: rgba(91, 107, 130, 0.22);
+  --capture-surface: rgba(255, 255, 255, 0.96);
+  --capture-shadow: 0 10px 30px rgba(20, 35, 58, 0.18), 0 2px 7px rgba(20, 35, 58, 0.08);
 }
 
 * {
@@ -25,38 +32,55 @@ body {
 
 .capture-tip,
 .selection-size,
-.capture-toolbar {
+.capture-toolbar,
+.capture-popover,
+.capture-text-editor,
+.capture-magnifier {
   position: fixed;
   z-index: 2;
-  border: 1px solid rgba(159, 177, 204, 0.24);
-  color: #fff;
-  background: rgba(19, 26, 38, 0.92);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.34);
-  backdrop-filter: blur(14px);
+  border: 1px solid var(--capture-border);
+  color: var(--capture-ink);
+  background: var(--capture-surface);
+  box-shadow: var(--capture-shadow);
+  backdrop-filter: blur(18px) saturate(1.12);
 }
 
 .capture-tip {
   top: 22px;
   left: 50%;
   padding: 8px 13px;
-  border-radius: 9px;
+  border-radius: 10px;
   font-size: 12px;
+  font-weight: 600;
   transform: translateX(-50%);
 }
 
 .selection-size {
   padding: 4px 7px;
-  border-radius: 6px;
+  border-radius: 7px;
   font: 11px Consolas, monospace;
   pointer-events: none;
+}
+
+.capture-magnifier {
+  width: 128px;
+  height: 152px;
+  border-radius: 9px;
+  pointer-events: none;
+}
+
+.capture-magnifier[hidden],
+.capture-popover[hidden],
+.capture-text-editor[hidden] {
+  display: none;
 }
 
 .capture-toolbar {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px;
-  border-radius: 10px;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 11px;
 }
 
 .capture-toolbar[hidden] {
@@ -65,40 +89,128 @@ body {
 
 .capture-toolbar button {
   display: grid;
-  min-width: 32px;
+  width: 30px;
+  min-width: 30px;
   height: 30px;
   place-items: center;
-  padding: 0 11px;
-  border: 1px solid rgba(159, 177, 204, 0.24);
+  padding: 0;
+  border: 1px solid transparent;
   border-radius: 7px;
-  color: #fff;
-  background: rgba(25, 34, 49, 0.9);
+  color: var(--capture-ink);
+  background: transparent;
   cursor: pointer;
   transition: transform 140ms cubic-bezier(0.23, 1, 0.32, 1),
               border-color 140ms ease, background-color 140ms ease;
 }
 
+.capture-toolbar button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.capture-toolbar button:disabled:active { transform: none; }
+
 .capture-toolbar button:active { transform: scale(0.97); }
 
 .capture-toolbar button:hover,
 .capture-toolbar button.on {
-  border-color: rgba(126, 145, 255, 0.68);
-  background: rgba(126, 145, 255, 0.26);
+  border-color: rgba(40, 120, 240, 0.2);
+  color: var(--capture-blue);
+  background: var(--capture-blue-soft);
 }
 
 .capture-toolbar i {
   width: 1px;
-  height: 20px;
-  background: rgba(255, 255, 255, 0.2);
+  height: 18px;
+  margin: 0 3px;
+  background: rgba(91, 107, 130, 0.2);
+}
+
+.annotation-swatch {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: #ff4f57;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25);
+}
+
+.annotation-width-preview {
+  width: 18px;
+  height: 3px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.capture-popover {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px;
+  border-radius: 9px;
+}
+
+.capture-popover button {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: var(--capture-ink);
+  background: transparent;
+  cursor: pointer;
+}
+
+.capture-popover button.on {
+  outline: 2px solid var(--capture-blue);
+  outline-offset: 1px;
+}
+
+.capture-popover .color-dot {
+  width: 17px;
+  height: 17px;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  border-radius: 50%;
+  background: var(--dot-color);
+}
+
+.capture-popover .width-line {
+  width: 18px;
+  height: var(--line-width);
+  max-height: 8px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.capture-text-editor {
+  min-width: 180px;
+  min-height: 44px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  outline: 2px solid var(--capture-blue);
+  outline-offset: 1px;
+  color: var(--capture-ink);
+  font: 600 20px/1.35 "Segoe UI", "Microsoft YaHei UI", sans-serif;
+  resize: both;
+  user-select: text;
 }
 
 .capture-toolbar .primary {
-  border-color: rgb(126, 145, 255);
-  background: rgb(126, 145, 255);
+  border-color: var(--capture-blue);
+  color: #fff;
+  background: var(--capture-blue);
+}
+
+.capture-toolbar .primary:hover {
+  border-color: #1f68d6;
+  color: #fff;
+  background: #1f68d6;
 }
 
 .capture-toolbar button:focus-visible {
-  outline: 2px solid rgb(126, 145, 255);
+  outline: 2px solid var(--capture-blue);
   outline-offset: 2px;
 }
 

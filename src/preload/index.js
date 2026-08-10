@@ -70,6 +70,7 @@ contextBridge.exposeInMainWorld(
     showPdfOutput: (path) => ipcRenderer.invoke('pdf:show-item', path),
     startScreenshot: () => ipcRenderer.invoke('screenshot:start'),
     getScreenshotSession: (sessionId) => ipcRenderer.invoke('screenshot:get-session', sessionId),
+    reportScreenshotReady: (sessionId) => ipcRenderer.invoke('screenshot:overlay-ready', sessionId),
     completeScreenshot: (payload) => ipcRenderer.invoke('screenshot:complete', payload),
     cancelScreenshot: (sessionId) => ipcRenderer.invoke('screenshot:cancel', sessionId),
     saveScreenshot: (payload) => ipcRenderer.invoke('screenshot:save', payload),

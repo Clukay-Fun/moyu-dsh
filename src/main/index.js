@@ -1716,51 +1716,6 @@ ipcMain.handle('pdf:show-item', async (_event, payload) => {
 })
 
 /**
- * 抓屏前把主窗口藏起来，抓完/取消后还原。
- *
- * 不藏的话冻结画面里会有摸鱼工具箱自己——用户看到的就是"先截了一张软件
- * 界面，再在上面框选"，而他想截的是被软件挡住的那些东西。
- *
- * 记录触发前的真实状态：**原本最小化的窗口不能被还原成普通窗口**，
- * 否则用户按完快捷键会莫名其妙多出一个窗口。
- */
-function captureWindowState() {
-  if (!mainWindow || mainWindow.isDestroyed()) return null
-  return {
-    visible: mainWindow.isVisible(),
-    minimized: mainWindow.isMinimized(),
-    focused: mainWindow.isFocused(),
-    // macOS 绿色按钮进入的系统全屏是**独立 Space**，隐藏时要先退全屏，
-    // 且必须等 Space 切换动画结束才能抓到真实画面
-    fullScreen: mainWindow.isFullScreen()
-  }
-}
-
-/** 等一个窗口事件，带超时兜底；不用固定 sleep 猜状态是否完成。 */
-function waitForWindowEvent(win, event, timeoutMs = 2000) {
-  return new Promise((resolve) => {
-    let done = false
-    const finish = (reason) => {
-      if (done) return
-      done = true
-      win.removeListener(event, onEvent)
-      clearTimeout(timer)
-      resolve(reason)
-    }
-    const onEvent = () => finish('event')
-    const timer = setTimeout(() => finish('timeout'), timeoutMs)
-    win.once(event, onEvent)
-  })
-}
-
-/** 连续两帧屏幕尺寸稳定即认为桌面已稳定。 */
-async function waitForDesktopSettle(frames = 2) {
-  for (let i = 0; i < frames; i += 1) {
-    await new Promise((resolve) => setTimeout(resolve, CAPTURE_HIDE_DELAY_MS))
-  }
-}
-
-/**
  * 判断抓到的是不是黑帧。
  *
  * 全屏 Space 切换期间抓屏会拿到纯黑的过渡帧。宁可让用户重试，
@@ -1785,94 +1740,73 @@ function isBlankCapture(image) {
 /** 亮度低于此值的画面视为黑帧。留一点余量以容忍深色壁纸的极端情况。 */
 const BLANK_CAPTURE_THRESHOLD = 8
 
-/** 隐藏主窗口并等桌面重绘。等待时长在 mac/Windows 上实测取值。 */
-async function hideForCapture() {
-  const state = captureWindowState()
-  if (!mainWindow || mainWindow.isDestroyed()) return state
+/** 黑帧重试前给屏幕采集器一帧恢复时间；不改变任何应用窗口状态。 */
+const CAPTURE_RETRY_DELAY_MS = 140
 
-  if (state.fullScreen) {
-    // ── 系统全屏：先退出全屏，等 Space 动画真正结束再隐藏 ──
-    //   直接 hide() 会在 Space 切换的中途抓屏，拿到的是纯黑过渡帧。
-    //   等的是**事件**不是固定时长：不同机器、不同动画设置耗时差很多。
-    mainWindow.setFullScreen(false)
-    await waitForWindowEvent(mainWindow, 'leave-full-screen', 3000)
-    if (mainWindow.isVisible()) {
-      const hidden = waitForWindowEvent(mainWindow, 'hide', 1500)
-      mainWindow.hide()
-      await hidden
+let screenCaptureKitBinaryPromise = null
+
+async function ensureScreenCaptureKitBinary() {
+  if (screenCaptureKitBinaryPromise) return screenCaptureKitBinaryPromise
+  screenCaptureKitBinaryPromise = (async () => {
+    const sourceCandidates = [
+      join(app.getAppPath(), 'native', 'macos', 'screen-capture.swift'),
+      join(__dirname, '..', '..', 'native', 'macos', 'screen-capture.swift')
+    ]
+    const source = sourceCandidates.find((candidate) => existsSync(candidate))
+    if (!source) throw new Error('缺少 macOS ScreenCaptureKit 侧车源码')
+    const directory = join(app.getPath('temp'), 'moyu-tools-native')
+    const binary = join(directory, 'screen-capture')
+    await mkdir(directory, { recursive: true })
+    const sourceStat = await stat(source)
+    const binaryStat = await stat(binary).catch(() => null)
+    if (!binaryStat || binaryStat.mtimeMs < sourceStat.mtimeMs) {
+      await runFormatProcess('xcrun', [
+        'swiftc', '-parse-as-library', '-O', source,
+        '-o', binary,
+        '-framework', 'AppKit',
+        '-framework', 'CoreGraphics',
+        '-framework', 'ScreenCaptureKit'
+      ], { timeoutMs: 120000 })
     }
-    // Space 切回后桌面还要重绘一会儿
-    await waitForDesktopSettle(3)
-    return state
-  }
-
-  // ── 普通 / 最大化窗口：原有快速路径 ──
-  if (mainWindow.isVisible() && !mainWindow.isMinimized()) {
-    const hidden = waitForWindowEvent(mainWindow, 'hide', 800)
-    mainWindow.hide()
-    await hidden
-  }
-  // 合成器需要一帧以上才能把窗口从屏幕上抹掉；不等就会截到残影。
-  await new Promise((resolve) => setTimeout(resolve, CAPTURE_HIDE_DELAY_MS))
-  return state
+    return binary
+  })().catch((error) => {
+    screenCaptureKitBinaryPromise = null
+    throw error
+  })
+  return screenCaptureKitBinaryPromise
 }
 
-/** 还原到触发前的状态。成功、取消、失败三条路径都必须调用。 */
-function restoreAfterCapture(state) {
-  if (!state || !mainWindow || mainWindow.isDestroyed()) return
-  if (state.minimized) {
-    // 原本就是最小化的，保持最小化——只是让它重新出现在任务栏/Dock
-    if (!mainWindow.isVisible()) mainWindow.showInactive()
-    if (!mainWindow.isMinimized()) mainWindow.minimize()
-    return
-  }
-  if (!state.visible) return // 原本就藏着，别替用户召唤出来
-  mainWindow.show()
-  if (state.focused) mainWindow.focus()
-  // 原本是系统全屏的，还回去——否则用户截完图发现应用退出了全屏
-  if (state.fullScreen && !mainWindow.isFullScreen()) mainWindow.setFullScreen(true)
-}
-
-/** 隐藏后等待桌面刷新的时长。实测 mac 上 120ms 足够，留些余量。 */
-const CAPTURE_HIDE_DELAY_MS = 140
-
-ipcMain.handle('screenshot:start', async (event) => {
-  // ⚠ 先取光标所在显示器再隐藏窗口：隐藏会改变焦点，之后取到的可能是别的屏
-  const cursorPoint = screen.getCursorScreenPoint()
-  const display = screen.getDisplayNearestPoint(cursorPoint)
-  const restoreState = await hideForCapture()
-  const physicalWidth = Math.max(1, Math.round(display.bounds.width * display.scaleFactor))
-  const physicalHeight = Math.max(1, Math.round(display.bounds.height * display.scaleFactor))
-  const grab = async () => {
-    const sources = await desktopCapturer.getSources({
-      types: ['screen'],
-      thumbnailSize: { width: physicalWidth, height: physicalHeight },
-      fetchWindowIcons: false
+/** macOS 原生抓屏：排除当前 Electron 应用，再由系统合成其下方真实内容。 */
+async function captureDisplayScreenCaptureKit(display, physicalWidth, physicalHeight) {
+  const binary = await ensureScreenCaptureKitBinary()
+  const directory = join(app.getPath('temp'), 'moyu-tools-native')
+  const output = join(directory, `capture-${randomUUID()}.png`)
+  try {
+    await runFormatProcess(binary, [
+      output,
+      String(display.id),
+      String(process.pid),
+      String(physicalWidth),
+      String(physicalHeight)
+    ], {
+      timeoutMs: 30000
     })
-    return sources.find((c) => String(c.display_id) === String(display.id)) || sources[0]
+    const data = await readFile(output)
+    const thumbnail = nativeImage.createFromBuffer(data)
+    if (thumbnail.isEmpty()) throw new Error('ScreenCaptureKit 返回了无效图像')
+    return { thumbnail, backend: 'ScreenCaptureKit' }
+  } finally {
+    await unlink(output).catch(() => {})
   }
+}
 
-  let source = await grab()
-  // 抓到黑帧多半是合成器还没画完（尤其刚退出全屏 Space），再等一拍重抓一次。
-  // 只重试一次：真没权限时不该让用户干等。
-  if (source && isBlankCapture(source.thumbnail)) {
-    await waitForDesktopSettle(3)
-    source = await grab()
-  }
-
-  if (!source || source.thumbnail.isEmpty()) {
-    // 失败也要把窗口还回去，否则应用就此消失
-    restoreAfterCapture(restoreState)
-    throw new Error('无法读取屏幕画面，请检查系统录屏权限')
-  }
-  if (isBlankCapture(source.thumbnail)) {
-    // 宁可让用户重试，也不能把黑图当截图交出去——用户会以为是自己框错了
-    restoreAfterCapture(restoreState)
-    throw new Error('屏幕画面尚未就绪，请重试')
-  }
-
-  const sessionId = randomUUID()
-  const data = source.thumbnail.toPNG()
+/**
+ * 创建截图覆盖窗口。
+ *
+ * 继续使用工具箱已验证的 BrowserWindow 组合；electron-screenshots 的
+ * panel/toolbar + kiosk 参数在 Electron 43/macOS 上会阻断覆盖层显示，不能照搬。
+ */
+function createScreenshotOverlay(display) {
   const overlay = new BrowserWindow({
     ...display.bounds,
     frame: false,
@@ -1880,6 +1814,9 @@ ipcMain.handle('screenshot:start', async (event) => {
     alwaysOnTop: true,
     skipTaskbar: true,
     fullscreenable: false,
+    // macOS Stage Manager 会把普通窗口强制钳进可用工作区（左侧舞台栏 + 顶部菜单栏），
+    // 导致截图覆盖层只盖住屏幕的一部分，看起来像叠了两张画面。
+    enableLargerThanScreen: process.platform === 'darwin',
     resizable: false,
     movable: false,
     show: false,
@@ -1890,33 +1827,73 @@ ipcMain.handle('screenshot:start', async (event) => {
       sandbox: true
     }
   })
-  // Electron 的 alwaysOnTop 默认是 floating：在 Windows 上仍位于任务栏下方，
-  // 会同时露出真实任务栏和冻结画面里的任务栏，看起来像截图错位/叠了两层。
-  // screen-saver 层级覆盖完整显示器区域；macOS 还需跨全屏 Space 可见。
   overlay.setAlwaysOnTop(true, 'screen-saver')
   if (process.platform === 'darwin') {
     overlay.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   }
   overlay.setBounds(display.bounds, false)
+  return overlay
+}
+
+function closeScreenshotOverlay(overlay) {
+  if (!overlay || overlay.isDestroyed()) return
+  overlay.close()
+}
+
+ipcMain.handle('screenshot:start', async (event) => {
+  const cursorPoint = screen.getCursorScreenPoint()
+  const display = screen.getDisplayNearestPoint(cursorPoint)
+  const physicalWidth = Math.max(1, Math.round(display.bounds.width * display.scaleFactor))
+  const physicalHeight = Math.max(1, Math.round(display.bounds.height * display.scaleFactor))
+  const grabElectron = async () => {
+    const sources = await desktopCapturer.getSources({
+      types: ['screen'],
+      thumbnailSize: { width: physicalWidth, height: physicalHeight },
+      fetchWindowIcons: false
+    })
+    const source = sources.find((c) => String(c.display_id) === String(display.id)) || sources[0]
+    return source ? { thumbnail: source.thumbnail, backend: 'desktopCapturer' } : null
+  }
+  const grab = async () => {
+    // macOS 不允许回退到整屏 desktopCapturer：它会把工具箱本身捕获进去，
+    // 重新制造“双画面”。原生排除失败时明确报错，让用户修权限/工具链。
+    if (process.platform === 'darwin') {
+      return captureDisplayScreenCaptureKit(display, physicalWidth, physicalHeight)
+    }
+    return grabElectron()
+  }
+
+  let source = await grab()
+  // 抓到黑帧多半是合成器还没画完，再等一拍重抓一次。
+  // 只重试一次：真没权限时不该让用户干等。
+  if (source && isBlankCapture(source.thumbnail)) {
+    await new Promise((resolve) => setTimeout(resolve, CAPTURE_RETRY_DELAY_MS))
+    source = await grab()
+  }
+
+  if (!source || source.thumbnail.isEmpty()) {
+    throw new Error('无法读取屏幕画面，请检查系统录屏权限')
+  }
+  if (isBlankCapture(source.thumbnail)) {
+    throw new Error('屏幕画面尚未就绪，请重试')
+  }
+
+  const sessionId = randomUUID()
+  const data = source.thumbnail.toPNG()
+  const overlay = createScreenshotOverlay(display)
   const session = {
     data,
     displayBounds: display.bounds,
     imageSize: source.thumbnail.getSize(),
+    backend: source.backend,
     owner: event.sender,
-    overlay,
-    // 触发前的窗口状态。完成、取消、覆盖层被关三条路径都要用它还原。
-    restoreState
+    overlay
   }
   screenshotSessions.set(sessionId, session)
-  overlay.once('ready-to-show', () => {
-    overlay.show()
-    overlay.focus()
-  })
   overlay.on('closed', () => {
     const activeSession = screenshotSessions.get(sessionId)
     if (activeSession?.overlay === overlay) {
       screenshotSessions.delete(sessionId)
-      restoreAfterCapture(activeSession.restoreState)
       activeSession.owner.send('screenshot:cancelled')
     }
   })
@@ -1934,13 +1911,29 @@ ipcMain.handle('screenshot:start', async (event) => {
   return { status: 'started', sessionId }
 })
 
+// ready-to-show 只说明 HTML 已载入，不代表冻结截图已经解码并画进 canvas。
+// 覆盖层必须等 renderer 报告首帧绘制完成后再一次性显示，否则用户会先看到
+// 底下的实时桌面、再看到冻结帧，视觉上就像叠了两张画面。
+ipcMain.handle('screenshot:overlay-ready', (event, sessionId) => {
+  const session = screenshotSessions.get(sessionId)
+  if (!session || event.sender !== session.overlay.webContents) {
+    throw new Error('截图覆盖层会话无效')
+  }
+  if (!session.overlay.isDestroyed() && !session.overlay.isVisible()) {
+    session.overlay.show()
+    session.overlay.focus()
+  }
+  return { status: 'ready' }
+})
+
 ipcMain.handle('screenshot:get-session', (_event, sessionId) => {
   const session = screenshotSessions.get(sessionId)
   if (!session) throw new Error('截图会话已失效')
   return {
     data: new Uint8Array(session.data),
     imageSize: session.imageSize,
-    displayBounds: session.displayBounds
+    displayBounds: session.displayBounds,
+    backend: session.backend
   }
 })
 
@@ -1973,9 +1966,7 @@ ipcMain.handle('screenshot:complete', (_event, payload) => {
     data = nativeImage.createFromBuffer(session.data).crop({ x, y, width, height }).toPNG()
   }
   screenshotSessions.delete(payload.sessionId)
-  session.overlay.close()
-  // 先把主窗口还回来再送结果，用户才能立刻看到截图落进画布
-  restoreAfterCapture(session.restoreState)
+  closeScreenshotOverlay(session.overlay)
   session.owner.send('screenshot:captured', {
     data: new Uint8Array(data),
     width,
@@ -1988,8 +1979,7 @@ ipcMain.handle('screenshot:cancel', (_event, sessionId) => {
   const session = screenshotSessions.get(sessionId)
   if (session) {
     screenshotSessions.delete(sessionId)
-    session.overlay.close()
-    restoreAfterCapture(session.restoreState)
+    closeScreenshotOverlay(session.overlay)
     session.owner.send('screenshot:cancelled')
   }
   return { status: 'cancelled' }
@@ -2200,9 +2190,15 @@ ipcMain.handle('screenshot:copy', (_event, data) => {
   return { status: 'copied', size: image.getSize() }
 })
 
+function isScreenshotActionSender(event) {
+  if (mainWindow && event.sender === mainWindow.webContents) return true
+  return [...screenshotSessions.values()].some((session) =>
+    !session.overlay.isDestroyed() && event.sender === session.overlay.webContents)
+}
+
 ipcMain.handle('screenshot:ocr', async (event, data) => {
-  if (!mainWindow || event.sender !== mainWindow.webContents) {
-    throw new Error('只有主窗口可以执行截图 OCR')
+  if (!isScreenshotActionSender(event)) {
+    throw new Error('只有主窗口或当前截图覆盖层可以执行截图 OCR')
   }
   if (ocrBusy) throw new Error('已有 OCR 任务正在执行')
   if (!(data instanceof Uint8Array) || data.byteLength > 100 * 1024 * 1024) {
@@ -2229,8 +2225,8 @@ ipcMain.handle('screenshot:ocr', async (event, data) => {
 })
 
 ipcMain.handle('screenshot:copy-text', (event, text) => {
-  if (!mainWindow || event.sender !== mainWindow.webContents) {
-    throw new Error('只有主窗口可以复制 OCR 文字')
+  if (!isScreenshotActionSender(event)) {
+    throw new Error('只有主窗口或当前截图覆盖层可以复制 OCR 文字')
   }
   if (typeof text !== 'string' || Buffer.byteLength(text, 'utf8') > 2 * 1024 * 1024) {
     throw new Error('OCR 文本无效或超过 2 MB')
@@ -2248,8 +2244,8 @@ function getPinnedScreenshotSession(event, pinId) {
 }
 
 ipcMain.handle('screenshot:pin', async (event, data) => {
-  if (!mainWindow || event.sender !== mainWindow.webContents) {
-    throw new Error('只有主窗口可以创建钉图')
+  if (!isScreenshotActionSender(event)) {
+    throw new Error('只有主窗口或当前截图覆盖层可以创建钉图')
   }
   if (!(data instanceof Uint8Array) || data.byteLength > 100 * 1024 * 1024) {
     throw new Error('钉图数据无效或超过 100 MB')
@@ -2420,11 +2416,8 @@ function notifyShortcutStatus(payload) {
 function triggerCaptureShortcut() {
   if (screenshotSessions.size > 0) return
   if (!mainWindow || mainWindow.isDestroyed()) return
-  // ⚠ 不在这里 show/focus。
-  //   截图本来就要把主窗口藏起来（否则应用自己会被截进冻结画面），
-  //   先显示再隐藏会闪一下。这里只发事件，窗口的隐藏与还原全部交给
-  //   screenshot:start 的 hideForCapture / restoreAfterCapture。
-  //   截图完成后由 restoreAfterCapture 还原，并由渲染端切到图片画布。
+  // 不改变窗口状态。截图捕获的是用户按下快捷键那一刻真实可见的画面，
+  // 覆盖层在冻结帧绘制完成后再一次性显示，避免全屏 Space 跳转和双画面闪烁。
   mainWindow.webContents.send('shortcut:capture')
 }
 
@@ -2539,6 +2532,13 @@ ipcMain.on('shortcut:ready', (event) => {
 })
 
 app.whenReady().then(() => {
+  // macOS 首次截图若在点击后才编译 ScreenCaptureKit 侧车，会额外等待约一秒。
+  // 启动后后台预热；失败时 promise 会自行复位，真正截图仍会重试并给出明确错误。
+  if (process.platform === 'darwin') {
+    void ensureScreenCaptureKitBinary().catch((error) => {
+      console.warn('ScreenCaptureKit 侧车预热失败：', error?.message || error)
+    })
+  }
   // BrowserWindow.icon 不控制 macOS Dock；开发模式显式使用项目图标，
   // 方便本机预览与 Windows 打包后的品牌视觉保持一致。
   if (process.platform === 'darwin') {
