@@ -1890,6 +1890,14 @@ ipcMain.handle('screenshot:start', async (event) => {
       sandbox: true
     }
   })
+  // Electron 的 alwaysOnTop 默认是 floating：在 Windows 上仍位于任务栏下方，
+  // 会同时露出真实任务栏和冻结画面里的任务栏，看起来像截图错位/叠了两层。
+  // screen-saver 层级覆盖完整显示器区域；macOS 还需跨全屏 Space 可见。
+  overlay.setAlwaysOnTop(true, 'screen-saver')
+  if (process.platform === 'darwin') {
+    overlay.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  }
+  overlay.setBounds(display.bounds, false)
   const session = {
     data,
     displayBounds: display.bounds,
