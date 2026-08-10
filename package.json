@@ -1,6 +1,6 @@
 {
   "name": "moyu-tools",
-  "version": "2.1.0-beta.8",
+  "version": "2.1.0-beta.9",
   "description": "面向设计工作流的 Windows Electron 工具箱",
   "author": "Clukay",
   "private": true,
