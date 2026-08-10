@@ -2931,9 +2931,11 @@ label {
 
 .settings-heading {
   display: flex;
+  width: min(100%, 1080px);
   flex: none;
   align-items: flex-end;
   min-height: 74px;
+  margin-inline: auto;
   padding: 4px 2px 12px;
 }
 
@@ -2958,11 +2960,13 @@ label {
 
 .settings-layout {
   display: grid;
+  width: min(100%, 1080px);
   min-height: 0;
   flex: 1;
-  grid-template-columns: 196px minmax(0, 760px);
-  gap: 22px;
+  grid-template-columns: 156px minmax(0, 1fr);
+  gap: 18px;
   align-items: start;
+  margin-inline: auto;
   overflow: auto;
   scroll-behavior: smooth;
 }
@@ -2982,11 +2986,11 @@ label {
 
 .settings-nav-item {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 8px;
   align-items: center;
-  min-height: 52px;
-  padding: 7px 10px;
+  min-height: 48px;
+  padding: 6px 8px;
   border: 1px solid transparent;
   border-radius: var(--r-md);
   color: var(--muted);
@@ -3762,7 +3766,8 @@ label {
   }
 
   .settings-layout {
-    grid-template-columns: 164px minmax(0, 1fr);
+    grid-template-columns: 136px minmax(0, 1fr);
+    gap: 14px;
   }
 
   .image-side {
