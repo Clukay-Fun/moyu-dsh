@@ -4069,6 +4069,15 @@ function serializeBarcodeSvg(svgElement = barcodeSvg) {
   clone.removeAttribute('id')
   clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
   outlineBarcodeText(clone)
+
+  // 普通 SVG / EPS / 矢量剪贴板默认作为一个整体导入设计软件，
+  // 用户可在 Illustrator 中手动取消编组；专用“未编组”路径会在 COM 侧递归解组。
+  const artwork = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+  artwork.setAttribute('id', 'barcode-artwork')
+  artwork.setAttribute('data-moyu-barcode-group', 'true')
+  while (clone.firstChild) artwork.append(clone.firstChild)
+  clone.append(artwork)
+
   return `<?xml version="1.0" encoding="UTF-8"?>\n${new XMLSerializer().serializeToString(clone)}`
 }
 
