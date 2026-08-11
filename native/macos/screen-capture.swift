@@ -5,6 +5,7 @@ import ScreenCaptureKit
 
 enum CaptureError: LocalizedError {
     case invalidArguments
+    case screenRecordingUnavailable
     case displayNotFound(UInt32)
     case pngEncodingFailed
 
@@ -12,6 +13,8 @@ enum CaptureError: LocalizedError {
         switch self {
         case .invalidArguments:
             return "用法：screen-capture <output.png> <display-id> <pixel-width> <pixel-height>"
+        case .screenRecordingUnavailable:
+            return "无法读取屏幕列表，请在系统设置中允许当前应用录制屏幕"
         case .displayNotFound(let id):
             return "找不到显示器：\(id)"
         case .pngEncodingFailed:
@@ -37,6 +40,9 @@ struct ScreenCaptureSidecar {
                 false,
                 onScreenWindowsOnly: false
             )
+            guard !content.displays.isEmpty else {
+                throw CaptureError.screenRecordingUnavailable
+            }
             guard let display = content.displays.first(where: { $0.displayID == displayID }) else {
                 throw CaptureError.displayNotFound(displayID)
             }

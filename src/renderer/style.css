@@ -1620,6 +1620,18 @@ label {
   background: var(--accent-10);
 }
 
+.file-drop-target,
+.board-stage {
+  transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
+}
+
+.file-drop-target.drag-over,
+.board-stage.drag-over {
+  border-color: color-mix(in srgb, var(--accent) 78%, transparent);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 24%, transparent);
+  background-color: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
 .pdf-file-body {
   min-height: 0;
   overflow: auto;

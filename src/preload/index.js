@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
 contextBridge.exposeInMainWorld(
   'api',
@@ -50,6 +50,8 @@ contextBridge.exposeInMainWorld(
     setCaptureShortcut: (payload) => ipcRenderer.invoke('shortcut:set', payload),
     resetCaptureShortcut: () => ipcRenderer.invoke('shortcut:reset'),
     pickIllustratorFiles: () => ipcRenderer.invoke('illustrator:pick-files'),
+    getPathForFile: (file) => webUtils.getPathForFile(file),
+    addDroppedIllustratorFiles: (paths) => ipcRenderer.invoke('illustrator:add-paths', paths),
     pickIllustratorFolder: () => ipcRenderer.invoke('illustrator:pick-folder'),
     removeIllustratorInputs: (inputIds) => ipcRenderer.invoke('illustrator:remove-inputs', inputIds),
     runIllustratorTask: (payload) => ipcRenderer.invoke('illustrator:run', payload),
@@ -59,6 +61,8 @@ contextBridge.exposeInMainWorld(
     showComResult: (resultId) => ipcRenderer.invoke('com:show-result', resultId),
     getFormatStatus: () => ipcRenderer.invoke('format:get-status'),
     pickFormatFiles: (payload) => ipcRenderer.invoke('format:pick-files', payload),
+    addDroppedFormatFiles: (paths, kind) =>
+      ipcRenderer.invoke('format:add-paths', { paths, kind }),
     pickFormatFolder: (payload) => ipcRenderer.invoke('format:pick-folder', payload),
     removeFormatInputs: (inputIds) => ipcRenderer.invoke('format:remove-inputs', inputIds),
     runFormatTask: (payload) => ipcRenderer.invoke('format:run', payload),

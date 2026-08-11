@@ -145,6 +145,20 @@ export class BoardController {
 
     dom.addFile.addEventListener('click', () => dom.fileInput.click())
     dom.fileInput.addEventListener('change', () => this.#onFilesPicked())
+    dom.stage.addEventListener('dragover', (event) => {
+      if (!event.dataTransfer?.types.includes('Files')) return
+      event.preventDefault()
+      event.dataTransfer.dropEffect = 'copy'
+      dom.stage.classList.add('drag-over')
+    })
+    dom.stage.addEventListener('dragleave', (event) => {
+      if (!dom.stage.contains(event.relatedTarget)) dom.stage.classList.remove('drag-over')
+    })
+    dom.stage.addEventListener('drop', (event) => {
+      event.preventDefault()
+      dom.stage.classList.remove('drag-over')
+      void this.importFiles(event.dataTransfer?.files)
+    })
     dom.deleteButton.addEventListener('click', () => this.deleteSelected())
     dom.front.addEventListener('click', () => this.#applyLayer(bringToFront))
     dom.forward.addEventListener('click', () => this.#applyLayer(bringForward))
@@ -1353,6 +1367,16 @@ export class BoardController {
   async #onFilesPicked() {
     const files = [...(this.dom.fileInput.files || [])]
     this.dom.fileInput.value = ''
+    await this.importFiles(files)
+  }
+
+  async importFiles(fileList) {
+    const files = [...(fileList || [])]
+      .filter((file) => /^image\/(png|jpeg|webp)$/.test(file.type) || /\.(png|jpe?g|webp)$/i.test(file.name))
+    if (!files.length) {
+      this.onStatus({ error: '请拖入 PNG、JPG 或 WebP 图片' })
+      return 0
+    }
     this.beginAddTransaction()
     let added = 0
     for (const file of files) {
@@ -1367,6 +1391,7 @@ export class BoardController {
     this.endAddTransaction()
     // 导入结束信号：成功数为 0 时同样要通知，调用方据此清理 pending
     this.onStatus({ imported: added })
+    return added
   }
 
   // ── 项目文件 ────────────────────────────────────────────

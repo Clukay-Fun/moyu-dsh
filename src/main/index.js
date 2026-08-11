@@ -6,7 +6,6 @@ import {
   dialog,
   globalShortcut,
   ipcMain,
-  net,
   nativeImage,
   screen,
   shell,
@@ -16,7 +15,7 @@ import { createWorker, OEM } from 'tesseract.js'
 import sharp from 'sharp'
 import { spawn } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import {
   copyFile,
   mkdir,
@@ -89,9 +88,6 @@ const screenshotSessions = new Map()
 let reusableScreenshotOverlay = null
 let screenshotOverlayReadyPromise = null
 const pinnedScreenshotSessions = new Map()
-const aiInputSessions = new Map()
-const aiResultSessions = new Map()
-const aiModelDownloads = new Map()
 const formatInputSessions = new Map()
 const formatResultSessions = new Map()
 const formatTasks = new Map()
@@ -912,6 +908,24 @@ ipcMain.handle('illustrator:pick-files', async (event) => {
   return files
 })
 
+ipcMain.handle('illustrator:add-paths', async (event, paths) => {
+  assertMainWindowSender(event)
+  if (!Array.isArray(paths) || paths.length === 0 || paths.length > 500) {
+    throw new Error('一次只能拖入 1–500 个 Illustrator 文件')
+  }
+  const files = []
+  const errors = []
+  for (const filePath of paths) {
+    try {
+      if (typeof filePath !== 'string' || !filePath) throw new Error('文件路径无效')
+      files.push(await registerIllustratorInput(filePath, event.sender.id))
+    } catch (error) {
+      errors.push(error.message)
+    }
+  }
+  return { status: 'selected', files, errors }
+})
+
 ipcMain.handle('illustrator:pick-folder', async (event) => {
   assertMainWindowSender(event)
   const ownerWindow = BrowserWindow.fromWebContents(event.sender)
@@ -1178,6 +1192,7 @@ ipcMain.handle('barcode:copy-vector', (event, data) => {
 })
 
 ipcMain.handle('barcode:save-file', async (event, payload) => {
+  assertMainWindowSender(event)
   const { data, fileType } = normalizeBarcodeData(payload?.type, payload?.data)
 
   if (Buffer.byteLength(data) > 20 * 1024 * 1024) {
@@ -1207,6 +1222,7 @@ ipcMain.handle('barcode:save-file', async (event, payload) => {
 })
 
 ipcMain.handle('barcode:save-files', async (event, payload) => {
+  assertMainWindowSender(event)
   if (!Array.isArray(payload?.files) || payload.files.length === 0 || payload.files.length > 500) {
     throw new Error('批量条码数量必须在 1–500 之间')
   }
@@ -1259,6 +1275,7 @@ ipcMain.handle('barcode:save-files', async (event, payload) => {
 })
 
 ipcMain.handle('image:save-file', async (event, payload) => {
+  assertMainWindowSender(event)
   const fileType = IMAGE_FILE_TYPES[payload?.type]
   const data = payload?.data instanceof Uint8Array
     ? Buffer.from(payload.data)
@@ -1362,6 +1379,26 @@ ipcMain.handle('format:pick-files', async (event, payload) => {
   const errors = []
   for (const filePath of result.filePaths) {
     try {
+      files.push(await registerFormatInput(filePath, event.sender.id, kind))
+    } catch (error) {
+      errors.push(error.message)
+    }
+  }
+  return { status: 'selected', files, errors }
+})
+
+ipcMain.handle('format:add-paths', async (event, payload) => {
+  assertMainWindowSender(event)
+  const kind = normalizeFormatKind(payload?.kind)
+  const paths = payload?.paths
+  if (!Array.isArray(paths) || paths.length === 0 || paths.length > FORMAT_MAX_FILES) {
+    throw new Error(`一次只能拖入 1–${FORMAT_MAX_FILES} 个文件`)
+  }
+  const files = []
+  const errors = []
+  for (const filePath of paths) {
+    try {
+      if (typeof filePath !== 'string' || !filePath) throw new Error('文件路径无效')
       files.push(await registerFormatInput(filePath, event.sender.id, kind))
     } catch (error) {
       errors.push(error.message)
@@ -1707,7 +1744,8 @@ ipcMain.handle('pdf:save-files', async (event, payload) => {
   }
 })
 
-ipcMain.handle('pdf:show-item', async (_event, payload) => {
+ipcMain.handle('pdf:show-item', async (event, payload) => {
+  assertMainWindowSender(event)
   if (typeof payload?.path !== 'string' || !payload.path.trim()) {
     throw new Error('没有可打开的输出位置')
   }
@@ -1887,6 +1925,7 @@ async function ensureScreenshotOverlay(display) {
 }
 
 ipcMain.handle('screenshot:start', async (event) => {
+  assertMainWindowSender(event)
   const cursorPoint = screen.getCursorScreenPoint()
   const display = screen.getDisplayNearestPoint(cursorPoint)
   const physicalWidth = Math.max(1, Math.round(display.bounds.width * display.scaleFactor))
@@ -1956,9 +1995,11 @@ ipcMain.handle('screenshot:overlay-ready', (event, sessionId) => {
   return { status: 'ready' }
 })
 
-ipcMain.handle('screenshot:get-session', (_event, sessionId) => {
+ipcMain.handle('screenshot:get-session', (event, sessionId) => {
   const session = screenshotSessions.get(sessionId)
-  if (!session) throw new Error('截图会话已失效')
+  if (!session || event.sender !== session.overlay.webContents) {
+    throw new Error('截图会话已失效或无权访问')
+  }
   return {
     data: new Uint8Array(session.data),
     imageSize: session.imageSize,
@@ -1967,9 +2008,11 @@ ipcMain.handle('screenshot:get-session', (_event, sessionId) => {
   }
 })
 
-ipcMain.handle('screenshot:complete', (_event, payload) => {
+ipcMain.handle('screenshot:complete', (event, payload) => {
   const session = screenshotSessions.get(payload?.sessionId)
-  if (!session) throw new Error('截图会话已失效')
+  if (!session || event.sender !== session.overlay.webContents) {
+    throw new Error('截图会话已失效或无权访问')
+  }
   let data
   let width
   let height
@@ -2005,8 +2048,11 @@ ipcMain.handle('screenshot:complete', (_event, payload) => {
   return { status: 'captured', width, height }
 })
 
-ipcMain.handle('screenshot:cancel', (_event, sessionId) => {
+ipcMain.handle('screenshot:cancel', (event, sessionId) => {
   const session = screenshotSessions.get(sessionId)
+  if (session && event.sender !== session.overlay.webContents) {
+    throw new Error('截图会话无权访问')
+  }
   if (session) {
     screenshotSessions.delete(sessionId)
     hideScreenshotOverlay(session.overlay)
@@ -2195,6 +2241,9 @@ ipcMain.handle('recovery:clear', async (event) => {
 })
 
 ipcMain.handle('screenshot:save', async (event, payload) => {
+  if (!isScreenshotActionSender(event)) {
+    throw new Error('只有主窗口或当前截图覆盖层可以保存截图')
+  }
   const data = payload?.data instanceof Uint8Array ? Buffer.from(payload.data) : null
   if (!data || data.byteLength > 100 * 1024 * 1024) {
     throw new Error('截图数据无效或超过 100 MB')
@@ -2210,7 +2259,10 @@ ipcMain.handle('screenshot:save', async (event, payload) => {
   return { status: 'saved', path: result.filePath }
 })
 
-ipcMain.handle('screenshot:copy', (_event, data) => {
+ipcMain.handle('screenshot:copy', (event, data) => {
+  if (!isScreenshotActionSender(event)) {
+    throw new Error('只有主窗口或当前截图覆盖层可以复制截图')
+  }
   if (!(data instanceof Uint8Array) || data.byteLength > 100 * 1024 * 1024) {
     throw new Error('截图数据无效或超过 100 MB')
   }
@@ -2504,11 +2556,14 @@ function registerCaptureShortcut() {
 
 // ── 设置页用的 IPC ──────────────────────────────────────────
 
-ipcMain.handle('shortcut:get', () => ({
-  accelerator: captureShortcut,
-  default: DEFAULT_CAPTURE_SHORTCUT,
-  disabled: captureShortcut === null
-}))
+ipcMain.handle('shortcut:get', (event) => {
+  assertMainWindowSender(event)
+  return {
+    accelerator: captureShortcut,
+    default: DEFAULT_CAPTURE_SHORTCUT,
+    disabled: captureShortcut === null
+  }
+})
 
 /**
  * 修改快捷键。

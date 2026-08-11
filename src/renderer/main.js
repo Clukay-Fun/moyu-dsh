@@ -1078,6 +1078,35 @@ function showToast(message) {
   toastTimer = window.setTimeout(() => toast.classList.remove('show'), 2600)
 }
 
+function bindFileDropZone(element, onDrop) {
+  element.addEventListener('dragover', (event) => {
+    if (!event.dataTransfer?.types.includes('Files')) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'copy'
+    element.classList.add('drag-over')
+  })
+  element.addEventListener('dragleave', (event) => {
+    if (!element.contains(event.relatedTarget)) element.classList.remove('drag-over')
+  })
+  element.addEventListener('drop', (event) => {
+    event.preventDefault()
+    element.classList.remove('drag-over')
+    if (event.dataTransfer?.files.length) void onDrop(event.dataTransfer.files)
+  })
+}
+
+function droppedFilePaths(files) {
+  return Array.from(files || [], (file) => window.api.getPathForFile(file)).filter(Boolean)
+}
+
+// 文件若落在目标区边缘之外，Chromium 默认会直接导航到该文件，导致当前工作丢失。
+// 目标区自己的 drop 处理先执行；这里仅兜底阻止页面导航。
+for (const type of ['dragover', 'drop']) {
+  document.addEventListener(type, (event) => {
+    if (event.dataTransfer?.types.includes('Files')) event.preventDefault()
+  })
+}
+
 document.addEventListener('click', (event) => {
   const button = event.target.closest('.placeholder-action')
   if (!button) return
@@ -3319,6 +3348,7 @@ const illustratorState = {
 }
 const illustratorFileBody = document.querySelector('#illustrator-file-body')
 const illustratorEmpty = document.querySelector('#illustrator-empty')
+const illustratorDropZone = document.querySelector('#illustrator-drop-zone')
 const illustratorAddFilesButton = document.querySelector('#illustrator-add-files')
 const illustratorAddFolderButton = document.querySelector('#illustrator-add-folder')
 const illustratorClearButton = document.querySelector('#illustrator-clear')
@@ -3465,6 +3495,16 @@ async function runIllustratorAction(action, triggerButton) {
 
 illustratorAddFilesButton.addEventListener('click', () => addIllustratorInputs(window.api.pickIllustratorFiles))
 illustratorAddFolderButton.addEventListener('click', () => addIllustratorInputs(window.api.pickIllustratorFolder))
+bindFileDropZone(illustratorDropZone, async (files) => {
+  if (illustratorState.busy) return
+  try {
+    const result = await window.api.addDroppedIllustratorFiles(droppedFilePaths(files))
+    await addIllustratorInputs(async () => result.files)
+    if (result.errors.length) showToast(`${result.errors.length} 个文件未能加入`)
+  } catch (error) {
+    showToast(`拖入失败：${cleanIpcError(error?.message ?? error)}`)
+  }
+})
 illustratorClearButton.addEventListener('click', async () => {
   if (illustratorState.busy) return
   const ids = illustratorState.inputs.map((file) => file.id)
@@ -4984,6 +5024,19 @@ async function pickFormatFolder() {
     showToast(`读取文件夹失败：${error.message}`)
   }
 }
+
+const formatDropZone = document.querySelector('#format-drop-zone')
+bindFileDropZone(formatDropZone, async (files) => {
+  if (formatState.busy) return
+  try {
+    const result = await window.api.addDroppedFormatFiles(droppedFilePaths(files), formatConfig().kind)
+    if (result.status !== 'selected') return
+    addFormatInputs(result.files)
+    if (result.errors.length) showToast(`${result.errors.length} 个文件未能加入`)
+  } catch (error) {
+    showToast(`拖入失败：${cleanIpcError(error?.message ?? error)}`)
+  }
+})
 
 async function clearFormatInputs() {
   const ids = formatState.inputs.map((input) => input.id)
