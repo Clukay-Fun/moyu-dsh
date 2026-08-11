@@ -67,7 +67,7 @@ git rev-parse HEAD
 node -p "require('./package.json').version"
 ```
 
-当前 Windows 验收清单位于本地 `scope/plans/v2-test/v2.1.0-windows-acceptance.md`，该目录按项目约定不纳入 Git，也不随源码测试包交付；需要时单独复制给测试机。
+当前 Windows 验收清单位于本地 `scope/plans/active/v2.1.0-windows-acceptance.md`，该目录按项目约定不纳入 Git，也不随源码测试包交付；需要时单独复制给测试机。
 
 ## 边界
 
