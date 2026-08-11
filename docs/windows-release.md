@@ -2,12 +2,14 @@
 
 本文件是摸鱼工具箱 Windows portable EXE 的唯一打包规范。后续执行正式打包时直接按本文操作，不再临时猜测构建方式。
 
+2.1.0 定位为个人内部学习版本，不对外分发；随包 OCR-B 字体仍受 `THIRD_PARTY_NOTICES.md` 中的授权边界约束。
+
 功能频繁迭代期间可以使用 [Windows 源码测试版](windows-source-test.md)，避免每次修改都生成 portable EXE。源码测试版只用于开发验收，不改变本文件的正式发布要求。
 
 ## 1. 目标产物
 
 - 文件名：`摸鱼工具箱-v<version>-x64.exe`
-- 当前测试版本：`摸鱼工具箱-v2.1.0-beta.2-x64.exe`
+- 当前内部版本：`摸鱼工具箱-v2.1.0-x64.exe`
 - 架构：Windows x64
 - 形态：electron-builder `portable` 单文件 EXE
 - 交付位置：用户桌面根目录
@@ -61,7 +63,7 @@ npm run build:win
 预期产物：
 
 ```text
-release/摸鱼工具箱-v2.1.0-beta.2-x64.exe
+release/摸鱼工具箱-v2.1.0-x64.exe
 ```
 
 ### 3.2 当前机器不是 Windows，但用户要求直接提供 EXE
@@ -152,7 +154,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: moyu-tools-windows-v2.1.0-beta.2
+          name: moyu-tools-windows-v2.1.0
           path: |
             release/*-x64.exe
             release/SHA256SUMS.txt
@@ -202,15 +204,15 @@ git push -u origin codex/windows-repackage
 3. 本地重新计算：
 
    ```bash
-   shasum -a 256 摸鱼工具箱-v2.1.0-beta.2-x64.exe
+   shasum -a 256 摸鱼工具箱-v2.1.0-x64.exe
    ```
 
 4. 本地计算结果必须与 runner 生成的 `SHA256SUMS.txt` 完全一致。
 5. 将以下两个文件直接放在桌面根目录：
 
    ```text
-   ~/Desktop/摸鱼工具箱-v2.1.0-beta.2-x64.exe
-   ~/Desktop/摸鱼工具箱-v2.1.0-beta.2-x64-SHA256.txt
+   ~/Desktop/摸鱼工具箱-v2.1.0-x64.exe
+   ~/Desktop/摸鱼工具箱-v2.1.0-x64-SHA256.txt
    ```
 
 6. 最终回复必须报告：
