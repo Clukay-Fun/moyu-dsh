@@ -4,18 +4,17 @@
 
 ## 当前状态
 
-2.1.0 是个人内部学习版本。唯一正式 UI 是 Electron 渲染层；根目录 [index.html](index.html) 仅保留为视觉蓝本，不作为独立网页产品交付。
+2.1.0 是个人内部学习版本。唯一正式 UI 是 Electron 渲染层。
 
 目前已经接通：
 
-- 一维条码：9 类码制、单个/批量生成、SVG/PNG/EPS、打印尺寸及一键转入 Illustrator/Photoshop。
+- 一维条码：11 个入口（EAN-13、UPC-A、ITF-14、GS1-128、EAN-8、Code 128、Code 39、ITF、MSI、Codabar、Auto），支持单个/批量生成、SVG/PNG/EPS、打印尺寸及 Adobe 联动。
 - 图片与画布：截图/导入/粘贴图片、对象编排、文本框、裁切、旋转翻转、涂鸦、调色、像素化，以及 PNG/JPG/WebP/TIFF 导出。
 - PDF：转换、合并拆分、旋转提页、水印页码、页面重排、提图、OCR、AES 加解密。
 - Office：在已安装 Microsoft Office 的 Windows 上将 Word、Excel、PowerPoint 导出为 PDF。
 - Illustrator：批量导出 PDF、250 PPI 最小化 PDF 与文字转曲。
 - 截图：区域截图、标注、离线中英 OCR、钉图。
 - 格式工厂：视频格式转换/压缩/抽取音频、音频转换，以及图片转换/压缩。
-- AI 图像：本版本不提供模型下载、推理或 sidecar。
 - 设置：浅色/深色/跟随系统与自定义强调色。
 
 COM 已采用独立 Electron utility process 隔离，winax 的 Electron ABI、发布包资源与启动已通过 Windows 自动验收；Office/Adobe 的真实文件处理仍需在安装了对应软件的 Windows 机器上做发布前回归。开发范围与验收以本地 `scope/` 子计划为准。
@@ -37,23 +36,19 @@ npm run build
 npm run build:win
 ```
 
-`npm run build` 生成 Electron bundle；`npm run build:win` 会先下载并校验固定版本的 FFmpeg/ffprobe，再生成 Windows x64 portable EXE。本版本不构建或打包 AI sidecar。
-
-频繁测试时可在 Windows 源码目录先双击 `首次安装.cmd`，以后通过 `启动测试版.cmd` 直接启动 Electron，不必每次生成 portable EXE。完整说明见 [Windows 源码测试版](docs/windows-source-test.md)。
+日常开发使用 `npm install` 和 `npm run dev`；可复现验证使用 `npm ci` 和 `npm run build`。`npm run build:win` 会下载并校验固定版本的 FFmpeg/ffprobe，再生成 Windows x64 portable EXE。
 
 完整的 Windows 本机构建、临时 Windows runner、启动冒烟、SHA-256 校验、桌面交付和远程清理流程见 [Windows x64 构建与交付规范](docs/windows-release.md)。非 Windows 主机需要提供 EXE 时按该规范使用临时 Windows runner，不使用 Docker，也不长期保留 Artifact。
 
-AI 模型不会随源码或 EXE 分发。
-
 ## 目录
 
-- `index.html`：视觉蓝本。
 - `assets/`：logo 等本地资源。
 - `src/main/`：Electron 主进程与受限 IPC。
 - `src/preload/`：renderer 白名单桥接。
 - `src/renderer/`：正式界面与浏览器侧工具能力。
 - `scripts/`：发布构建脚本。
-- `licenses/`：第三方组件、运行库与模型 notices。
+- `docs/`：随源码维护的当前开发与发布文档。
+- `licenses/`：第三方组件与运行库的许可证和 notices。
 - `scope/`：本地路线图和子计划，不纳入 Git。
 - `tests/`：本地测试与样本，不纳入 Git。
 

@@ -2,7 +2,7 @@
 
 ## 项目定位
 
-这是一个 Windows x64 Electron 桌面工具箱。Electron 渲染层是唯一正式 UI；根目录 `index.html` 只是视觉蓝本，后续迁入 Vite renderer，不作为独立网页产品维护。
+这是一个 Windows x64 Electron 桌面工具箱。Electron 渲染层是唯一正式 UI。
 
 技术与范围以本机 `scope/v2-done.md` 及其 `scope/plans/` 子计划为准。`scope/` 是本地开发依据，不纳入 Git。
 

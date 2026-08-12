@@ -4,8 +4,6 @@
 
 2.1.0 定位为个人内部学习版本，不对外分发；随包 OCR-B 字体仍受 `THIRD_PARTY_NOTICES.md` 中的授权边界约束。
 
-功能频繁迭代期间可以使用 [Windows 源码测试版](windows-source-test.md)，避免每次修改都生成 portable EXE。源码测试版只用于开发验收，不改变本文件的正式发布要求。
-
 ## 1. 目标产物
 
 - 文件名：`摸鱼工具箱-v<version>-x64.exe`
@@ -15,7 +13,7 @@
 - 交付位置：用户桌面根目录
 - 同目录附带 SHA-256 文本文件
 
-不得用旧 EXE 改名冒充新构建，也不得把源码测试版或 `win-unpacked` 目录冒充正式发布包。
+不得用旧 EXE 改名冒充新构建，也不得把 `win-unpacked` 目录冒充正式发布包。
 
 ## 2. 构建前门禁
 
@@ -40,7 +38,7 @@
 
 6. 不把 `scope/`、`tests/`、`release/`、缓存、模型或构建产物加入 Git。
 
-未通过上述门禁时不得生成正式测试包。
+未通过上述门禁时不得生成正式 EXE。
 
 ## 3. 构建方式选择
 
@@ -58,7 +56,7 @@ npm run build:win
 1. 下载固定版本的 `ffmpeg.exe` 和 `ffprobe.exe`，校验下载文件与解压后二进制 SHA-256。
 2. 构建 Electron main、preload 和 renderer。
 3. rebuild `winax`、sharp 等 Windows/Electron 原生模块。
-4. 生成 Windows x64 portable EXE。本测试版本的 AI 图像模块已封印，不构建或打包 AI sidecar。
+4. 生成 Windows x64 portable EXE。
 
 预期产物：
 
@@ -188,7 +186,7 @@ git push -u origin codex/windows-repackage
 2. Electron ABI 原生模块 rebuild。
 3. FFmpeg/ffprobe 固定资源构建。
 4. Electron bundle。
-5. portable EXE，且包内不存在 AI sidecar。
+5. portable EXE 生成。
 6. `com-worker.cjs`、许可证、notices 和 OCR-B 字体包内检查。
 7. `win-unpacked/摸鱼工具箱.exe` 启动后持续运行至少 8 秒。
 8. SHA-256 文件生成。
@@ -244,5 +242,4 @@ git push -u origin codex/windows-repackage
 - 不复用旧 EXE 代替新源码构建。
 - 不跳过 SHA-256 校验。
 - 不因打包而把 `dev` 或 `main` 推送到远程。
-- 不把模型文件打入 EXE。
 - 不把构建成功等同于 Office/Adobe 真实文件处理通过。
