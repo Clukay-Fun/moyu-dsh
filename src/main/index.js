@@ -1791,6 +1791,11 @@ let screenCaptureKitBinaryPromise = null
 async function ensureScreenCaptureKitBinary() {
   if (screenCaptureKitBinaryPromise) return screenCaptureKitBinaryPromise
   screenCaptureKitBinaryPromise = (async () => {
+    if (app.isPackaged) {
+      const packagedBinary = join(process.resourcesPath, 'native', 'macos', 'screen-capture')
+      if (!existsSync(packagedBinary)) throw new Error('安装包缺少 macOS ScreenCaptureKit helper')
+      return packagedBinary
+    }
     const sourceCandidates = [
       join(app.getAppPath(), 'native', 'macos', 'screen-capture.swift'),
       join(__dirname, '..', '..', 'native', 'macos', 'screen-capture.swift')

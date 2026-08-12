@@ -13,8 +13,10 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "build:icon": "node scripts/generate-icon.mjs",
+    "build:native:mac": "node scripts/build-macos-native.mjs",
     "build:tools:win": "powershell -ExecutionPolicy Bypass -File scripts/download-ffmpeg-win.ps1",
     "build:win": "npm run build:icon && npm run build:tools:win && npm run build && electron-builder --win portable --x64",
+    "build:mac": "npm run build:native:mac && npm run build && electron-builder --mac dmg --arm64",
     "preview": "electron-vite preview"
   },
   "build": {
@@ -75,8 +77,34 @@
           ]
         }
       ],
-      "artifactName": "${productName}-v${version}-${arch}.${ext}",
+      "artifactName": "Moyu-Tools-v${version}-Windows-${arch}.${ext}",
       "icon": "build/icon.ico"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "artifactName": "Moyu-Tools-v${version}-macOS-${arch}.${ext}",
+      "icon": "build/macos/app-icon.png",
+      "category": "public.app-category.productivity",
+      "extendInfo": {
+        "NSScreenCaptureUsageDescription": "摸鱼工具箱需要读取屏幕以完成区域截图。"
+      },
+      "extraResources": [
+        {
+          "from": "build/macos/screen-capture",
+          "to": "native/macos/screen-capture"
+        },
+        {
+          "from": "assets/app-icon.png",
+          "to": "app-icon.png"
+        }
+      ]
     }
   },
   "devDependencies": {

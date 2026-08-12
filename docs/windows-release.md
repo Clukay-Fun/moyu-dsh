@@ -6,8 +6,8 @@
 
 ## 1. 目标产物
 
-- 文件名：`摸鱼工具箱-v<version>-x64.exe`
-- 当前内部版本：`摸鱼工具箱-v2.1.0-x64.exe`
+- 文件名：`Moyu-Tools-v<version>-Windows-<arch>.exe`
+- 当前内部版本：`Moyu-Tools-v2.1.0-Windows-x64.exe`
 - 架构：Windows x64
 - 形态：electron-builder `portable` 单文件 EXE
 - 交付位置：用户桌面根目录
@@ -61,7 +61,7 @@ npm run build:win
 预期产物：
 
 ```text
-release/摸鱼工具箱-v2.1.0-x64.exe
+release/Moyu-Tools-v2.1.0-Windows-x64.exe
 ```
 
 ### 3.2 当前机器不是 Windows，但用户要求直接提供 EXE
@@ -142,7 +142,7 @@ jobs:
       - name: Generate checksum
         shell: pwsh
         run: |
-          $portable = Get-ChildItem "release/*-x64.exe" | Select-Object -First 1
+          $portable = Get-ChildItem "release/Moyu-Tools-v*-Windows-x64.exe" | Select-Object -First 1
           if (-not $portable) {
             throw "Portable executable missing"
           }
@@ -154,7 +154,7 @@ jobs:
         with:
           name: moyu-tools-windows-v2.1.0
           path: |
-            release/*-x64.exe
+            release/Moyu-Tools-v*-Windows-x64.exe
             release/SHA256SUMS.txt
           if-no-files-found: error
 ```
@@ -202,15 +202,15 @@ git push -u origin codex/windows-repackage
 3. 本地重新计算：
 
    ```bash
-   shasum -a 256 摸鱼工具箱-v2.1.0-x64.exe
+   shasum -a 256 Moyu-Tools-v2.1.0-Windows-x64.exe
    ```
 
 4. 本地计算结果必须与 runner 生成的 `SHA256SUMS.txt` 完全一致。
 5. 将以下两个文件直接放在桌面根目录：
 
    ```text
-   ~/Desktop/摸鱼工具箱-v2.1.0-x64.exe
-   ~/Desktop/摸鱼工具箱-v2.1.0-x64-SHA256.txt
+   ~/Desktop/Moyu-Tools-v2.1.0-Windows-x64.exe
+   ~/Desktop/Moyu-Tools-v2.1.0-Windows-x64.exe.sha256
    ```
 
 6. 最终回复必须报告：
