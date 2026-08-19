@@ -29,6 +29,7 @@ import {
   writeFile
 } from 'node:fs/promises'
 import { createRequire } from 'node:module'
+import { isDshEnabled, startDsh, stopDsh } from './dsh/index.js'
 import { basename, dirname, extname, join } from 'node:path'
 
 const require = createRequire(import.meta.url)
@@ -2644,6 +2645,22 @@ app.whenReady().then(() => {
   captureShortcut = readShortcutSettings()
   registerCaptureShortcut()
 
+  // v3.0.0 M0b B2：DSH Host 先以开关方式并行启动，主界面仍是 legacy renderer。
+  // fence 自检不通过时不保留 Host，也不暴露任何 DSH 入口（§3.2 fail-closed）。
+  if (isDshEnabled()) {
+    void startDsh({
+      onStdout: (line) => process.stdout.write(line),
+      // B4 切主界面后改为 DSH 窗口；现在对话框先挂在既有主窗口上。
+      window: () => mainWindow
+    })
+      .then((dsh) => {
+        console.log(`DSH Host 就绪：${dsh.host.url}（generation ${dsh.generation}，fence 自检 HTTP ${dsh.fence.http} / WS ${dsh.fence.ws}）`)
+      })
+      .catch((error) => {
+        console.error('DSH Host 启动失败：', error?.message || error)
+      })
+  }
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow()
@@ -2664,6 +2681,7 @@ app.on('will-quit', () => {
 })
 
 app.on('before-quit', () => {
+  void stopDsh().catch(() => {})
   ocrWorkerPromise?.then((worker) => worker.terminate()).catch(() => {})
   if (comWorker) {
     comWorker.kill()

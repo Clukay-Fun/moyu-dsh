@@ -43,9 +43,10 @@ npm run build:win
 ## 目录
 
 - `assets/`：logo 等本地资源。
-- `src/main/`：Electron 主进程与受限 IPC。
-- `src/preload/`：renderer 白名单桥接。
-- `src/renderer/`：正式界面与浏览器侧工具能力。
+- `apps/desktop/main/`：Electron 主进程与受限 IPC。
+- `apps/desktop/preload/`：renderer 白名单桥接。
+- `legacy/renderer/`：迁移期 Vanilla 界面与浏览器侧工具能力，逐片迁为 DSH Client Plugin。
+- `packages/`：Moyu 的 DSH 插件与架构 Spike 产物。
 - `scripts/`：发布构建脚本。
 - `docs/`：随源码维护的当前开发与发布文档。
 - `licenses/`：第三方组件与运行库的许可证和 notices。

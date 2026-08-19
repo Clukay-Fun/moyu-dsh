@@ -1,0 +1,22 @@
+{
+  "name": "@moyu/m0a-dsh-spike",
+  "version": "0.0.0-m0a",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:hello": "npm --prefix ../dsh-plugin-hello run build",
+    "prepare:profile": "node scripts/prepare-profile.mjs",
+    "verify:compat": "node scripts/compat-probe.mjs",
+    "start:web": "dsh --profile web --port 0",
+    "start:electron": "electron electron/main.mjs",
+    "verify:bridge": "M0A_AUTOTEST=1 electron electron/main.mjs",
+    "verify:auth": "M0A_AUTH_PROBE=1 electron electron/main.mjs"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh": "0.1.0-rc.7",
+    "@moyu/dsh-plugin-hello": "file:../dsh-plugin-hello"
+  },
+  "devDependencies": {
+    "electron": "43.2.0"
+  }
+}

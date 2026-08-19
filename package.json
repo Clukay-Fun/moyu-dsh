@@ -17,6 +17,8 @@
     "build:tools:win": "powershell -ExecutionPolicy Bypass -File scripts/download-ffmpeg-win.ps1",
     "build:win": "npm run build:icon && npm run build:tools:win && npm run build && electron-builder --win portable --x64",
     "build:mac": "npm run build:native:mac && npm run build && electron-builder --mac dmg --arm64",
+    "verify:dsh-fence": "node scripts/verify-dsh-fence.mjs",
+    "verify:dsh-bridge": "electron scripts/verify-dsh-bridge.mjs",
     "preview": "electron-vite preview"
   },
   "build": {
@@ -52,6 +54,14 @@
       {
         "from": "resources/com-worker.cjs",
         "to": "workers/com-worker.cjs"
+      },
+      {
+        "from": "resources/dsh-host-worker.mjs",
+        "to": "workers/dsh-host-worker.mjs"
+      },
+      {
+        "from": "resources/dsh-auth-fence.mjs",
+        "to": "workers/dsh-auth-fence.mjs"
       }
     ],
     "win": {
