@@ -28,7 +28,8 @@ export const PROFILE_NAME = 'moyu'
 const SURFACE_BUNDLE = '@deepseek-ai/dsh-web-app'
 
 const MOYU_PLUGINS = {
-  '@moyu/dsh-credentials-desktop': 'dsh-credentials-desktop'
+  '@moyu/dsh-credentials-desktop': 'dsh-credentials-desktop',
+  '@moyu/dsh-plugin-legacy-tools': 'dsh-plugin-legacy-tools'
 }
 
 // 运行期必需、但 electron-builder 依赖图到不了的包。打包后必须逐个在场。

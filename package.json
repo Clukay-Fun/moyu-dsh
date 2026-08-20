@@ -63,10 +63,6 @@
       {
         "from": "resources/dsh-auth-fence.mjs",
         "to": "workers/dsh-auth-fence.mjs"
-      },
-      {
-        "from": "resources/onboarding.html",
-        "to": "onboarding.html"
       }
     ],
     "win": {

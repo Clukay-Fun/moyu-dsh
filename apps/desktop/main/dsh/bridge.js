@@ -96,6 +96,12 @@ export function createBridgeMethods({ generation, window }) {
       return { shown: true }
     },
 
+    async 'desktop.openLegacyExtension'(payload = {}) {
+      // 只接受白名单模块名：不接受任意 URL、任意文件路径或任意窗口参数。
+      const { openLegacyModule } = await import('../index.js')
+      return openLegacyModule(requireString(payload.module, 'module'))
+    },
+
     async 'desktop.copy'(payload = {}) {
       if (typeof payload.text === 'string') {
         clipboard.writeText(payload.text)

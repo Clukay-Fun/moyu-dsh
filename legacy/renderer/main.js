@@ -5588,5 +5588,10 @@ applyAccent()
 setBarcodeMode('single')
 generateBarcode()
 setFormatAction('视频转换')
-activateModule('pdf', defaultSelections.pdf)
+// 由 DSH 内的入口经窄桥调起时，模块名走 URL hash（§7.2.1）。
+const requestedModule = location.hash.replace(/^#/, '')
+const initialModule = Object.hasOwn(defaultSelections, requestedModule) || requestedModule === 'image'
+  ? requestedModule
+  : 'pdf'
+activateModule(initialModule, defaultSelections[initialModule] ?? '')
 verifyPreloadBridge()

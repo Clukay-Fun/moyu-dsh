@@ -31,7 +31,6 @@ import {
 import { createRequire } from 'node:module'
 import { currentDsh, isDshEnabled, logStartup, startDsh, stopDsh } from './dsh/index.js'
 import { installNavigationPolicy, installSessionPolicy } from './dsh/session-policy.js'
-import { hasAnyCredential } from './dsh/secure-store.js'
 import { basename, dirname, extname, join } from 'node:path'
 
 const require = createRequire(import.meta.url)
@@ -203,9 +202,22 @@ function normalizeOcrText(text) {
     .trim()
 }
 
+// 迁移期的受信 legacy 渲染窗口。主窗口现在是 DSH（无 preload、不发 IPC），
+// 所以"发起者必须是主窗口"这条判据已经失效——改为按登记的 legacy 窗口判定。
+// 这是 M1「显式 caller/capability 校验层」的第一刀，M1 会把它扩成完整主体模型。
+const legacyWindows = new Set()
+
+function registerLegacyWindow(win) {
+  legacyWindows.add(win.webContents)
+  win.on('closed', () => legacyWindows.delete(win.webContents))
+}
+
 function assertMainWindowSender(event) {
-  if (!mainWindow || event.sender !== mainWindow.webContents) {
-    throw new Error('此操作只允许从主窗口发起')
+  // 兼容 MOYU_DSH=0 的迁移期回归：那时 mainWindow 本身就是 legacy renderer。
+  const isLegacyMain = mainWindow && !mainWindow.isDestroyed() && event.sender === mainWindow.webContents
+    && !currentDsh()
+  if (!legacyWindows.has(event.sender) && !isLegacyMain) {
+    throw new Error('此操作只允许从受信的 Moyu 工具窗口发起')
   }
 }
 
@@ -787,7 +799,7 @@ function resolveWindowIcon() {
   return undefined
 }
 
-function createWindow(dsh, { noPreload = false, onboarding = false } = {}) {
+function createWindow(dsh, { noPreload = false } = {}) {
   const isDshWindow = Boolean(dsh)
   mainWindow = new BrowserWindow({
     width: 960,
@@ -799,7 +811,6 @@ function createWindow(dsh, { noPreload = false, onboarding = false } = {}) {
     webPreferences: {
       ...(isDshWindow
         ? { session: dsh.session }
-        : onboarding ? { preload: join(__dirname, '../preload/onboarding.cjs') }
         : noPreload ? {} : { preload: join(__dirname, '../preload/index.cjs') }),
       contextIsolation: true,
       nodeIntegration: false,
@@ -908,38 +919,50 @@ function showDshFallback(error) {
   mainWindow.show()
 }
 
-function onboardingPagePath() {
-  return app.isPackaged
-    ? join(process.resourcesPath, 'onboarding.html')
-    : join(app.getAppPath(), 'resources', 'onboarding.html')
+// 迁移期的 legacy 工具窗口（§7.2.1）。
+// 它不是"另一套应用壳"：只能由 DSH 内的入口经窄桥调起，用自己的受限 preload，
+// 不获得 DSH Host 权限，也不参与主窗口生命周期。
+const LEGACY_MODULES = new Set(['image', 'pdf', 'bc', 'video'])
+const legacyModuleWindows = new Map()
+
+export function openLegacyModule(module) {
+  if (!LEGACY_MODULES.has(module)) throw new Error(`未知的工具模块：${module}`)
+
+  const existing = legacyModuleWindows.get(module)
+  if (existing && !existing.isDestroyed()) {
+    existing.show()
+    existing.focus()
+    return { module, reused: true }
+  }
+
+  const win = new BrowserWindow({
+    width: 960,
+    height: 640,
+    minWidth: 720,
+    minHeight: 480,
+    show: false,
+    icon: resolveWindowIcon(),
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
+    }
+  })
+  registerLegacyWindow(win)
+  legacyModuleWindows.set(module, win)
+  win.on('closed', () => {
+    if (legacyModuleWindows.get(module) === win) legacyModuleWindows.delete(module)
+  })
+  win.once('ready-to-show', () => win.show())
+
+  if (process.env.ELECTRON_RENDERER_URL) {
+    void win.loadURL(`${process.env.ELECTRON_RENDERER_URL}#${module}`)
+  } else {
+    void win.loadFile(join(__dirname, '../renderer/index.html'), { hash: module })
+  }
+  return { module, reused: false }
 }
-
-/**
- * 未配置凭据时的 Moyu 原生引导页（v3.0.0 §7）。
- *
- * 不直接把用户丢进 DSH 的空聊天界面：这一屏要么去配凭据，要么直接用不联网的
- * legacy 工具。用独立最小 preload，不复用主 UI preload。
- */
-function showOnboarding() {
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.destroy()
-  createWindow(undefined, { onboarding: true })
-  void mainWindow.loadFile(onboardingPagePath())
-  mainWindow.show()
-  void logStartup('未配置凭据：显示引导页，未启动 DSH Host')
-}
-
-ipcMain.handle('onboarding:open-legacy', () => {
-  void logStartup('引导页：打开 legacy 扩展窗口')
-  // legacy 扩展入口：加载迁移期 Vanilla renderer，用它自己的白名单 preload。
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.destroy()
-  createWindow()
-  return { opened: 'legacy' }
-})
-
-ipcMain.handle('onboarding:continue', async () => {
-  await bootDshWindow()
-  return { opened: 'dsh' }
-})
 
 let recoveringDsh = false
 async function bootDshWindow({ recovery = false } = {}) {
@@ -2737,9 +2760,7 @@ app.whenReady().then(async () => {
     if (dockIcon && !dockIcon.isEmpty()) app.dock.setIcon(dockIcon)
   }
   if (isDshEnabled()) {
-    // 凭据缺失时先进引导页；DSH 通过可用性检查后才成为默认首页（§2）。
-    if (await hasAnyCredential().catch(() => false)) await bootDshWindow()
-    else showOnboarding()
+    await bootDshWindow()
   } else createWindow()
   // 预先加载隐藏的截图壳。后续点击只更新屏幕数据，不再创建窗口或重跑页面初始化。
   if (!isDshEnabled()) {

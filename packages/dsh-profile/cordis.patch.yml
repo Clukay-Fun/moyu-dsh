@@ -105,3 +105,5 @@
 - insert:
     - id: moyu-credentials-desktop
       name: '@moyu/dsh-credentials-desktop'
+    - id: moyu-legacy-tools
+      name: '@moyu/dsh-plugin-legacy-tools'

@@ -16,17 +16,11 @@ export default defineConfig({
   preload: {
     build: {
       lib: {
-        entry: {
-          index: resolve(__dirname, 'apps/desktop/preload/index.js'),
-          // 引导页专用最小 preload：与主 UI preload 完全隔离（AGENTS.md 规则 4）。
-          onboarding: resolve(__dirname, 'apps/desktop/preload/onboarding.js')
-        }
+        entry: resolve(__dirname, 'apps/desktop/preload/index.js')
       },
       rollupOptions: {
         output: {
-          format: 'cjs',
-          entryFileNames: '[name].cjs'
-          // 多入口（index + onboarding）不能用 inlineDynamicImports
+          format: 'cjs'
         }
       }
     }
