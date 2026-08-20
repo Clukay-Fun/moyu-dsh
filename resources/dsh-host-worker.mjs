@@ -41,7 +41,59 @@ const fence = installAuthFence({
 const pending = new Map()
 let rpcId = 0
 
+// main → Host 的迁移期 image.* 服务表。业务插件只登记明确方法；不接受任意方法转发。
+const hostServices = new Map()
+const activeHostCalls = new Map()
+globalThis.__moyuHostServices = Object.freeze({
+  register(method, handler) {
+    if (typeof method !== 'string' || !/^image\.[a-z][a-z0-9-]*$/.test(method)) {
+      throw new Error('Host Service 只允许登记 image.* 方法')
+    }
+    if (typeof handler !== 'function') throw new Error(`Host Service ${method} 必须是函数`)
+    if (hostServices.has(method)) throw new Error(`Host Service 已登记：${method}`)
+    hostServices.set(method, handler)
+    return () => hostServices.delete(method)
+  }
+})
+
 process.on('message', (message) => {
+  if (message?.type === 'host-service-cancel') {
+    activeHostCalls.get(message.id)?.abort()
+    return
+  }
+  if (message?.type === 'host-service-call') {
+    const handler = hostServices.get(message.method)
+    if (!handler) {
+      send({
+        type: 'host-service-result',
+        id: message.id,
+        ok: false,
+        code: 'UNKNOWN_HOST_SERVICE',
+        error: `未登记的 Host Service：${message.method}`
+      })
+      return
+    }
+    const controller = new AbortController()
+    activeHostCalls.set(message.id, controller)
+    void Promise.resolve(handler(message.payload, {
+      signal: controller.signal,
+      progress: (progress) => {
+        if (!controller.signal.aborted) {
+          send({ type: 'host-service-progress', id: message.id, progress })
+        }
+      }
+    })).then(
+      (value) => send({ type: 'host-service-result', id: message.id, ok: true, value }),
+      (error) => send({
+        type: 'host-service-result',
+        id: message.id,
+        ok: false,
+        code: error?.code || 'HOST_SERVICE_FAILED',
+        error: error?.message || 'Host Service 执行失败'
+      })
+    ).finally(() => activeHostCalls.delete(message.id))
+    return
+  }
   if (message?.type === 'host-origin') {
     fence.setOrigin(message.origin)
     return

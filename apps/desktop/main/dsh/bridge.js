@@ -7,9 +7,11 @@
 // 不与 renderer / legacy / job 共用身份（§6.1）。
 import { BrowserWindow, clipboard, dialog, nativeImage, shell } from 'electron'
 import { randomUUID } from 'node:crypto'
-import { basename } from 'node:path'
-import { stat, writeFile } from 'node:fs/promises'
+import { basename, join } from 'node:path'
+import { copyFile, mkdir, stat, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { describeCredential, getCredential, setCredential, unsetCredential } from './secure-store.js'
+import { dshCaller } from '../caller.js'
 
 const MAX_PICK = 64
 
@@ -52,7 +54,7 @@ function createFileRegistry(subject) {
  * @param {() => BrowserWindow|undefined} context.window 对话框的父窗口
  */
 export function createBridgeMethods({ generation, window }) {
-  const subject = `dsh:${generation}`
+  const subject = dshCaller(generation).id
   const parent = () => window?.() ?? BrowserWindow.getFocusedWindow() ?? undefined
   const registry = createFileRegistry(subject)
 
@@ -94,6 +96,35 @@ export function createBridgeMethods({ generation, window }) {
       // 只接受本代已授权的令牌：不接受 Host 提供的任意路径。
       shell.showItemInFolder(registry.resolve(requireString(payload.fileId, 'fileId')))
       return { shown: true }
+    },
+
+    async 'desktop.resolveFile'(payload = {}) {
+      // 只供同代 Host Service 把 fileId 解析为实际路径；renderer 永远拿不到该方法。
+      return { path: registry.resolve(requireString(payload.fileId, 'fileId')) }
+    },
+
+    async 'desktop.prepareImageResult'(payload = {}) {
+      const resultId = requireString(payload.resultId, 'resultId')
+      if (!/^[a-f0-9-]{36}$/.test(resultId)) throw new Error('resultId 无效')
+      const directory = `${tmpdir()}/moyu-image-results/${generation}/${resultId}`
+      await mkdir(directory, { recursive: true })
+      return { directory: await registry.register(directory) }
+    },
+
+    async 'desktop.registerImageResult'(payload = {}) {
+      const directory = registry.resolve(requireString(payload.directoryFileId, 'directoryFileId'))
+      const name = requireString(payload.name, 'name')
+      if (basename(name) !== name || /[\\/\0]/.test(name)) throw new Error('结果文件名无效')
+      return { file: await registry.register(join(directory, name)) }
+    },
+
+    async 'desktop.saveRegisteredFile'(payload = {}) {
+      const source = registry.resolve(requireString(payload.fileId, 'fileId'))
+      const name = requireString(payload.name, 'name')
+      const result = await dialog.showSaveDialog(parent(), { defaultPath: name })
+      if (result.canceled || !result.filePath) return { canceled: true }
+      await copyFile(source, result.filePath)
+      return { canceled: false, file: await registry.register(result.filePath) }
     },
 
     async 'desktop.openLegacyExtension'(payload = {}) {

@@ -107,3 +107,5 @@
       name: '@moyu/dsh-credentials-desktop'
     - id: moyu-legacy-tools
       name: '@moyu/dsh-plugin-legacy-tools'
+    - id: moyu-image
+      name: '@moyu/dsh-plugin-image'

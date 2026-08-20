@@ -6,10 +6,11 @@ import { app } from 'electron'
 import { fork as forkChild } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { cp, mkdir } from 'node:fs/promises'
+import { cp, mkdir, rm } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { dispatchBridgeCall } from './bridge.js'
+import { createHostServiceClient } from './service-bridge.js'
 
 const READY_TIMEOUT_MS = 30_000
 
@@ -61,8 +62,6 @@ export function dshHome() {
 export async function ensureProfile(profileName) {
   const home = dshHome()
   const profileDir = join(home, 'profiles', profileName)
-  if (existsSync(profileDir)) return profileDir
-
   const template = app.isPackaged
     ? join(process.resourcesPath, 'dsh-runtime', 'home-template')
     : join(app.getAppPath(), 'build', 'dsh-runtime', 'home-template')
@@ -71,7 +70,23 @@ export async function ensureProfile(profileName) {
     throw new Error(`profile 模板缺失：${source}（构建时未执行 build:dsh-runtime？）`)
   }
   await mkdir(join(home, 'profiles'), { recursive: true })
-  await cp(source, profileDir, { recursive: true, dereference: false })
+  if (!existsSync(profileDir)) {
+    await cp(source, profileDir, { recursive: true, dereference: false })
+    return profileDir
+  }
+
+  // profile 是应用拥有的唯一 Moyu composition，不是用户可安装插件的目录。升级时只同步
+  // 这三类受控资产，保留同一 DSH_HOME 下的会话、设置与其他用户数据。否则首次安装后新增
+  // 的原生插件永远进不了旧 profile，表现为“新包已交付但功能不存在”。
+  await Promise.all([
+    cp(join(source, 'package.json'), join(profileDir, 'package.json')),
+    cp(join(source, 'cordis.patch.yml'), join(profileDir, 'cordis.patch.yml'))
+  ])
+  const sourcePlugins = join(source, 'node_modules', '@moyu')
+  const installedPlugins = join(profileDir, 'node_modules', '@moyu')
+  await rm(installedPlugins, { recursive: true, force: true })
+  await mkdir(dirname(installedPlugins), { recursive: true })
+  await cp(sourcePlugins, installedPlugins, { recursive: true, dereference: false })
   return profileDir
 }
 
@@ -146,6 +161,15 @@ export async function startHostGeneration(generation, { onStdout, profile } = {}
 }
 
 /**
+ * 建立迁移期 main → Host image.* 调用方向。
+ * progress 由调用方提供的回调继续推到对应 legacy WebContents；Host 退出会拒绝全部在途调用。
+ */
+export function serveHostServices(host) {
+  host.services = createHostServiceClient(host)
+  return host.services
+}
+
+/**
  * 在 main 侧提供桌面桥服务。
  *
  * 方向是 Host → main：dialog、clipboard、shell 只存在于主进程，Host 进程没有这些 API。
@@ -162,6 +186,9 @@ export function serveDesktopBridge(host, methods) {
 
   host.bridge = {
     subject: methods.subject,
+    registerFile(path) {
+      return methods.registry.register(path)
+    },
     close() {
       // 令牌随本代一起作废，旧 fileId 不得在新一代里复活。
       methods.registry?.clear()
@@ -175,9 +202,11 @@ const STOP_TIMEOUT_MS = 5_000
 
 export function stopHost(host) {
   if (!host || host.child.pid === undefined || host.child.exitCode !== null || host.child.signalCode !== null) {
+    host?.services?.close()
     host?.bridge?.close()
     return Promise.resolve()
   }
+  host.services?.close()
   host.bridge?.close()
   return new Promise((resolve) => {
     const child = host.child

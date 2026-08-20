@@ -29,8 +29,17 @@ import {
   writeFile
 } from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import { currentDsh, isDshEnabled, logStartup, startDsh, stopDsh } from './dsh/index.js'
+import {
+  authorizeDshFile,
+  callDshImageService,
+  currentDsh,
+  isDshEnabled,
+  logStartup,
+  startDsh,
+  stopDsh
+} from './dsh/index.js'
 import { installNavigationPolicy, installSessionPolicy } from './dsh/session-policy.js'
+import { registerLegacyCaller, requireWebContentsCaller } from './caller.js'
 import { basename, dirname, extname, join } from 'node:path'
 
 const require = createRequire(import.meta.url)
@@ -202,23 +211,8 @@ function normalizeOcrText(text) {
     .trim()
 }
 
-// 迁移期的受信 legacy 渲染窗口。主窗口现在是 DSH（无 preload、不发 IPC），
-// 所以"发起者必须是主窗口"这条判据已经失效——改为按登记的 legacy 窗口判定。
-// 这是 M1「显式 caller/capability 校验层」的第一刀，M1 会把它扩成完整主体模型。
-const legacyWindows = new Set()
-
-function registerLegacyWindow(win) {
-  legacyWindows.add(win.webContents)
-  win.on('closed', () => legacyWindows.delete(win.webContents))
-}
-
-function assertMainWindowSender(event) {
-  // 兼容 MOYU_DSH=0 的迁移期回归：那时 mainWindow 本身就是 legacy renderer。
-  const isLegacyMain = mainWindow && !mainWindow.isDestroyed() && event.sender === mainWindow.webContents
-    && !currentDsh()
-  if (!legacyWindows.has(event.sender) && !isLegacyMain) {
-    throw new Error('此操作只允许从受信的 Moyu 工具窗口发起')
-  }
+function assertLegacyCaller(event, capability = 'legacy.ipc') {
+  return requireWebContentsCaller(event.sender, capability)
 }
 
 function comWorkerPath() {
@@ -462,17 +456,17 @@ function normalizeFormatKind(value) {
   return value
 }
 
-function getFormatInput(event, inputId) {
+function getFormatInput(caller, inputId) {
   const input = formatInputSessions.get(inputId)
-  if (!input || input.ownerId !== event.sender.id) {
+  if (!input || input.ownerId !== caller.id) {
     throw new Error('格式工厂文件会话不存在或无权访问')
   }
   return input
 }
 
-function getFormatResult(event, resultId) {
+function getFormatResult(caller, resultId) {
   const result = formatResultSessions.get(resultId)
-  if (!result || result.ownerId !== event.sender.id) {
+  if (!result || result.ownerId !== caller.id) {
     throw new Error('格式工厂结果会话不存在或无权访问')
   }
   return result
@@ -492,17 +486,25 @@ async function registerFormatInput(filePath, ownerId, kind) {
   let dimensions = null
   let previewData = null
   if (kind === 'image') {
-    const metadata = await sharp(filePath, { animated: true }).metadata()
-    dimensions = {
-      width: metadata.width || 0,
-      height: metadata.height || 0
+    const previewDirectory = join(getFormatResultDirectory(), 'previews')
+    const previewName = `${randomUUID()}.png`
+    await mkdir(previewDirectory, { recursive: true })
+    const [inputToken, previewDirectoryToken] = await Promise.all([
+      authorizeDshFile(filePath),
+      authorizeDshFile(previewDirectory)
+    ])
+    const inspected = await callDshImageService('image.inspect', {
+      inputFileId: inputToken.fileId,
+      previewDirectoryFileId: previewDirectoryToken.fileId,
+      previewName
+    })
+    dimensions = { width: inspected.width, height: inspected.height }
+    const previewPath = join(previewDirectory, inspected.previewName)
+    try {
+      previewData = new Uint8Array(await readFile(previewPath))
+    } finally {
+      await rm(previewPath, { force: true }).catch(() => {})
     }
-    previewData = new Uint8Array(
-      await sharp(filePath, { animated: true })
-        .resize({ width: 320, height: 240, fit: 'inside', withoutEnlargement: true })
-        .png()
-        .toBuffer()
-    )
   }
 
   const input = {
@@ -680,36 +682,12 @@ function formatOutputExtension(action, options, input) {
   throw new Error('无法确定输出格式')
 }
 
-async function processFormatImage(action, input, outputPath, options) {
-  const target = formatOutputExtension(action, options, input)
-  const quality = Math.min(100, Math.max(10, Number(options?.quality) || 82))
-  const maxWidth = Math.min(12000, Math.max(0, Number(options?.maxWidth) || 0))
-  let pipeline = sharp(input.path, { animated: target === 'gif', limitInputPixels: 400_000_000 })
-    .rotate()
-  if (maxWidth) {
-    pipeline = pipeline.resize({
-      width: maxWidth,
-      fit: 'inside',
-      withoutEnlargement: true
-    })
-  }
-  if (target === 'jpg') pipeline = pipeline.flatten({ background: '#ffffff' }).jpeg({ quality, mozjpeg: true })
-  else if (target === 'png') pipeline = pipeline.png({ compressionLevel: 9, adaptiveFiltering: true })
-  else if (target === 'webp') pipeline = pipeline.webp({ quality, effort: 5 })
-  else if (target === 'avif') pipeline = pipeline.avif({ quality, effort: 5 })
-  else if (target === 'tif' || target === 'tiff') pipeline = pipeline.tiff({ compression: 'lzw', quality })
-  else if (target === 'gif') pipeline = pipeline.gif({ effort: 7, colours: Math.max(32, Math.round(quality * 2.56)) })
-  else throw new Error('不支持的图片输出格式')
-  const info = await pipeline.toFile(outputPath)
-  return { width: info.width, height: info.height, format: info.format }
-}
-
-async function registerFormatResult(event, outputPath, input, metadata = null) {
+async function registerFormatResult(caller, outputPath, input, metadata = null) {
   const info = await stat(outputPath)
   const id = randomUUID()
   const result = {
     id,
-    ownerId: event.sender.id,
+    ownerId: caller.id,
     path: outputPath,
     name: basename(outputPath),
     size: info.size,
@@ -830,6 +808,8 @@ function createWindow(dsh, { noPreload = false } = {}) {
       }
     })
     installSessionPolicy(dsh.session)
+  } else if (!noPreload) {
+    registerLegacyCaller(mainWindow, ['legacy.ipc', 'format'])
   }
 
   // legacy 窗口从最小化/隐藏恢复后通知渲染端重新激活画布（F-15）。
@@ -949,7 +929,7 @@ export function openLegacyModule(module) {
       sandbox: true
     }
   })
-  registerLegacyWindow(win)
+  registerLegacyCaller(win, ['legacy.ipc', 'format'])
   legacyModuleWindows.set(module, win)
   win.on('closed', () => {
     if (legacyModuleWindows.get(module) === win) legacyModuleWindows.delete(module)
@@ -995,7 +975,7 @@ async function bootDshWindow({ recovery = false } = {}) {
 
 ipcMain.handle('ping', () => 'pong')
 ipcMain.handle('app:info', (event) => {
-  assertMainWindowSender(event)
+  assertLegacyCaller(event)
   return { version: app.getVersion() }
 })
 
@@ -1004,7 +984,7 @@ const ALLOWED_EXTERNAL_URLS = new Set([
 ])
 
 ipcMain.handle('app:open-external', async (event, value) => {
-  assertMainWindowSender(event)
+  assertLegacyCaller(event)
   const url = String(value || '')
   if (!ALLOWED_EXTERNAL_URLS.has(url)) throw new Error('不允许打开此链接')
   await shell.openExternal(url)
@@ -1012,12 +992,12 @@ ipcMain.handle('app:open-external', async (event, value) => {
 })
 
 ipcMain.handle('com:probe', async (event) => {
-  assertMainWindowSender(event)
+  assertLegacyCaller(event)
   return runComCommand(event, 'probe', {})
 })
 
 ipcMain.handle('illustrator:pick-files', async (event) => {
-  assertMainWindowSender(event)
+  assertLegacyCaller(event)
   const ownerWindow = BrowserWindow.fromWebContents(event.sender)
   const result = await dialog.showOpenDialog(ownerWindow, {
     title: '选择 Illustrator 文件',
@@ -1033,7 +1013,7 @@ ipcMain.handle('illustrator:pick-files', async (event) => {
 })
 
 ipcMain.handle('illustrator:add-paths', async (event, paths) => {
-  assertMainWindowSender(event)
+  assertLegacyCaller(event)
   if (!Array.isArray(paths) || paths.length === 0 || paths.length > 500) {
     throw new Error('一次只能拖入 1–500 个 Illustrator 文件')
   }
@@ -1051,7 +1031,7 @@ ipcMain.handle('illustrator:add-paths', async (event, paths) => {
 })
 
 ipcMain.handle('illustrator:pick-folder', async (event) => {
-  assertMainWindowSender(event)
+  assertLegacyCaller(event)
   const ownerWindow = BrowserWindow.fromWebContents(event.sender)
   const result = await dialog.showOpenDialog(ownerWindow, {
     title: '选择 Illustrator 文件夹',
@@ -1062,7 +1042,7 @@ ipcMain.handle('illustrator:pick-folder', async (event) => {
 })
 
 ipcMain.handle('illustrator:remove-inputs', (event, inputIds) => {
-  assertMainWindowSender(event)
+  assertLegacyCaller(event)
   const ids = Array.isArray(inputIds) ? inputIds : []
   for (const id of ids) {
     const input = illustratorInputSessions.get(id)
@@ -1072,7 +1052,7 @@ ipcMain.handle('illustrator:remove-inputs', (event, inputIds) => {
 })
 
 ipcMain.handle('illustrator:run', async (event, payload) => {
-  assertMainWindowSender(event)
+  assertLegacyCaller(event)
   const ids = Array.isArray(payload?.inputIds) ? payload.inputIds : []
   if (!ids.length || ids.length > 500) {
     throw new Error('请选择 1–500 个 Illustrator 文件')
@@ -1141,13 +1121,13 @@ ipcMain.handle('illustrator:run', async (event, payload) => {
 })
 
 ipcMain.handle('illustrator:cancel', (event) => {
-  assertMainWindowSender(event)
+  assertLegacyCaller(event)
   const taskId = activeIllustratorTasks.get(event.sender.id)
   return { status: taskId && cancelComCommand(taskId) ? 'cancelling' : 'idle' }
 })
 
 ipcMain.handle('office:pick-file', async (event, kind) => {
-  assertMainWindowSender(event)
+  assertLegacyCaller(event)
   const config = officeKindConfig(kind)
   const ownerWindow = BrowserWindow.fromWebContents(event.sender)
   const result = await dialog.showOpenDialog(ownerWindow, {
@@ -1174,7 +1154,7 @@ ipcMain.handle('office:pick-file', async (event, kind) => {
 })
 
 ipcMain.handle('office:to-pdf', async (event, payload) => {
-  assertMainWindowSender(event)
+  assertLegacyCaller(event)
   const inputId = payload?.inputId
   const input = officeInputSessions.get(inputId)
   if (!input || input.ownerId !== event.sender.id) {
@@ -1195,7 +1175,7 @@ ipcMain.handle('office:to-pdf', async (event, payload) => {
 })
 
 ipcMain.handle('com:show-result', async (event, resultId) => {
-  assertMainWindowSender(event)
+  assertLegacyCaller(event)
   const result = comResultSessions.get(resultId)
   if (!result || result.ownerId !== event.sender.id) {
     throw new Error('输出文件会话不存在或无权访问')
@@ -1208,7 +1188,7 @@ ipcMain.handle('com:show-result', async (event, resultId) => {
 // mode='inspect' 只返回结构统计；mode='copy' 额外全选并复制到 Illustrator 原生剪贴板。
 // ⚠ 仅 Windows + 已安装 Illustrator 可用；"复制后未编组"只对 Illustrator 承诺。
 ipcMain.handle('barcode:illustrator-ungrouped-copy', async (event, payload) => {
-  assertMainWindowSender(event)
+  assertLegacyCaller(event)
   const normalized = normalizeBarcodeData('svg', payload?.data)
   if (Buffer.byteLength(normalized.data) > 20 * 1024 * 1024) {
     throw new Error('条码 SVG 超过 20 MB')
@@ -1238,7 +1218,7 @@ ipcMain.handle('barcode:illustrator-ungrouped-copy', async (event, payload) => {
 })
 
 ipcMain.handle('barcode:export-eps', async (event, payload) => {
-  assertMainWindowSender(event)
+  assertLegacyCaller(event)
   const normalized = normalizeBarcodeData('svg', payload?.data)
   if (Buffer.byteLength(normalized.data) > 20 * 1024 * 1024) {
     throw new Error('条码 SVG 超过 20 MB')
@@ -1270,7 +1250,7 @@ ipcMain.handle('barcode:export-eps', async (event, payload) => {
 })
 
 ipcMain.handle('barcode:open-illustrator', async (event, payload) => {
-  assertMainWindowSender(event)
+  assertLegacyCaller(event)
   const normalized = normalizeBarcodeData('svg', payload?.data)
   const temporaryDirectory = join(app.getPath('temp'), 'moyu-tools-com')
   await mkdir(temporaryDirectory, { recursive: true })
@@ -1285,7 +1265,7 @@ ipcMain.handle('barcode:open-illustrator', async (event, payload) => {
 })
 
 ipcMain.handle('barcode:open-photoshop', async (event, payload) => {
-  assertMainWindowSender(event)
+  assertLegacyCaller(event)
   const normalized = normalizeBarcodeData('png', payload?.data)
   const temporaryDirectory = join(app.getPath('temp'), 'moyu-tools-com')
   await mkdir(temporaryDirectory, { recursive: true })
@@ -1300,7 +1280,7 @@ ipcMain.handle('barcode:open-photoshop', async (event, payload) => {
 })
 
 ipcMain.handle('barcode:copy-vector', (event, data) => {
-  assertMainWindowSender(event)
+  assertLegacyCaller(event)
   const normalized = normalizeBarcodeData('svg', data)
   const buffer = Buffer.from(normalized.data, 'utf8')
   if (buffer.byteLength > 20 * 1024 * 1024) {
@@ -1316,7 +1296,7 @@ ipcMain.handle('barcode:copy-vector', (event, data) => {
 })
 
 ipcMain.handle('barcode:save-file', async (event, payload) => {
-  assertMainWindowSender(event)
+  assertLegacyCaller(event)
   const { data, fileType } = normalizeBarcodeData(payload?.type, payload?.data)
 
   if (Buffer.byteLength(data) > 20 * 1024 * 1024) {
@@ -1346,7 +1326,7 @@ ipcMain.handle('barcode:save-file', async (event, payload) => {
 })
 
 ipcMain.handle('barcode:save-files', async (event, payload) => {
-  assertMainWindowSender(event)
+  assertLegacyCaller(event)
   if (!Array.isArray(payload?.files) || payload.files.length === 0 || payload.files.length > 500) {
     throw new Error('批量条码数量必须在 1–500 之间')
   }
@@ -1399,7 +1379,7 @@ ipcMain.handle('barcode:save-files', async (event, payload) => {
 })
 
 ipcMain.handle('image:save-file', async (event, payload) => {
-  assertMainWindowSender(event)
+  assertLegacyCaller(event)
   const fileType = IMAGE_FILE_TYPES[payload?.type]
   const data = payload?.data instanceof Uint8Array
     ? Buffer.from(payload.data)
@@ -1440,7 +1420,7 @@ ipcMain.handle('image:save-file', async (event, payload) => {
 })
 
 ipcMain.handle('format:get-status', async (event) => {
-  assertMainWindowSender(event)
+  assertLegacyCaller(event, 'format')
   let ffmpegReady = false
   let ffmpegMessage = ''
   let ffmpegVersion = ''
@@ -1486,7 +1466,7 @@ ipcMain.handle('format:get-status', async (event) => {
 })
 
 ipcMain.handle('format:pick-files', async (event, payload) => {
-  assertMainWindowSender(event)
+  const caller = assertLegacyCaller(event, 'format')
   const kind = normalizeFormatKind(payload?.kind)
   const ownerWindow = BrowserWindow.fromWebContents(event.sender)
   const extensions = [...FORMAT_EXTENSIONS[kind]].map((extension) => extension.slice(1))
@@ -1503,7 +1483,7 @@ ipcMain.handle('format:pick-files', async (event, payload) => {
   const errors = []
   for (const filePath of result.filePaths) {
     try {
-      files.push(await registerFormatInput(filePath, event.sender.id, kind))
+      files.push(await registerFormatInput(filePath, caller.id, kind))
     } catch (error) {
       errors.push(error.message)
     }
@@ -1512,7 +1492,7 @@ ipcMain.handle('format:pick-files', async (event, payload) => {
 })
 
 ipcMain.handle('format:add-paths', async (event, payload) => {
-  assertMainWindowSender(event)
+  const caller = assertLegacyCaller(event, 'format')
   const kind = normalizeFormatKind(payload?.kind)
   const paths = payload?.paths
   if (!Array.isArray(paths) || paths.length === 0 || paths.length > FORMAT_MAX_FILES) {
@@ -1523,7 +1503,7 @@ ipcMain.handle('format:add-paths', async (event, payload) => {
   for (const filePath of paths) {
     try {
       if (typeof filePath !== 'string' || !filePath) throw new Error('文件路径无效')
-      files.push(await registerFormatInput(filePath, event.sender.id, kind))
+      files.push(await registerFormatInput(filePath, caller.id, kind))
     } catch (error) {
       errors.push(error.message)
     }
@@ -1532,7 +1512,7 @@ ipcMain.handle('format:add-paths', async (event, payload) => {
 })
 
 ipcMain.handle('format:pick-folder', async (event, payload) => {
-  assertMainWindowSender(event)
+  const caller = assertLegacyCaller(event, 'format')
   const kind = normalizeFormatKind(payload?.kind)
   const ownerWindow = BrowserWindow.fromWebContents(event.sender)
   const result = await dialog.showOpenDialog(ownerWindow, {
@@ -1549,7 +1529,7 @@ ipcMain.handle('format:pick-folder', async (event, payload) => {
   const errors = []
   for (const entry of candidates) {
     try {
-      files.push(await registerFormatInput(join(directory, entry.name), event.sender.id, kind))
+      files.push(await registerFormatInput(join(directory, entry.name), caller.id, kind))
     } catch (error) {
       errors.push(error.message)
     }
@@ -1563,12 +1543,12 @@ ipcMain.handle('format:pick-folder', async (event, payload) => {
 })
 
 ipcMain.handle('format:remove-inputs', (event, inputIds) => {
-  assertMainWindowSender(event)
+  const caller = assertLegacyCaller(event, 'format')
   const ids = Array.isArray(inputIds) ? inputIds : []
   let removed = 0
   ids.forEach((id) => {
     const input = formatInputSessions.get(id)
-    if (input?.ownerId === event.sender.id) {
+    if (input?.ownerId === caller.id) {
       formatInputSessions.delete(id)
       removed += 1
     }
@@ -1577,14 +1557,14 @@ ipcMain.handle('format:remove-inputs', (event, inputIds) => {
 })
 
 ipcMain.handle('format:run', async (event, payload) => {
-  assertMainWindowSender(event)
+  const caller = assertLegacyCaller(event, 'format')
   const action = FORMAT_ACTIONS.get(payload?.action)
   if (!action) throw new Error('不支持的格式工厂任务')
   const inputIds = Array.isArray(payload?.inputIds) ? payload.inputIds : []
   if (!inputIds.length || inputIds.length > FORMAT_MAX_FILES) {
     throw new Error(`任务文件数量必须在 1–${FORMAT_MAX_FILES} 之间`)
   }
-  const inputs = inputIds.map((id) => getFormatInput(event, id))
+  const inputs = inputIds.map((id) => getFormatInput(caller, id))
   const expectedKind = action.startsWith('video') || action === 'extract-audio'
     ? 'video'
     : action.startsWith('audio')
@@ -1600,15 +1580,19 @@ ipcMain.handle('format:run', async (event, payload) => {
   if (formatTasks.has(taskId)) throw new Error('已有同名格式转换任务正在执行')
   const task = {
     id: taskId,
-    ownerId: event.sender.id,
+    ownerId: caller.id,
     cancelled: false,
-    process: null
+    process: null,
+    abortController: new AbortController()
   }
-  formatTasks.set(taskId, task)
   const outputDirectory = join(getFormatResultDirectory(), randomUUID())
   await mkdir(outputDirectory, { recursive: true })
   const results = []
   const errors = []
+  const outputDirectoryToken = inputs.some((input) => input.kind === 'image')
+    ? await authorizeDshFile(outputDirectory)
+    : null
+  formatTasks.set(taskId, task)
 
   try {
     for (const [index, input] of inputs.entries()) {
@@ -1630,15 +1614,24 @@ ipcMain.handle('format:run', async (event, payload) => {
       try {
         let metadata
         if (input.kind === 'image') {
-          metadata = await processFormatImage(action, input, outputPath, payload?.options)
-          event.sender.send('format:progress', {
-            taskId,
-            status: 'running',
-            inputId: input.id,
-            completed: index,
-            total: inputs.length,
-            fileProgress: 1,
-            name: input.name
+          const inputToken = await authorizeDshFile(input.path)
+          metadata = await callDshImageService('image.convert', {
+            inputFileId: inputToken.fileId,
+            outputDirectoryFileId: outputDirectoryToken.fileId,
+            outputName: basename(outputPath),
+            action,
+            options: payload?.options || {}
+          }, {
+            signal: task.abortController.signal,
+            onProgress: (progress) => event.sender.send('format:progress', {
+              taskId,
+              status: 'running',
+              inputId: input.id,
+              completed: index,
+              total: inputs.length,
+              fileProgress: Number(progress?.ratio) || 0,
+              name: input.name
+            })
           })
         } else {
           const sourceMetadata = await probeFormatMedia(input)
@@ -1669,7 +1662,7 @@ ipcMain.handle('format:run', async (event, payload) => {
           })
           metadata = await probeFormatMedia({ path: outputPath })
         }
-        results.push(await registerFormatResult(event, outputPath, input, metadata))
+        results.push(await registerFormatResult(caller, outputPath, input, metadata))
       } catch (error) {
         if (error.message === 'TASK_CANCELLED') {
           return { status: 'cancelled', taskId, results, errors }
@@ -1705,19 +1698,20 @@ ipcMain.handle('format:run', async (event, payload) => {
 })
 
 ipcMain.handle('format:cancel', (event, taskId) => {
-  assertMainWindowSender(event)
+  const caller = assertLegacyCaller(event, 'format')
   const task = formatTasks.get(taskId)
-  if (!task || task.ownerId !== event.sender.id) return { status: 'not-running' }
+  if (!task || task.ownerId !== caller.id) return { status: 'not-running' }
   task.cancelled = true
+  task.abortController?.abort()
   if (task.process && !task.process.killed) task.process.kill()
   return { status: 'cancelling' }
 })
 
 ipcMain.handle('format:save-results', async (event, resultIds) => {
-  assertMainWindowSender(event)
+  const caller = assertLegacyCaller(event, 'format')
   const ids = Array.isArray(resultIds) ? resultIds : []
   if (!ids.length || ids.length > FORMAT_MAX_FILES) throw new Error('没有可保存的转换结果')
-  const results = ids.map((id) => getFormatResult(event, id))
+  const results = ids.map((id) => getFormatResult(caller, id))
   const ownerWindow = BrowserWindow.fromWebContents(event.sender)
 
   if (results.length === 1) {
@@ -1759,7 +1753,7 @@ ipcMain.handle('format:save-results', async (event, resultIds) => {
 })
 
 ipcMain.handle('pdf:choose-output', async (event, payload) => {
-  assertMainWindowSender(event)
+  assertLegacyCaller(event)
   const mode = payload?.mode === 'directory' ? 'directory' : 'file'
   const ownerWindow = BrowserWindow.fromWebContents(event.sender)
   let outputPath
@@ -1795,7 +1789,7 @@ ipcMain.handle('pdf:choose-output', async (event, payload) => {
 })
 
 ipcMain.handle('pdf:save-file', async (event, payload) => {
-  assertMainWindowSender(event)
+  assertLegacyCaller(event)
   const fileType = PDF_OUTPUT_TYPES[payload?.type]
   const data = payload?.data instanceof Uint8Array
     ? Buffer.from(payload.data)
@@ -1815,7 +1809,7 @@ ipcMain.handle('pdf:save-file', async (event, payload) => {
 })
 
 ipcMain.handle('pdf:save-files', async (event, payload) => {
-  assertMainWindowSender(event)
+  assertLegacyCaller(event)
   const fileType = PDF_OUTPUT_TYPES[payload?.type]
 
   if (
@@ -1869,7 +1863,7 @@ ipcMain.handle('pdf:save-files', async (event, payload) => {
 })
 
 ipcMain.handle('pdf:show-item', async (event, payload) => {
-  assertMainWindowSender(event)
+  assertLegacyCaller(event)
   if (typeof payload?.path !== 'string' || !payload.path.trim()) {
     throw new Error('没有可打开的输出位置')
   }
@@ -2054,7 +2048,7 @@ async function ensureScreenshotOverlay(display) {
 }
 
 ipcMain.handle('screenshot:start', async (event) => {
-  assertMainWindowSender(event)
+  assertLegacyCaller(event)
   const cursorPoint = screen.getCursorScreenPoint()
   const display = screen.getDisplayNearestPoint(cursorPoint)
   const physicalWidth = Math.max(1, Math.round(display.bounds.width * display.scaleFactor))
@@ -2240,7 +2234,7 @@ ipcMain.on('board:dirty', (event, dirty) => {
 })
 
 ipcMain.handle('board:save', async (event, payload) => {
-  assertMainWindowSender(event)
+  assertLegacyCaller(event)
   const data = payload?.data instanceof Uint8Array ? Buffer.from(payload.data) : null
   if (!data || !data.byteLength) throw new Error('画布数据为空')
   if (data.byteLength > MOYUBOARD_MAX_BYTES) {
@@ -2261,7 +2255,7 @@ ipcMain.handle('board:save', async (event, payload) => {
 })
 
 ipcMain.handle('board:open', async (event) => {
-  assertMainWindowSender(event)
+  assertLegacyCaller(event)
   const ownerWindow = BrowserWindow.fromWebContents(event.sender)
   const result = await dialog.showOpenDialog(ownerWindow, {
     title: '打开汇总画布',
@@ -2307,7 +2301,7 @@ async function writeFileAtomic(filePath, data) {
 }
 
 ipcMain.handle('recovery:write', async (event, payload) => {
-  assertMainWindowSender(event)
+  assertLegacyCaller(event)
   const data = payload?.data instanceof Uint8Array ? Buffer.from(payload.data) : null
   if (!data || !data.byteLength) throw new Error('恢复数据为空')
   if (data.byteLength > MOYUBOARD_MAX_BYTES) {
@@ -2327,7 +2321,7 @@ ipcMain.handle('recovery:write', async (event, payload) => {
 })
 
 ipcMain.handle('recovery:read', async (event) => {
-  assertMainWindowSender(event)
+  assertLegacyCaller(event)
   const filePath = recoveryFilePath()
   if (!existsSync(filePath)) return { status: 'none' }
   const raw = await readFile(filePath)
@@ -2363,7 +2357,7 @@ ipcMain.handle('recovery:read', async (event) => {
 })
 
 ipcMain.handle('recovery:clear', async (event) => {
-  assertMainWindowSender(event)
+  assertLegacyCaller(event)
   const filePath = recoveryFilePath()
   if (existsSync(filePath)) await rm(filePath, { force: true })
   return { status: 'cleared' }
@@ -2686,7 +2680,7 @@ function registerCaptureShortcut() {
 // ── 设置页用的 IPC ──────────────────────────────────────────
 
 ipcMain.handle('shortcut:get', (event) => {
-  assertMainWindowSender(event)
+  assertLegacyCaller(event)
   return {
     accelerator: captureShortcut,
     default: DEFAULT_CAPTURE_SHORTCUT,
@@ -2701,7 +2695,7 @@ ipcMain.handle('shortcut:get', (event) => {
  * 组合，结果连原来能用的那个也没了，等于把功能弄丢。
  */
 ipcMain.handle('shortcut:set', (event, payload) => {
-  assertMainWindowSender(event)
+  assertLegacyCaller(event)
   const next = payload?.accelerator ?? null
   if (next !== null && !isValidAccelerator(next)) {
     return { ok: false, reason: 'invalid', accelerator: captureShortcut,
@@ -2723,7 +2717,7 @@ ipcMain.handle('shortcut:set', (event, payload) => {
 })
 
 ipcMain.handle('shortcut:reset', (event) => {
-  assertMainWindowSender(event)
+  assertLegacyCaller(event)
   const previous = captureShortcut
   captureShortcut = DEFAULT_CAPTURE_SHORTCUT
   const result = registerCaptureShortcut()

@@ -1,7 +1,7 @@
 // DSH 运行时的编排入口（v3.0.0 M0b B2）。
 //
 // DSH 是 v3 的正式主界面；MOYU_DSH=0 仅保留给迁移期 legacy 回归。
-import { dshHome, ensureProfile, serveDesktopBridge, startHostGeneration, stopHost } from './host.js'
+import { dshHome, ensureProfile, serveDesktopBridge, serveHostServices, startHostGeneration, stopHost } from './host.js'
 import { assertChromiumFenceEngaged, createDshSession, installHeaderInjection } from './session-policy.js'
 import { createBridgeMethods } from './bridge.js'
 import { app } from 'electron'
@@ -42,6 +42,7 @@ export async function startDsh({ onStdout, window, onExit } = {}) {
     const fence = await assertChromiumFenceEngaged(host)
     const injected = installHeaderInjection(dshSession, host)
     serveDesktopBridge(host, createBridgeMethods({ generation, window }))
+    serveHostServices(host)
     current = { host, session: dshSession, injected, fence, generation }
     host.child.once('exit', (code, signal) => {
       if (current?.host !== host) return
@@ -73,6 +74,24 @@ export async function stopDsh() {
 
 export function currentDsh() {
   return current
+}
+
+export function callDshImageService(method, payload, options) {
+  if (!current?.host?.services) {
+    return Promise.reject(Object.assign(new Error('DSH Host 当前不可用，请稍后重试'), {
+      code: 'HOST_UNAVAILABLE'
+    }))
+  }
+  return current.host.services.call(method, payload, options)
+}
+
+export function authorizeDshFile(path) {
+  if (!current?.host?.bridge) {
+    return Promise.reject(Object.assign(new Error('DSH Host 当前不可用，请稍后重试'), {
+      code: 'HOST_UNAVAILABLE'
+    }))
+  }
+  return current.host.bridge.registerFile(path)
 }
 
 export { dshHome }
