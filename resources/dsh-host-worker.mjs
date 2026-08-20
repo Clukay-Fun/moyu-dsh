@@ -1,52 +1,61 @@
-// DSH Host 运行在 Electron utilityProcess 里（v3.0.0 §3.1 决策 2）。
+// DSH Host 运行在 Electron 自带 Node 运行时的独立子进程里。
 //
 // 这里不是应用主进程：它只负责装 fence、启动 DSH、把 ready 与桌面桥消息回传给
-// main。所有桌面能力都通过 MessagePort 窄桥回到 main，不在本进程直接调 Electron API。
+// main。所有桌面能力都通过进程 IPC 窄桥回到 main，不在本进程直接调 Electron API。
 import { installAuthFence } from './dsh-auth-fence.mjs'
 
 const home = process.env.MOYU_DSH_HOME
 if (!home) throw new Error('MOYU_DSH_HOME 未设置')
 process.env.DSH_HOME = home
 
-const parentPort = process.parentPort
-if (!parentPort) throw new Error('utilityProcess parentPort 不可用')
+if (typeof process.send !== 'function') throw new Error('DSH Host IPC 通道不可用')
+const send = (message) => process.send?.(message)
 
-// token 只经 postMessage 送达，不进环境变量、命令行和磁盘。
+function describeStartupError(error, depth = 0) {
+  if (depth > 4) return '[错误链过深]'
+  const lines = [error?.stack || error?.message || String(error)]
+  if (error?.cause) lines.push(`cause: ${describeStartupError(error.cause, depth + 1)}`)
+  if (Array.isArray(error?.errors)) {
+    error.errors.forEach((entry, index) => {
+      lines.push(`aggregate[${index}]: ${describeStartupError(entry, depth + 1)}`)
+    })
+  }
+  return lines.join('\n').slice(0, 12_000)
+}
+
+// token 只经进程 IPC 送达，不进环境变量、命令行和磁盘。
 const auth = await new Promise((resolve) => {
-  parentPort.on('message', function onAuth(event) {
-    if (event.data?.type !== 'host-auth') return
-    parentPort.off('message', onAuth)
-    resolve(event.data)
+  process.on('message', function onAuth(message) {
+    if (message?.type !== 'host-auth') return
+    process.off('message', onAuth)
+    resolve(message)
   })
 })
 
 const fence = installAuthFence({
   token: auth.token,
   generation: auth.generation,
-  report: (evidence) => parentPort.postMessage({ type: 'auth-evidence', evidence })
+  report: (evidence) => send({ type: 'auth-evidence', evidence })
 })
 
-parentPort.on('message', (event) => {
-  if (event.data?.type === 'host-origin') {
-    fence.setOrigin(event.data.origin)
+const pending = new Map()
+let rpcId = 0
+
+process.on('message', (message) => {
+  if (message?.type === 'host-origin') {
+    fence.setOrigin(message.origin)
     return
   }
-  if (event.data?.type !== 'desktop-port') return
-  const port = event.ports?.[0]
-  if (!port) return
-  // 方向是 Host → main：dialog / clipboard / shell 只在主进程里。
-  // 这里只做请求编号与超时，能力实现全部在 apps/desktop/main/dsh/bridge.js。
-  const pending = new Map()
-  let rpcId = 0
-  port.on('message', ({ data }) => {
-    const entry = pending.get(data?.id)
+  if (message?.type === 'desktop-result') {
+    const entry = pending.get(message.id)
     if (!entry) return
-    pending.delete(data.id)
+    pending.delete(message.id)
     clearTimeout(entry.timer)
-    if (data.ok) entry.resolve(data.value)
-    else entry.reject(Object.assign(new Error(data.error), { code: data.code }))
-  })
-  port.start()
+    if (message.ok) entry.resolve(message.value)
+    else entry.reject(Object.assign(new Error(message.error), { code: message.code }))
+    return
+  }
+  if (message?.type !== 'desktop-bridge-ready') return
 
   globalThis.__moyuDesktop = {
     call(method, payload, { timeoutMs = 30_000 } = {}) {
@@ -57,11 +66,11 @@ parentPort.on('message', (event) => {
           reject(new Error(`桌面桥调用超时：${method}`))
         }, timeoutMs)
         pending.set(id, { resolve, reject, timer })
-        port.postMessage({ id, method, payload })
+        send({ type: 'desktop-call', id, method, payload })
       })
     }
   }
-  parentPort.postMessage({ type: 'bridge-ready', generation: auth.generation })
+  send({ type: 'bridge-ready', generation: auth.generation })
 })
 
 // DSH 用 stdout 播报监听地址；这是当前唯一的就绪来源，转成结构化 ready 消息，
@@ -72,7 +81,7 @@ console.log = (...args) => {
   const match = args.map(String).join(' ').match(/^dsh web: (http:\/\/127\.0\.0\.1:\d+)/)
   if (!match) return
   fence.setOrigin(match[1])
-  parentPort.postMessage({
+  send({
     type: 'host-ready',
     url: match[1],
     pid: process.pid,
@@ -80,7 +89,7 @@ console.log = (...args) => {
   })
 }
 
-// 启动失败必须带着可读原因回到 main：utilityProcess 里的未捕获异常只会留下
+// 启动失败必须带着可读原因回到 main：子进程里的未捕获异常只会留下
 // 退出码，降级页拿不到任何能告诉用户的东西。
 try {
   // 入口由 main 解析后传入：worker 在打包产物里解析不到 app.asar 内的依赖。
@@ -92,10 +101,10 @@ try {
   process.argv = [process.execPath, auth.dshBin, '--profile', auth.profile, '--port', '0']
   await import(auth.dshBin)
 } catch (error) {
-  parentPort.postMessage({
+  send({
     type: 'host-error',
     generation: auth.generation,
-    message: error?.message || String(error)
+    message: describeStartupError(error)
   })
   process.exit(1)
 }

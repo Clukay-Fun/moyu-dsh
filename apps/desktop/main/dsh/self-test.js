@@ -63,8 +63,26 @@ function probeUpgrade(origin, path = '/') {
  * @returns {Promise<{http: number, ws: number}>} 两条链路的实际状态码
  * @throws 任一链路未被拒绝时抛出，调用方必须据此拒绝展示 UI
  */
+/** 服务刚 listen 时首个连接可能被重置；只重试连接层错误，状态码一律不重试。 */
+async function probeWithRetry(probe, origin, attempts = 8) {
+  let lastError
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      return await probe(origin)
+    } catch (error) {
+      if (!/ECONNRESET|ECONNREFUSED|EPIPE|socket hang up/.test(String(error?.message))) throw error
+      lastError = error
+      await new Promise((resolve) => setTimeout(resolve, 250 * (i + 1)))
+    }
+  }
+  throw lastError
+}
+
 export async function assertFenceEngaged(origin) {
-  const [httpStatus, wsStatus] = await Promise.all([probeHttp(origin), probeUpgrade(origin)])
+  const [httpStatus, wsStatus] = await Promise.all([
+    probeWithRetry(probeHttp, origin),
+    probeWithRetry(probeUpgrade, origin)
+  ])
   const failures = []
   if (httpStatus !== 403) failures.push(`HTTP 无 token 请求返回 ${httpStatus}，应为 403`)
   if (wsStatus !== 403) failures.push(`WebSocket 无 token 握手返回 ${wsStatus}，应为 403`)

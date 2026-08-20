@@ -29,7 +29,9 @@ import {
   writeFile
 } from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import { isDshEnabled, startDsh, stopDsh } from './dsh/index.js'
+import { currentDsh, isDshEnabled, logStartup, startDsh, stopDsh } from './dsh/index.js'
+import { installNavigationPolicy, installSessionPolicy } from './dsh/session-policy.js'
+import { hasAnyCredential } from './dsh/secure-store.js'
 import { basename, dirname, extname, join } from 'node:path'
 
 const require = createRequire(import.meta.url)
@@ -785,7 +787,8 @@ function resolveWindowIcon() {
   return undefined
 }
 
-function createWindow() {
+function createWindow(dsh, { noPreload = false, onboarding = false } = {}) {
+  const isDshWindow = Boolean(dsh)
   mainWindow = new BrowserWindow({
     width: 960,
     height: 640,
@@ -794,21 +797,38 @@ function createWindow() {
     show: false,
     icon: resolveWindowIcon(),
     webPreferences: {
-      preload: join(__dirname, '../preload/index.cjs'),
+      ...(isDshWindow
+        ? { session: dsh.session }
+        : onboarding ? { preload: join(__dirname, '../preload/onboarding.cjs') }
+        : noPreload ? {} : { preload: join(__dirname, '../preload/index.cjs') }),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true
     }
   })
 
-  // 窗口从最小化/隐藏恢复后通知渲染端重新激活画布（F-15）。
+  if (isDshWindow) {
+    const allowedOrigin = new URL(dsh.host.url).origin
+    installNavigationPolicy(mainWindow, {
+      allowedOrigin,
+      onExternal: (value) => {
+        try {
+          const url = new URL(value)
+          if (url.protocol === 'https:' || url.protocol === 'http:') void shell.openExternal(url.href)
+        } catch {}
+      }
+    })
+    installSessionPolicy(dsh.session)
+  }
+
+  // legacy 窗口从最小化/隐藏恢复后通知渲染端重新激活画布（F-15）。
   // ⚠ 'restore' 与 'show' 都要接：最小化恢复走 restore，
   //   而截图流程用的是 hide/show，走的是 show，两条路都会让
   //   keyup / mouse:up 这类"结束事件"丢失。
   for (const evt of ['restore', 'show', 'focus']) {
     mainWindow.on(evt, () => {
       if (mainWindow.isDestroyed()) return
-      mainWindow.webContents.send('window:revive')
+      if (!isDshWindow) mainWindow.webContents.send('window:revive')
     })
   }
 
@@ -816,7 +836,7 @@ function createWindow() {
     mainWindow.show()
   })
 
-  // 未保存的汇总画布：关闭前确认，三选项与新建/打开完全一致（规格 7.2）。
+  // 未保存的 legacy 汇总画布：关闭前确认，三选项与新建/打开完全一致（规格 7.2）。
   //
   // 必须异步：选「保存」时要把保存交给 renderer 执行（打包、写盘、
   // 可能弹系统保存对话框），**保存成功才退出**。保存失败或用户在保存
@@ -825,7 +845,7 @@ function createWindow() {
   let forceClose = false
   let closing = false
   mainWindow.on('close', (event) => {
-    if (forceClose || !boardHasUnsavedChanges) return
+    if (isDshWindow || forceClose || !boardHasUnsavedChanges) return
     event.preventDefault()
     if (closing) return // 已在处理中，忽略重复的关闭请求
     closing = true
@@ -863,10 +883,90 @@ function createWindow() {
     }
   })
 
-  if (process.env.ELECTRON_RENDERER_URL) {
+  if (isDshWindow) {
+    void mainWindow.loadURL(dsh.host.url)
+  } else if (process.env.ELECTRON_RENDERER_URL) {
     mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+  }
+}
+
+function showDshFallback(error) {
+  // 现有 DSH WebContents 绑定了严格 origin 策略，会正确拒绝 data: 降级页；因此失败时
+  // 必须重建一个无 preload 的本地只读窗口，不能临时放宽正式主窗口的导航边界。
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.destroy()
+  createWindow(undefined, { noPreload: true })
+  const reason = String(error?.message || error || '未知错误').replace(/[<>&]/g, '')
+  const html = `<!doctype html><meta charset="utf-8"><meta name="color-scheme" content="light dark">
+    <title>摸鱼工具箱启动失败</title><style>
+    body{margin:0;min-height:100vh;display:grid;place-items:center;font:15px system-ui;background:#f4f5f8;color:#20222a}
+    main{width:min(560px,calc(100vw - 64px));padding:32px;border:1px solid #d9dce5;border-radius:18px;background:#fff;box-shadow:0 18px 60px #10182818}
+    h1{font-size:22px;margin:0 0 12px}p{line-height:1.65;color:#555b6b}code{display:block;padding:12px;border-radius:10px;background:#f2f3f6;word-break:break-word}
+    </style><main><h1>DSH 暂时无法启动</h1><p>应用已安全停止本次 Host，不会显示未认证页面。请退出后重新打开；诊断记录保存在用户数据目录。</p><code>${reason}</code></main>`
+  void mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+  mainWindow.show()
+}
+
+function onboardingPagePath() {
+  return app.isPackaged
+    ? join(process.resourcesPath, 'onboarding.html')
+    : join(app.getAppPath(), 'resources', 'onboarding.html')
+}
+
+/**
+ * 未配置凭据时的 Moyu 原生引导页（v3.0.0 §7）。
+ *
+ * 不直接把用户丢进 DSH 的空聊天界面：这一屏要么去配凭据，要么直接用不联网的
+ * legacy 工具。用独立最小 preload，不复用主 UI preload。
+ */
+function showOnboarding() {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.destroy()
+  createWindow(undefined, { onboarding: true })
+  void mainWindow.loadFile(onboardingPagePath())
+  mainWindow.show()
+  void logStartup('未配置凭据：显示引导页，未启动 DSH Host')
+}
+
+ipcMain.handle('onboarding:open-legacy', () => {
+  void logStartup('引导页：打开 legacy 扩展窗口')
+  // legacy 扩展入口：加载迁移期 Vanilla renderer，用它自己的白名单 preload。
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.destroy()
+  createWindow()
+  return { opened: 'legacy' }
+})
+
+ipcMain.handle('onboarding:continue', async () => {
+  await bootDshWindow()
+  return { opened: 'dsh' }
+})
+
+let recoveringDsh = false
+async function bootDshWindow({ recovery = false } = {}) {
+  try {
+    const running = currentDsh()
+    if (running && !recovery) {
+      if (!mainWindow || mainWindow.isDestroyed()) createWindow(running)
+      return
+    }
+    const dsh = await startDsh({
+      onStdout: (line) => process.stdout.write(line),
+      window: () => mainWindow,
+      onExit: (detail) => {
+        void logStartup(`DSH Host 异常退出：generation ${detail.generation}，code ${detail.code ?? '-'}，signal ${detail.signal ?? '-'}`)
+        if (recoveringDsh) return
+        recoveringDsh = true
+        void bootDshWindow({ recovery: true }).finally(() => { recoveringDsh = false })
+      }
+    })
+    // 每代 Host 使用独立 session partition；崩溃换代时必须重建 WebContents，不能把
+    // 新 origin 装进仍持有旧 token 注入器的页面。
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.destroy()
+    createWindow(dsh)
+    await logStartup(`DSH Host 就绪：${dsh.host.url}（generation ${dsh.generation}，fence 自检 HTTP ${dsh.fence.http} / WS ${dsh.fence.ws}${recovery ? '，崩溃恢复' : ''}）`)
+  } catch (error) {
+    await logStartup(`DSH Host 启动失败：${error?.message || error}`)
+    showDshFallback(error)
   }
 }
 
@@ -2622,7 +2722,7 @@ ipcMain.on('shortcut:ready', (event) => {
   pendingShortcutNotice = null
 })
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // macOS 首次截图若在点击后才编译 ScreenCaptureKit 侧车，会额外等待约一秒。
   // 启动后后台预热；失败时 promise 会自行复位，真正截图仍会重试并给出明确错误。
   if (process.platform === 'darwin') {
@@ -2636,34 +2736,25 @@ app.whenReady().then(() => {
     const dockIcon = resolveWindowIcon()
     if (dockIcon && !dockIcon.isEmpty()) app.dock.setIcon(dockIcon)
   }
-  createWindow()
+  if (isDshEnabled()) {
+    // 凭据缺失时先进引导页；DSH 通过可用性检查后才成为默认首页（§2）。
+    if (await hasAnyCredential().catch(() => false)) await bootDshWindow()
+    else showOnboarding()
+  } else createWindow()
   // 预先加载隐藏的截图壳。后续点击只更新屏幕数据，不再创建窗口或重跑页面初始化。
-  void ensureScreenshotOverlay(screen.getPrimaryDisplay()).catch((error) => {
-    console.warn('截图覆盖层预加载失败：', error?.message || error)
-  })
+  if (!isDshEnabled()) {
+    void ensureScreenshotOverlay(screen.getPrimaryDisplay()).catch((error) => {
+      console.warn('截图覆盖层预加载失败：', error?.message || error)
+    })
+  }
   // 启动时按用户设置注册；没配过就是默认组合（F-16）
   captureShortcut = readShortcutSettings()
   registerCaptureShortcut()
 
-  // v3.0.0 M0b B2：DSH Host 先以开关方式并行启动，主界面仍是 legacy renderer。
-  // fence 自检不通过时不保留 Host，也不暴露任何 DSH 入口（§3.2 fail-closed）。
-  if (isDshEnabled()) {
-    void startDsh({
-      onStdout: (line) => process.stdout.write(line),
-      // B4 切主界面后改为 DSH 窗口；现在对话框先挂在既有主窗口上。
-      window: () => mainWindow
-    })
-      .then((dsh) => {
-        console.log(`DSH Host 就绪：${dsh.host.url}（generation ${dsh.generation}，fence 自检 HTTP ${dsh.fence.http} / WS ${dsh.fence.ws}）`)
-      })
-      .catch((error) => {
-        console.error('DSH Host 启动失败：', error?.message || error)
-      })
-  }
-
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow()
+      if (isDshEnabled()) void bootDshWindow()
+      else createWindow()
     }
   })
 })

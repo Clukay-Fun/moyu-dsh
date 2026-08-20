@@ -3,13 +3,13 @@
 // DSH Host 只能调用这里显式登记的方法：没有通用 channel，没有任意 Electron API 转发，
 // 没有任意路径读写。每个方法都有参数校验、明确的调用主体和清洗过的错误。
 //
-// 调用主体固定为 `dsh:<generation>`：Host 进程只经这一条 MessagePort 进来，
+// 调用主体固定为 `dsh:<generation>`：Host 进程只经这一条进程 IPC 窄桥进来，
 // 不与 renderer / legacy / job 共用身份（§6.1）。
 import { BrowserWindow, clipboard, dialog, nativeImage, shell } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
 import { stat, writeFile } from 'node:fs/promises'
-import { describeCredential, setCredential, unsetCredential } from './secure-store.js'
+import { describeCredential, getCredential, setCredential, unsetCredential } from './secure-store.js'
 
 const MAX_PICK = 64
 
@@ -112,6 +112,11 @@ export function createBridgeMethods({ generation, window }) {
 
     async 'desktop.secureStore'(payload = {}) {
       return setCredential(requireString(payload.key, 'key'), requireString(payload.value, 'value'))
+    },
+
+    async 'desktop.secureRetrieve'(payload = {}) {
+      // 只有 Host 的 credentials provider 会调用它；值不进日志、不进结果卡片。
+      return { value: await getCredential(requireString(payload.key, 'key')) }
     },
 
     async 'desktop.secureDescribe'(payload = {}) {

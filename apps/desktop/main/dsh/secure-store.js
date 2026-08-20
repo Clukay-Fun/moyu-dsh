@@ -89,6 +89,22 @@ export async function describeCredential(key) {
   return { key, configured: Object.hasOwn(entries, key), writable: safeStorage.isEncryptionAvailable() }
 }
 
+/**
+ * 是否已配置过任何凭据。
+ *
+ * 引导页只关心"有没有"，不关心具体是哪个 provider 的 ref——ref 名由 DSH 决定，
+ * 主进程不该猜。解密失败按未配置处理，由引导页提示重新录入。
+ */
+export async function hasAnyCredential() {
+  try {
+    const { entries } = await readEnvelope()
+    return Object.keys(entries).length > 0
+  } catch (error) {
+    if (error?.code === 'CREDENTIALS_DECRYPT_FAILED') return false
+    throw error
+  }
+}
+
 export async function setCredential(key, value) {
   if (typeof key !== 'string' || !key) throw new Error('凭据名无效')
   if (typeof value !== 'string' || !value) throw new Error('凭据值无效')

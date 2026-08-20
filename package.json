@@ -16,10 +16,11 @@
     "build:native:mac": "node scripts/build-macos-native.mjs",
     "build:tools:win": "powershell -ExecutionPolicy Bypass -File scripts/download-ffmpeg-win.ps1",
     "build:win": "npm run build:icon && npm run build:tools:win && npm run build && electron-builder --win portable --x64",
-    "build:mac": "npm run build:native:mac && npm run build && electron-builder --mac dmg --arm64",
+    "build:mac": "npm run build:dsh-runtime && npm run build:native:mac && npm run build && electron-builder --mac dmg --arm64",
     "verify:dsh-fence": "node scripts/verify-dsh-fence.mjs",
     "verify:dsh-bridge": "electron scripts/verify-dsh-bridge.mjs",
-    "preview": "electron-vite preview"
+    "preview": "electron-vite preview",
+    "build:dsh-runtime": "node scripts/build-dsh-runtime.mjs"
   },
   "build": {
     "appId": "com.clukay.moyutools",
@@ -62,6 +63,10 @@
       {
         "from": "resources/dsh-auth-fence.mjs",
         "to": "workers/dsh-auth-fence.mjs"
+      },
+      {
+        "from": "resources/onboarding.html",
+        "to": "onboarding.html"
       }
     ],
     "win": {
@@ -115,9 +120,11 @@
           "to": "app-icon.png"
         }
       ]
-    }
+    },
+    "afterPack": "scripts/after-pack-dsh-runtime.mjs"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh": "0.1.0-rc.7",
     "electron": "43.2.0",
     "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",

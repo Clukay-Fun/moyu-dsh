@@ -66,6 +66,27 @@ export function installAuthFence({ token, generation, report }) {
       }
     }
     const server = originalCreateServer.apply(this, args)
+    server.once('listening', () => {
+      const address = server.address()
+      report?.({ generation, kind: 'server-lifecycle', event: 'listening', address })
+      if (!address || typeof address === 'string') return
+      const request = http.get({ host: '127.0.0.1', port: address.port, path: '/' }, (response) => {
+        response.resume()
+        response.once('end', () => report?.({
+          generation,
+          kind: 'server-lifecycle',
+          event: 'self-http',
+          status: response.statusCode
+        }))
+      })
+      request.once('error', (error) => report?.({
+        generation,
+        kind: 'server-lifecycle',
+        event: 'self-http-error',
+        code: error.code
+      }))
+    })
+    server.once('close', () => report?.({ generation, kind: 'server-lifecycle', event: 'close' }))
     const originalOn = server.on
     server.on = function on(event, listener) {
       if (event !== 'upgrade') return originalOn.call(this, event, listener)

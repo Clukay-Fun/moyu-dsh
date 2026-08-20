@@ -36,6 +36,10 @@ async function main() {
   assert.equal(await store.getCredential('DEEPSEEK_API_KEY'), secret)
   results.roundTrip = true
 
+  // ①b 引导页分流依据：hasAnyCredential 必须与实际状态一致
+  results.hasCredentialWhenSet = await store.hasAnyCredential()
+  assert.equal(results.hasCredentialWhenSet, true)
+
   // ② 磁盘上不得出现明文；密文文件权限 0600
   const file = store.storePath()
   const raw = await readFile(file)
@@ -55,6 +59,8 @@ async function main() {
   await store.unsetCredential('DEEPSEEK_API_KEY')
   results.fileRemovedWhenEmpty = !(await stat(file).catch(() => null))
   assert.equal(results.fileRemovedWhenEmpty, true)
+  results.hasCredentialWhenEmpty = await store.hasAnyCredential()
+  assert.equal(results.hasCredentialWhenEmpty, false)
 
   // ⑤ 明文 YAML 迁移：导入后原文件必须消失，且新库里读得到
   const yamlPath = join(sandbox, '.credentials.yaml')

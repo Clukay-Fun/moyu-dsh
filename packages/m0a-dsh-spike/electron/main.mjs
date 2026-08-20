@@ -188,6 +188,27 @@ async function runGeneration(win, partitionSession, generation) {
     const text = await win.webContents.executeJavaScript('document.body.innerText')
     return text.includes('Moyu M0a hello client plugin rendered') && text
   }, 'hello plugin render')
+  // G2 判别性探测：先建会话，再看会话头部的视图环。
+  // 关键对照——上游自己的 trajectory tab 若也不在，说明缺的是会话/凭据，而不是我们的注册。
+  const g2 = await win.webContents.executeJavaScript(`(async () => {
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms))
+    const all = () => [...document.querySelectorAll('button,[role="tab"],[role="menuitem"],[role="menuitemradio"]')]
+    const byText = (t) => all().find(i => ((i.innerText || i.getAttribute('aria-label') || '').trim()) === t)
+
+    const create = byText('新会话') || byText('新建会话')
+    if (create) { create.click(); await sleep(2500) }
+
+    const labels = all().map(i => (i.innerText || i.getAttribute('aria-label') || '').trim()).filter(Boolean)
+    return JSON.stringify({
+      sessionOpened: !document.body.innerText.includes('暂无会话') || Boolean(document.querySelector('textarea')),
+      moyuTab: labels.includes('Moyu G2'),
+      trajectoryTab: labels.some(l => /轨迹|trajectory|瀑布/i.test(l)),
+      chatTab: labels.some(l => /^对话$|^聊天$|^chat$/i.test(l)),
+      labels: labels.slice(0, 40),
+    })
+  })()`)
+  process.stdout.write(`M0A_G2 ${g2}\n`)
+
   const pageState = await win.webContents.executeJavaScript(`JSON.stringify({
     url: location.href,
     html: document.documentElement.outerHTML,

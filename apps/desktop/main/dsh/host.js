@@ -2,8 +2,11 @@
 //
 // 每次启动是一个 generation：独立端口、独立随机 token、独立 origin。
 // Host 崩溃重启会换代，旧 token 与旧端口一并作废（M0a 收口已实测）。
-import { app, MessageChannelMain, utilityProcess } from 'electron'
+import { app } from 'electron'
+import { fork as forkChild } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
+import { existsSync } from 'node:fs'
+import { cp, mkdir } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { dispatchBridgeCall } from './bridge.js'
@@ -25,6 +28,18 @@ function workerPath() {
  * main 打进 asar，从这里解析才能命中生产依赖。
  */
 export function resolveDshEntry() {
+  // 打包后走 asar 外的独立运行闭包：DSH 的 profile loader 会建指向安装闭包的
+  // 包级 symlink，链接指进 app.asar 时外部 profile 的 ESM import 无法回穿。
+  if (app.isPackaged) {
+    const entry = join(
+      process.resourcesPath,
+      'dsh-runtime', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'
+    )
+    if (!existsSync(entry)) {
+      throw new Error(`DSH 运行闭包缺失：${entry}（构建时未执行 build:dsh-runtime？）`)
+    }
+    return entry
+  }
   const require = createRequire(import.meta.url)
   try {
     return join(dirname(require.resolve('@deepseek-ai/dsh/package.json')), 'lib', 'bin.js')
@@ -38,18 +53,47 @@ export function dshHome() {
 }
 
 /**
+ * 首次启动时把构建期生成的 profile 模板铺到 DSH_HOME。
+ *
+ * 运行期不跑 npm/pnpm：既要联网，也和 §9「不在用户机器上动态替换核心」冲突。
+ * 已存在则原样保留，不覆盖用户的会话与设置。
+ */
+export async function ensureProfile(profileName) {
+  const home = dshHome()
+  const profileDir = join(home, 'profiles', profileName)
+  if (existsSync(profileDir)) return profileDir
+
+  const template = app.isPackaged
+    ? join(process.resourcesPath, 'dsh-runtime', 'home-template')
+    : join(app.getAppPath(), 'build', 'dsh-runtime', 'home-template')
+  const source = join(template, 'profiles', profileName)
+  if (!existsSync(source)) {
+    throw new Error(`profile 模板缺失：${source}（构建时未执行 build:dsh-runtime？）`)
+  }
+  await mkdir(join(home, 'profiles'), { recursive: true })
+  await cp(source, profileDir, { recursive: true, dereference: false })
+  return profileDir
+}
+
+/**
  * 启动一代 Host，等待 ready。
  *
- * token 只经 postMessage 下发，不进环境变量、命令行、配置文件和日志。
+ * token 只经进程 IPC 下发，不进环境变量、命令行、配置文件和日志。
  */
 export async function startHostGeneration(generation, { onStdout, profile } = {}) {
   const token = randomBytes(32).toString('base64url')
-  const child = utilityProcess.fork(workerPath(), [], {
+  // 入口解析必须发生在 fork 前；否则解析失败时 child 已创建、外层又拿不到 host，
+  // 会留下一个永远等 host-auth 的 utility process。
+  const dshBin = resolveDshEntry()
+  // 使用 Electron 自带的 Node 运行时，不依赖用户机器上的外挂 Node。utilityProcess
+  // 在打包产物中创建的 Chromium 服务进程无法被应用网络栈访问，B3.5 已实测否决。
+  const child = forkChild(workerPath(), [], {
+    execPath: process.execPath,
     // DSH 闭包里的 node-addon-require-builtin 需要它；M0a 已按此组合实测。
     execArgv: ['--expose-internals'],
-    env: { ...process.env, MOYU_DSH_HOME: dshHome() },
-    stdio: 'pipe',
-    serviceName: `Moyu DSH Host ${generation}`
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', MOYU_DSH_HOME: dshHome() },
+    stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+    serialization: 'advanced'
   })
 
   const evidence = []
@@ -60,7 +104,7 @@ export async function startHostGeneration(generation, { onStdout, profile } = {}
   child.on('message', (message) => {
     if (message?.type === 'auth-evidence') evidence.push(message.evidence)
   })
-  child.postMessage({ type: 'host-auth', generation, token, dshBin: resolveDshEntry(), profile })
+  child.send({ type: 'host-auth', generation, token, dshBin, profile })
 
   try {
     host.url = await new Promise((resolve, reject) => {
@@ -108,31 +152,58 @@ export async function startHostGeneration(generation, { onStdout, profile } = {}
  * main 不通过这条通道反向调用 Host——Host 的健康状态由进程存活与 ready 决定。
  */
 export function serveDesktopBridge(host, methods) {
-  const { port1, port2 } = new MessageChannelMain()
-  host.child.postMessage({ type: 'desktop-port' }, [port1])
-
-  port2.on('message', async ({ data }) => {
-    const reply = await dispatchBridgeCall(methods, data)
-    port2.postMessage(reply)
-  })
-  port2.start()
+  const onMessage = async (message) => {
+    if (message?.type !== 'desktop-call') return
+    const reply = await dispatchBridgeCall(methods, message)
+    if (host.child.connected) host.child.send({ type: 'desktop-result', ...reply })
+  }
+  host.child.on('message', onMessage)
+  host.child.send({ type: 'desktop-bridge-ready', generation: host.generation })
 
   host.bridge = {
     subject: methods.subject,
     close() {
       // 令牌随本代一起作废，旧 fileId 不得在新一代里复活。
       methods.registry?.clear()
-      port2.close()
+      host.child.off('message', onMessage)
     }
   }
   return host.bridge
 }
 
+const STOP_TIMEOUT_MS = 5_000
+
 export function stopHost(host) {
-  if (!host || host.child.killed) return Promise.resolve()
+  if (!host || host.child.pid === undefined || host.child.exitCode !== null || host.child.signalCode !== null) {
+    host?.bridge?.close()
+    return Promise.resolve()
+  }
   host.bridge?.close()
   return new Promise((resolve) => {
-    host.child.once('exit', resolve)
-    host.child.kill()
+    const child = host.child
+    const pid = child.pid
+    let graceTimer
+    let reapTimer
+    let done = false
+    const finish = () => {
+      if (done) return
+      done = true
+      clearTimeout(graceTimer)
+      clearTimeout(reapTimer)
+      child.off('exit', finish)
+      resolve()
+    }
+    const forceKill = () => {
+      try {
+        process.kill(pid, 'SIGKILL')
+      } catch (error) {
+        if (error?.code === 'ESRCH') return finish()
+      }
+      // SIGKILL 后正常会收到 exit；再给一个有界兜底，避免关闭链路永久等待。
+      reapTimer = setTimeout(finish, 1_000)
+    }
+    child.once('exit', finish)
+    graceTimer = setTimeout(forceKill, STOP_TIMEOUT_MS)
+    if (!child.kill('SIGTERM')) forceKill()
   })
 }
