@@ -5,7 +5,7 @@ import { rm } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 
 export const name = 'moyu-image'
-export const inject = ['webServer']
+export const inject = ['webServer', 'tools']
 const JOB_TIMEOUT_MS = 120_000
 const JOB_RETENTION_MS = 10 * 60_000
 

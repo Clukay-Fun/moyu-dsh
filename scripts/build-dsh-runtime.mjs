@@ -29,6 +29,7 @@ const SURFACE_BUNDLE = '@deepseek-ai/dsh-web-app'
 
 const MOYU_PLUGINS = {
   '@moyu/dsh-credentials-desktop': 'dsh-credentials-desktop',
+  '@moyu/dsh-host-directory-picker-fixed': 'dsh-host-directory-picker-fixed',
   '@moyu/dsh-plugin-legacy-tools': 'dsh-plugin-legacy-tools',
   '@moyu/dsh-plugin-image': 'dsh-plugin-image'
 }

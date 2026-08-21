@@ -1,5 +1,7 @@
 - id: credentials
   disabled: true
+- id: directory-picker
+  disabled: true
 - id: jobs
   disabled: true
 - id: subprocess
@@ -105,6 +107,8 @@
 - insert:
     - id: moyu-credentials-desktop
       name: '@moyu/dsh-credentials-desktop'
+    - id: moyu-directory-picker-fixed
+      name: '@moyu/dsh-host-directory-picker-fixed'
     - id: moyu-legacy-tools
       name: '@moyu/dsh-plugin-legacy-tools'
     - id: moyu-image

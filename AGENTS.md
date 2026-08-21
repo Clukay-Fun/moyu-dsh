@@ -67,6 +67,19 @@ Electron IPC。
 
 未能执行的验证必须在交付中说明原因与残余风险。
 
+## 验证分层
+
+打包是最贵的验证手段，不是默认动作。
+
+- 日常改动：相关 harness + 静态检查 + `npm run build`。
+- 里程碑收口：完整 26 个 harness（23 Node + 3 个自启 Electron 的真机 harness）。
+  跑之前先 `pkill -9 -f "Electron.app/Contents/MacOS/Electron"`——真机 harness 会残留实例
+  并互抢调试端口，表现为随机假失败甚至新实例 `SIGABRT`；先按残留排查，不要先怀疑产品代码。
+- 只有涉及打包布局 / `asar` / `extraResources` / `afterPack`、原生模块增减、签名与公证、
+  运行闭包（`@deepseek-ai/*` 版本或 `build-dsh-runtime.mjs`）变化、或新增打包后需解析路径的
+  资源（WASM、语言包、worker、外挂可执行文件）时，才构建 DMG。
+- 网络中断、工具链故障等与产品代码无关的环境问题不构成重新打包的理由；失败先定位。
+
 ## Windows 打包与交付
 
 - 唯一正式流程见 [`docs/windows-release.md`](docs/windows-release.md)，打包前必须完整读取。

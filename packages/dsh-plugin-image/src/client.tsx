@@ -95,6 +95,9 @@ export const name = 'moyu-image-client'
 export const inject = ['slots']
 
 export function apply(ctx: ClientContext): void {
+  ctx.slots.inject('conversation.view', () => ctx.slots.register({
+    name: 'conversation.view', id: 'moyu-image-convert-view', order: 20, label: () => '图片转换',
+  } as never, ImagePanel as never))
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section', id: 'moyu-image-convert', order: 15, label: () => '图片转换',
   } as never, ImagePanel as never))
