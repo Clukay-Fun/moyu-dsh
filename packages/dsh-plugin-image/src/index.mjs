@@ -238,9 +238,11 @@ export function apply(ctx) {
 
   ctx.on('session/created', () => {
     const actual = ctx.tools.schemas().map((schema) => schema.name).sort()
-    const expected = ['image_convert', 'pdf_process', 'screenshot_capture']
+    const expected = ['ask_user_question', 'image_convert', 'pdf_process', 'screenshot_capture']
     if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-      throw new Error(`moyu tool whitelist drift: expected ${expected.join(',')}; got ${actual.join(',')}`)
+      const error = new Error(`moyu tool whitelist drift: expected ${expected.join(',')}; got ${actual.join(',')}`)
+      process.stderr.write(`[moyu] ${error.message}\n`)
+      throw error
     }
   }, { global: true })
 

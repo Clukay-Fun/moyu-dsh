@@ -109,9 +109,11 @@
       name: '@moyu/dsh-credentials-desktop'
     - id: moyu-directory-picker-fixed
       name: '@moyu/dsh-host-directory-picker-fixed'
-    - id: moyu-legacy-tools
-      name: '@moyu/dsh-plugin-legacy-tools'
     - id: moyu-image
       name: '@moyu/dsh-plugin-image'
     - id: moyu-pdf
       name: '@moyu/dsh-plugin-pdf'
+    - id: moyu-screenshot
+      name: '@moyu/dsh-plugin-screenshot'
+    - id: tool-ask-user
+      name: '@deepseek-ai/dsh-tool-ask-user'

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 
 export const name = 'moyu-screenshot'
@@ -280,6 +281,18 @@ export function apply(ctx) {
               : await desktop().call('desktop.showItem', { fileId: status.result.fileId })
             return sendJson(res, 200, value)
           }
+          if (args.operation === 'read') {
+            const job = requireJob(service._jobs, args.job_id)
+            const status = serialize(job)
+            if (status.status !== 'completed' || status.resultStatus === 'expired' || !status.result?.fileId) {
+              throw new Error('截图结果尚未就绪或已失效')
+            }
+            const resolved = await desktop().call('desktop.resolveFile', { fileId: status.result.fileId })
+            const data = await readFile(resolved.path)
+            res.writeHead(200, { 'content-type': 'image/png', 'content-length': data.length })
+            res.end(data)
+            return
+          }
           throw new Error('不支持的截图操作')
         } catch (error) {
           return sendJson(res, 400, { error: publicError(error) })
@@ -320,9 +333,11 @@ export function apply(ctx) {
 
   ctx.on('session/created', () => {
     const actual = ctx.tools.schemas().map((schema) => schema.name).sort()
-    const expected = ['image_convert', 'pdf_process', 'screenshot_capture']
+    const expected = ['ask_user_question', 'image_convert', 'pdf_process', 'screenshot_capture']
     if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-      throw new Error(`moyu tool whitelist drift: expected ${expected.join(',')}; got ${actual.join(',')}`)
+      const error = new Error(`moyu tool whitelist drift: expected ${expected.join(',')}; got ${actual.join(',')}`)
+      process.stderr.write(`[moyu] ${error.message}\n`)
+      throw error
     }
   }, { global: true })
 
