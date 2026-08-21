@@ -34,12 +34,16 @@ class FixedDirectoryPicker extends DirectoryPicker {
 export async function apply(ctx: Context): Promise<void> {
   new FixedDirectoryPicker(ctx)
 
+  const home = process.env.DSH_HOME
   const path = fixedWorkspacePath()
   await mkdir(path, { recursive: true })
   const canonical = await realpath(path)
   const existing = ctx.workspaceRegistry.list()
   if (existing.some((workspace) => workspace.path !== canonical)) {
-    throw new Error('检测到旧版非沙箱 workspace；为避免静默访问任意目录，需先人工迁移开发会话')
-  }
-  await ctx.workspaceRegistry.create(canonical, 'Moyu')
+    throw new Error(
+      '检测到旧版非沙箱 workspace；为避免静默访问任意目录，已拒绝启动。'
+      + `请人工迁移：编辑 ${join(home, 'storages', 'workspace.json')}，把其中记录的 workspace 路径`
+      + `改为 "${canonical}"（或删除该文件让应用重建），旧会话历史保留在会话存储中不受影响。`
+    )
+  }  await ctx.workspaceRegistry.create(canonical, 'Moyu')
 }
