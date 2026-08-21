@@ -10,7 +10,8 @@
     "packages/dsh-host-directory-picker-fixed",
     "packages/dsh-plugin-image",
     "packages/dsh-plugin-legacy-tools",
-    "packages/dsh-plugin-pdf"
+    "packages/dsh-plugin-pdf",
+    "packages/dsh-plugin-screenshot"
   ],
   "main": "./out/main/index.js",
   "engines": {

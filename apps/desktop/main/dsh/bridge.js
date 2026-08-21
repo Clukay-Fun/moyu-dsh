@@ -186,6 +186,21 @@ export function createBridgeMethods({ generation, window }) {
       throw new Error('copy 需要 text 或 image')
     },
 
+    async 'desktop.requestScreenCapture'() {
+      const { requestScreenCaptureForDsh } = await import('../index.js')
+      const result = await requestScreenCaptureForDsh({ parentWindow: parent() })
+      if (result.canceled) return result
+      const file = await registry.register(result.path)
+      return {
+        canceled: false,
+        file,
+        width: result.width,
+        height: result.height,
+        backend: result.backend,
+        displayBounds: result.displayBounds
+      }
+    },
+
     async 'desktop.secureStore'(payload = {}) {
       return setCredential(requireString(payload.key, 'key'), requireString(payload.value, 'value'))
     },

@@ -97,6 +97,10 @@ async function main() {
   results.unknownMethod = await dispatchBridgeCall(methods, { id: 2, method: 'ipc.invoke' })
   assert.equal(results.unknownMethod.ok, false)
   assert.equal(results.unknownMethod.code, 'UNKNOWN_METHOD')
+  assert.equal(typeof methods['desktop.requestScreenCapture'], 'function')
+  results.rawCaptureRejected = await dispatchBridgeCall(methods, { id: 20, method: 'desktop.captureScreen' })
+  assert.equal(results.rawCaptureRejected.ok, false)
+  assert.equal(results.rawCaptureRejected.code, 'UNKNOWN_METHOD')
 
   results.badArgs = await dispatchBridgeCall(methods, { id: 3, method: 'desktop.showItem', payload: {} })
   assert.equal(results.badArgs.ok, false)

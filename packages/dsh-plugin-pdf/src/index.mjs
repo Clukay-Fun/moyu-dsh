@@ -1,5 +1,6 @@
 import { PDFDocument, StandardFonts, degrees, rgb } from 'pdf-lib'
 import { getDocument, ImageKind, OPS } from 'pdfjs-dist/legacy/build/pdf.mjs'
+import { createCanvas, DOMMatrix, ImageData, Path2D } from '@napi-rs/canvas'
 import sharp from 'sharp'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { randomUUID } from 'node:crypto'
@@ -14,7 +15,12 @@ const JOB_RETENTION_MS = 10 * 60_000
 const OPERATIONS = [
   'merge', 'rotate', 'extract_pages', 'split_pages', 'insert_pages', 'page_numbers',
   'encrypt', 'decrypt', 'watermark_text', 'watermark_image', 'images_to_pdf', 'extract_text', 'extract_images',
+  'render_pages',
 ]
+
+globalThis.DOMMatrix ||= DOMMatrix
+globalThis.ImageData ||= ImageData
+globalThis.Path2D ||= Path2D
 
 function desktop() {
   if (!globalThis.__moyuDesktop) throw new Error('Moyu 桌面桥尚未就绪')
@@ -219,6 +225,51 @@ async function extractPdfContent(path, operation, signal, progress) {
   }
 }
 
+async function renderPdfPages(path, options, signal, progress) {
+  const format = options.format === 'jpeg' || options.format === 'jpg' ? 'jpeg' : options.format === 'png' || !options.format ? 'png' : null
+  if (!format) throw new Error('整页转图格式只支持 png 或 jpeg')
+  const scale = clamp(options.scale, 0.25, 4, 2)
+  const quality = Math.round(clamp(options.quality, 1, 100, 92))
+  const task = getDocument({ data: new Uint8Array(await readFile(path)), useSystemFonts: true })
+  const document = await task.promise
+  const outputs = []
+  try {
+    if (document.numPages > 500) throw new Error('整页转图最多支持 500 页')
+    const pageIndices = options.pages ? parsePageRange(options.pages, document.numPages) : Array.from({ length: document.numPages }, (_, index) => index)
+    for (const [index, pageIndex] of pageIndices.entries()) {
+      checkCancelled(signal)
+      const page = await document.getPage(pageIndex + 1)
+      const viewport = page.getViewport({ scale })
+      const width = Math.ceil(viewport.width)
+      const height = Math.ceil(viewport.height)
+      if (width * height > 80_000_000) throw new Error(`第 ${pageIndex + 1} 页尺寸超过 8000 万像素，请降低缩放倍数`)
+      const canvas = createCanvas(width, height)
+      const context = canvas.getContext('2d')
+      const renderTask = page.render({ canvasContext: context, viewport })
+      const onAbort = () => renderTask.cancel()
+      signal.addEventListener('abort', onAbort, { once: true })
+      try { await renderTask.promise }
+      catch (error) {
+        if (signal.aborted || error?.name === 'RenderingCancelledException') throw Object.assign(new Error('TASK_CANCELLED'), { code: 'TASK_CANCELLED' })
+        throw error
+      } finally {
+        signal.removeEventListener('abort', onAbort)
+      }
+      const data = await canvas.encode(format === 'png' ? 'png' : 'jpeg', format === 'jpeg' ? quality : undefined)
+      outputs.push({
+        name: `${basename(path, '.pdf')}-page-${String(pageIndex + 1).padStart(3, '0')}.${format === 'png' ? 'png' : 'jpg'}`,
+        data,
+        pageCount: 1,
+      })
+      page.cleanup()
+      progress({ ratio: (index + 1) / pageIndices.length })
+    }
+    return { outputs, pageCount: pageIndices.length }
+  } finally {
+    await document.destroy()
+  }
+}
+
 function checkCancelled(signal) {
   if (signal.aborted) throw Object.assign(new Error('TASK_CANCELLED'), { code: 'TASK_CANCELLED' })
 }
@@ -270,6 +321,8 @@ async function processPdf(paths, operation, options, signal, progress) {
   let output
   if (operation === 'extract_text' || operation === 'extract_images') {
     return await extractPdfContent(paths[0], operation, signal, progress)
+  } else if (operation === 'render_pages') {
+    return await renderPdfPages(paths[0], options, signal, progress)
   } else if (operation === 'images_to_pdf') {
     output = await PDFDocument.create()
     for (const [index, path] of paths.entries()) {
@@ -526,7 +579,7 @@ export function apply(ctx) {
 
   ctx.tools.register(defineTool({
     name: 'pdf_process',
-    description: 'Submit, inspect, or cancel a Moyu PDF job for page operations, watermarking, image-to-PDF, encryption, or decryption.',
+    description: 'Submit, inspect, or cancel a Moyu PDF job for page operations, watermarking, image-to-PDF, full-page image rendering, encryption, or decryption.',
     parameters: {
       operation: { type: 'string', enum: ['submit', 'status', 'cancel'], required: true },
       job_id: { type: 'string' },
@@ -538,7 +591,8 @@ export function apply(ctx) {
         start: { type: 'integer' }, position: { type: 'string', enum: ['header', 'footer'] },
         text: { type: 'string' }, font_size: { type: 'integer' }, opacity: { type: 'number' }, density: { type: 'integer' },
         horizontal: { type: 'string', enum: ['left', 'center', 'right'] }, vertical: { type: 'string', enum: ['top', 'center', 'bottom'] },
-        offset_x: { type: 'number' }, offset_y: { type: 'number' }, watermark_file_id: { type: 'string' }
+        offset_x: { type: 'number' }, offset_y: { type: 'number' }, watermark_file_id: { type: 'string' },
+        format: { type: 'string', enum: ['png', 'jpeg'] }, scale: { type: 'number' }, quality: { type: 'integer' }
       } }
     },
     output: {

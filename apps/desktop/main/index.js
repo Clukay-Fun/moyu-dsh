@@ -1967,6 +1967,85 @@ async function captureDisplayScreenCaptureKit(display, physicalWidth, physicalHe
   }
 }
 
+async function captureCurrentDisplay() {
+  const cursorPoint = screen.getCursorScreenPoint()
+  const display = screen.getDisplayNearestPoint(cursorPoint)
+  const physicalWidth = Math.max(1, Math.round(display.bounds.width * display.scaleFactor))
+  const physicalHeight = Math.max(1, Math.round(display.bounds.height * display.scaleFactor))
+  const grabElectron = async () => {
+    const sources = await desktopCapturer.getSources({
+      types: ['screen'],
+      thumbnailSize: { width: physicalWidth, height: physicalHeight },
+      fetchWindowIcons: false
+    })
+    const source = sources.find((c) => String(c.display_id) === String(display.id)) || sources[0]
+    return source ? { thumbnail: source.thumbnail, backend: 'desktopCapturer' } : null
+  }
+  const grab = async () => {
+    // macOS 不回退到 desktopCapturer：原生路径负责稳定地保留当前屏幕内容，
+    // 并避免 Electron 在 Stage Manager 下产生错误的显示器边界映射。
+    if (process.platform === 'darwin') {
+      return captureDisplayScreenCaptureKit(display, physicalWidth, physicalHeight)
+    }
+    return grabElectron()
+  }
+
+  let source = await grab()
+  // 抓到黑帧多半是合成器还没画完，再等一拍重抓一次。
+  // 只重试一次：真没权限时不该让用户干等。
+  if (source && isBlankCapture(source.thumbnail)) {
+    await new Promise((resolve) => setTimeout(resolve, CAPTURE_RETRY_DELAY_MS))
+    source = await grab()
+  }
+
+  if (!source || source.thumbnail.isEmpty()) {
+    throw new Error('无法读取屏幕画面，请检查系统录屏权限')
+  }
+  if (isBlankCapture(source.thumbnail)) {
+    throw new Error('屏幕画面尚未就绪，请重试')
+  }
+
+  const data = source.data || source.thumbnail.toPNG()
+  return {
+    data,
+    displayBounds: display.bounds,
+    imageSize: source.thumbnail.getSize(),
+    backend: source.backend
+  }
+}
+
+export async function requestScreenCaptureForDsh(options = {}) {
+  const parentWindow = options.parentWindow && !options.parentWindow.isDestroyed()
+    ? options.parentWindow
+    : mainWindow && !mainWindow.isDestroyed()
+      ? mainWindow
+      : undefined
+  const result = await dialog.showMessageBox(parentWindow, {
+    type: 'question',
+    buttons: ['允许截图', '取消'],
+    defaultId: 1,
+    cancelId: 1,
+    message: '允许模型读取当前屏幕吗？',
+    detail: '截图会读取当前屏幕画面。本次操作不会被记住，下次模型请求截图时仍会再次确认。'
+  })
+  if (result.response !== 0) {
+    return { canceled: true, reason: 'cancelled_by_consent' }
+  }
+  const capture = await captureCurrentDisplay()
+  const directory = join(app.getPath('temp'), 'moyu-screen-results')
+  await mkdir(directory, { recursive: true })
+  const filePath = join(directory, `${randomUUID()}.png`)
+  await writeFile(filePath, capture.data)
+  return {
+    canceled: false,
+    path: filePath,
+    width: capture.imageSize.width,
+    height: capture.imageSize.height,
+    backend: capture.backend,
+    displayBounds: capture.displayBounds
+  }
+}
+
 /**
  * 创建截图覆盖窗口。
  *
@@ -2049,50 +2128,14 @@ async function ensureScreenshotOverlay(display) {
 
 ipcMain.handle('screenshot:start', async (event) => {
   assertLegacyCaller(event)
-  const cursorPoint = screen.getCursorScreenPoint()
-  const display = screen.getDisplayNearestPoint(cursorPoint)
-  const physicalWidth = Math.max(1, Math.round(display.bounds.width * display.scaleFactor))
-  const physicalHeight = Math.max(1, Math.round(display.bounds.height * display.scaleFactor))
-  const grabElectron = async () => {
-    const sources = await desktopCapturer.getSources({
-      types: ['screen'],
-      thumbnailSize: { width: physicalWidth, height: physicalHeight },
-      fetchWindowIcons: false
-    })
-    const source = sources.find((c) => String(c.display_id) === String(display.id)) || sources[0]
-    return source ? { thumbnail: source.thumbnail, backend: 'desktopCapturer' } : null
-  }
-  const grab = async () => {
-    // macOS 不回退到 desktopCapturer：原生路径负责稳定地保留当前屏幕内容，
-    // 并避免 Electron 在 Stage Manager 下产生错误的显示器边界映射。
-    if (process.platform === 'darwin') {
-      return captureDisplayScreenCaptureKit(display, physicalWidth, physicalHeight)
-    }
-    return grabElectron()
-  }
-
-  let source = await grab()
-  // 抓到黑帧多半是合成器还没画完，再等一拍重抓一次。
-  // 只重试一次：真没权限时不该让用户干等。
-  if (source && isBlankCapture(source.thumbnail)) {
-    await new Promise((resolve) => setTimeout(resolve, CAPTURE_RETRY_DELAY_MS))
-    source = await grab()
-  }
-
-  if (!source || source.thumbnail.isEmpty()) {
-    throw new Error('无法读取屏幕画面，请检查系统录屏权限')
-  }
-  if (isBlankCapture(source.thumbnail)) {
-    throw new Error('屏幕画面尚未就绪，请重试')
-  }
-
+  const source = await captureCurrentDisplay()
   const sessionId = randomUUID()
-  const data = source.data || source.thumbnail.toPNG()
+  const display = screen.getDisplayMatching(source.displayBounds)
   const overlay = await ensureScreenshotOverlay(display)
   const session = {
-    data,
-    displayBounds: display.bounds,
-    imageSize: source.thumbnail.getSize(),
+    data: source.data,
+    displayBounds: source.displayBounds,
+    imageSize: source.imageSize,
     backend: source.backend,
     owner: event.sender,
     overlay

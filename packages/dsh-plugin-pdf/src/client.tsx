@@ -26,6 +26,9 @@ function PdfPanel(): React.ReactElement {
   const [watermarkFile, setWatermarkFile] = React.useState<PickedFile>()
   const [watermarkText, setWatermarkText] = React.useState('摸鱼工具箱')
   const [watermarkOpacity, setWatermarkOpacity] = React.useState(0.28)
+  const [renderFormat, setRenderFormat] = React.useState('png')
+  const [renderScale, setRenderScale] = React.useState(2)
+  const [renderQuality, setRenderQuality] = React.useState(92)
   const [job, setJob] = React.useState<Job>()
   const [message, setMessage] = React.useState('')
 
@@ -67,7 +70,8 @@ function PdfPanel(): React.ReactElement {
           : ['encrypt', 'decrypt'].includes(operation) ? { password }
             : operation === 'watermark_text' ? { text: watermarkText, opacity: watermarkOpacity, density: 6, rotation: -30, pages: 'all' }
               : operation === 'watermark_image' ? { watermark_file_id: watermarkFile?.fileId, opacity: watermarkOpacity, density: 1, pages: 'all' }
-            : operation === 'page_numbers' ? { start, position } : {}
+                : operation === 'render_pages' ? { format: renderFormat, pages, scale: renderScale, quality: renderQuality }
+                  : operation === 'page_numbers' ? { start, position } : {}
     try {
       setJob(await request({
         operation: 'submit', pdf_operation: operation,
@@ -97,7 +101,7 @@ function PdfPanel(): React.ReactElement {
     merge: '合并 PDF', rotate: '旋转 PDF', extract_pages: '提取页面', split_pages: '逐页拆分',
     insert_pages: '插入页面', page_numbers: '添加页码', encrypt: '加密 PDF', decrypt: '移除 PDF 口令',
     watermark_text: '文字水印', watermark_image: '图片水印', images_to_pdf: '图片转 PDF',
-    extract_text: '提取文字', extract_images: '提取内嵌图片',
+    extract_text: '提取文字', extract_images: '提取内嵌图片', render_pages: '整页转图',
   }
 
   return React.createElement('section', { id: 'moyu-pdf-tools', style: { padding: 24 } },
@@ -120,6 +124,19 @@ function PdfPanel(): React.ReactElement {
       ) : null,
       operation === 'extract_pages' ? React.createElement('div', { style: row },
         React.createElement('label', null, '页码 ', React.createElement('input', { value: pages, onChange: (event) => setPages(event.target.value), placeholder: '1-3,5', disabled: running })),
+      ) : null,
+      operation === 'render_pages' ? React.createElement('div', { style: row },
+        React.createElement('label', null, '格式 ', React.createElement('select', { value: renderFormat, onChange: (event) => setRenderFormat(event.target.value), disabled: running },
+          React.createElement('option', { value: 'png' }, 'PNG'), React.createElement('option', { value: 'jpeg' }, 'JPEG'))),
+        React.createElement('label', null, '页码 ', React.createElement('input', { value: pages, onChange: (event) => setPages(event.target.value), placeholder: '留空为全部', disabled: running })),
+        React.createElement('label', null, '缩放 ', React.createElement('input', {
+          type: 'number', min: 0.25, max: 4, step: 0.25, value: renderScale,
+          onChange: (event) => setRenderScale(Number(event.target.value)), disabled: running, style: { width: 88 },
+        })),
+        renderFormat === 'jpeg' ? React.createElement('label', null, '质量 ', React.createElement('input', {
+          type: 'number', min: 1, max: 100, step: 1, value: renderQuality,
+          onChange: (event) => setRenderQuality(Number(event.target.value)), disabled: running, style: { width: 88 },
+        })) : null,
       ) : null,
       operation === 'insert_pages' ? React.createElement('div', { style: row },
         React.createElement('label', null, '插在第几页之后（0 表示最前） ', React.createElement('input', {

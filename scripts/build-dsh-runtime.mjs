@@ -32,10 +32,12 @@ const MOYU_PLUGINS = {
   '@moyu/dsh-host-directory-picker-fixed': 'dsh-host-directory-picker-fixed',
   '@moyu/dsh-plugin-legacy-tools': 'dsh-plugin-legacy-tools',
   '@moyu/dsh-plugin-image': 'dsh-plugin-image',
-  '@moyu/dsh-plugin-pdf': 'dsh-plugin-pdf'
+  '@moyu/dsh-plugin-pdf': 'dsh-plugin-pdf',
+  '@moyu/dsh-plugin-screenshot': 'dsh-plugin-screenshot'
 }
 
 const RUNTIME_DEPENDENCIES = {
+  '@napi-rs/canvas': '0.1.100',
   'pdf-lib': '1.17.1',
   'pdfjs-dist': '5.4.624',
   'qpdf-run': '0.2.1',
