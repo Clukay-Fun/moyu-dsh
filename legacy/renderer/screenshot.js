@@ -596,7 +596,8 @@ async function initialize(nextSessionId) {
   await window.api.reportScreenshotReady(sessionId)
 }
 
-function startSession(nextSessionId) {
+function startSession(payload) {
+  const nextSessionId = typeof payload === 'string' ? payload : payload?.sessionId
   initialize(nextSessionId).catch((error) => {
     tip.textContent = error?.message || '截图初始化失败'
     setTimeout(cancelSelection, 1200)

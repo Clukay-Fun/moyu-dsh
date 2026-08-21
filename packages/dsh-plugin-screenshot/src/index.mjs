@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto'
+import { defineTool } from '@deepseek-ai/dsh-tools'
 
 export const name = 'moyu-screenshot'
-export const inject = ['webServer']
+export const inject = ['webServer', 'tools']
 
 const DEFAULT_STAGE_TIMEOUT_MS = 120_000
 const DEFAULT_RESULT_RETENTION_MS = 60 * 60_000
@@ -38,6 +39,23 @@ function serialize(job) {
   return Object.fromEntries(Object.entries(value).filter(([, nested]) => nested !== undefined))
 }
 
+function serializeForTool(value) {
+  const output = {
+    jobId: value.jobId,
+    activeJobId: value.activeJobId,
+    status: value.status,
+    phase: value.phase,
+    reason: value.reason,
+    resultStatus: value.resultStatus,
+    resultId: value.result?.fileId,
+    width: value.result?.width,
+    height: value.result?.height,
+    backend: value.result?.backend,
+    error: value.error
+  }
+  return Object.fromEntries(Object.entries(output).filter(([, nested]) => nested !== undefined))
+}
+
 function requireJob(jobs, id) {
   if (typeof id !== 'string' || !id) throw new Error('job_id 必须是非空字符串')
   const job = jobs.get(id)
@@ -50,8 +68,8 @@ function defaultCapture({ signal } = {}) {
   return desktop().call('desktop.requestScreenCapture')
 }
 
-function defaultSelect() {
-  throw new Error('截图 overlay 尚未接入新协议')
+function defaultSelect({ capture } = {}) {
+  return desktop().call('desktop.selectScreenshotRegion', { capture })
 }
 
 export function createScreenshotService(options = {}) {
@@ -219,6 +237,18 @@ function sendJson(res, status, value) {
 
 export function apply(ctx) {
   const service = createScreenshotService()
+  const operate = async (args = {}) => {
+    if (args.operation === 'submit') {
+      return serializeForTool(service.start({ caller: 'dsh', resultSink: 'session' }))
+    }
+    if (args.operation === 'status') {
+      return serializeForTool(service.status(args))
+    }
+    if (args.operation === 'cancel') {
+      return serializeForTool(service.cancel(args))
+    }
+    throw new Error('operation 必须是 submit、status 或 cancel')
+  }
   const unregister = [
     ctx.webServer.register({
       kind: 'exact',
@@ -227,9 +257,29 @@ export function apply(ctx) {
         if (req.method !== 'POST') return sendJson(res, 405, { error: 'method not allowed' })
         try {
           const args = await readBody(req)
-          if (args.operation === 'start') return sendJson(res, 200, service.start(args))
+          if (args.operation === 'start') {
+            return sendJson(res, 200, service.start({
+              ...args,
+              caller: args.caller || 'renderer:moyu-screenshot-client',
+              resultSink: args.resultSink || 'plugin'
+            }))
+          }
           if (args.operation === 'status') return sendJson(res, 200, service.status(args))
           if (args.operation === 'cancel') return sendJson(res, 200, service.cancel(args))
+          if (args.operation === 'save' || args.operation === 'show') {
+            const job = requireJob(service._jobs, args.job_id)
+            const status = serialize(job)
+            if (status.status !== 'completed' || status.resultStatus === 'expired' || !status.result?.fileId) {
+              throw new Error('截图结果尚未就绪或已失效')
+            }
+            const value = args.operation === 'save'
+              ? await desktop().call('desktop.saveRegisteredFile', {
+                fileId: status.result.fileId,
+                name: status.result.name || `screenshot-${Date.now()}.png`
+              })
+              : await desktop().call('desktop.showItem', { fileId: status.result.fileId })
+            return sendJson(res, 200, value)
+          }
           throw new Error('不支持的截图操作')
         } catch (error) {
           return sendJson(res, 400, { error: publicError(error) })
@@ -237,6 +287,44 @@ export function apply(ctx) {
       }
     })
   ]
+
+  ctx.tools.register(defineTool({
+    name: 'screenshot_capture',
+    description: 'Start, inspect, or cancel an interactive Moyu screenshot capture. Submit returns a job id; poll status until completed or cancelled.',
+    parameters: {
+      operation: { type: 'string', enum: ['submit', 'status', 'cancel'], required: true },
+      job_id: { type: 'string' }
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          jobId: { type: 'string', required: true },
+          activeJobId: { type: 'string' },
+          status: { type: 'string', required: true },
+          phase: { type: 'string' },
+          reason: { type: 'string' },
+          resultStatus: { type: 'string' },
+          resultId: { type: 'string' },
+          width: { type: 'integer' },
+          height: { type: 'integer' },
+          backend: { type: 'string' },
+          error: { type: 'string' }
+        }
+      },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }]
+    },
+    execute: operate
+  }))
+
+  ctx.on('session/created', () => {
+    const actual = ctx.tools.schemas().map((schema) => schema.name).sort()
+    const expected = ['image_convert', 'pdf_process', 'screenshot_capture']
+    if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+      throw new Error(`moyu tool whitelist drift: expected ${expected.join(',')}; got ${actual.join(',')}`)
+    }
+  }, { global: true })
 
   ctx.effect(() => () => {
     service.dispose()

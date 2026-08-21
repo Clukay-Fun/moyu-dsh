@@ -201,6 +201,25 @@ export function createBridgeMethods({ generation, window }) {
       }
     },
 
+    async 'desktop.selectScreenshotRegion'(payload = {}) {
+      const capture = payload.capture || {}
+      const fileId = requireString(capture.file?.fileId, 'capture.file.fileId')
+      const { selectScreenshotRegionForDsh } = await import('../index.js')
+      const result = await selectScreenshotRegionForDsh({
+        capture: {
+          ...capture,
+          path: registry.resolve(fileId)
+        }
+      })
+      if (result.canceled) return result
+      return {
+        canceled: false,
+        file: await registry.register(result.path),
+        width: result.width,
+        height: result.height
+      }
+    },
+
     async 'desktop.secureStore'(payload = {}) {
       return setCredential(requireString(payload.key, 'key'), requireString(payload.value, 'value'))
     },

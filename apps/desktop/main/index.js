@@ -96,6 +96,7 @@ const PDF_OUTPUT_TYPES = {
 }
 
 const screenshotSessions = new Map()
+const systemScreenshotResults = new Map()
 let reusableScreenshotOverlay = null
 let screenshotOverlayReadyPromise = null
 const pinnedScreenshotSessions = new Map()
@@ -108,6 +109,7 @@ const pdfOutputSessions = new Map()
 const comResultSessions = new Map()
 const activeIllustratorTasks = new Map()
 const comPendingRequests = new Map()
+const SYSTEM_SCREENSHOT_RETENTION_MS = 60 * 60_000
 let ocrWorkerPromise = null
 let ocrProgressTarget = null
 let ocrBusy = false
@@ -2089,6 +2091,79 @@ function hideScreenshotOverlay(overlay) {
   overlay.hide()
 }
 
+async function writeTemporaryScreenshotPng(data) {
+  const directory = join(app.getPath('temp'), 'moyu-screen-results')
+  await mkdir(directory, { recursive: true })
+  const filePath = join(directory, `${randomUUID()}.png`)
+  await writeFile(filePath, data)
+  return filePath
+}
+
+function notifyScreenshotCancelled(session, reason = 'cancelled_by_user') {
+  if (session?.owner && !session.owner.isDestroyed()) {
+    session.owner.send('screenshot:cancelled')
+  }
+  session?.resolveSelection?.({ canceled: true, reason })
+}
+
+function notifyScreenshotCaptured(session, result) {
+  if (session?.owner && !session.owner.isDestroyed()) {
+    session.owner.send('screenshot:captured', {
+      data: new Uint8Array(result.data),
+      width: result.width,
+      height: result.height
+    })
+  }
+  if (session?.resolveSelection) {
+    session.resolveSelection({
+      canceled: false,
+      path: result.path,
+      width: result.width,
+      height: result.height,
+      backend: result.backend
+    })
+  }
+}
+
+function rememberSystemScreenshot(result) {
+  const resultId = randomUUID()
+  const expiresAt = Date.now() + SYSTEM_SCREENSHOT_RETENTION_MS
+  const timer = setTimeout(() => {
+    systemScreenshotResults.delete(resultId)
+  }, SYSTEM_SCREENSHOT_RETENTION_MS)
+  timer.unref?.()
+  systemScreenshotResults.set(resultId, {
+    resultId,
+    path: result.path,
+    width: result.width,
+    height: result.height,
+    backend: result.backend,
+    expiresAt,
+    timer
+  })
+  return { resultId, expiresAt }
+}
+
+async function startScreenshotOverlaySession(source, options = {}) {
+  const sessionId = randomUUID()
+  const display = screen.getDisplayMatching(source.displayBounds)
+  const overlay = await ensureScreenshotOverlay(display)
+  const session = {
+    data: source.data,
+    displayBounds: source.displayBounds,
+    imageSize: source.imageSize,
+    backend: source.backend,
+    owner: options.owner,
+    resolveSelection: options.resolveSelection,
+    overlay
+  }
+  screenshotSessions.set(sessionId, session)
+  // begin-session 是复用 overlay 的显式重置边界：renderer 收到新 session 后必须
+  // 清空上一轮选区/标注/工具状态，再报告 ready。
+  overlay.webContents.send('screenshot:begin-session', { sessionId, reset: true })
+  return { status: 'started', sessionId }
+}
+
 /**
  * 截图窗口只创建和加载一次，后续截图仅替换会话数据并重新显示。
  * 这是参考 electron-screenshots singleWindow 思路的本项目实现，不引入其 React UI。
@@ -2109,7 +2184,7 @@ async function ensureScreenshotOverlay(display) {
       for (const [sessionId, session] of screenshotSessions) {
         if (session.overlay !== overlay) continue
         screenshotSessions.delete(sessionId)
-        session.owner.send('screenshot:cancelled')
+        notifyScreenshotCancelled(session)
       }
     })
     if (process.env.ELECTRON_RENDERER_URL) {
@@ -2129,21 +2204,7 @@ async function ensureScreenshotOverlay(display) {
 ipcMain.handle('screenshot:start', async (event) => {
   assertLegacyCaller(event)
   const source = await captureCurrentDisplay()
-  const sessionId = randomUUID()
-  const display = screen.getDisplayMatching(source.displayBounds)
-  const overlay = await ensureScreenshotOverlay(display)
-  const session = {
-    data: source.data,
-    displayBounds: source.displayBounds,
-    imageSize: source.imageSize,
-    backend: source.backend,
-    owner: event.sender,
-    overlay
-  }
-  screenshotSessions.set(sessionId, session)
-  overlay.webContents.send('screenshot:begin-session', sessionId)
-
-  return { status: 'started', sessionId }
+  return startScreenshotOverlaySession(source, { owner: event.sender })
 })
 
 // ready-to-show 只说明 HTML 已载入，不代表冻结截图已经解码并画进 canvas。
@@ -2174,7 +2235,7 @@ ipcMain.handle('screenshot:get-session', (event, sessionId) => {
   }
 })
 
-ipcMain.handle('screenshot:complete', (event, payload) => {
+ipcMain.handle('screenshot:complete', async (event, payload) => {
   const session = screenshotSessions.get(payload?.sessionId)
   if (!session || event.sender !== session.overlay.webContents) {
     throw new Error('截图会话已失效或无权访问')
@@ -2204,13 +2265,10 @@ ipcMain.handle('screenshot:complete', (event, payload) => {
     )
     data = nativeImage.createFromBuffer(session.data).crop({ x, y, width, height }).toPNG()
   }
+  const path = session.resolveSelection ? await writeTemporaryScreenshotPng(data) : undefined
   screenshotSessions.delete(payload.sessionId)
   hideScreenshotOverlay(session.overlay)
-  session.owner.send('screenshot:captured', {
-    data: new Uint8Array(data),
-    width,
-    height
-  })
+  notifyScreenshotCaptured(session, { data, path, width, height, backend: session.backend })
   return { status: 'captured', width, height }
 })
 
@@ -2222,10 +2280,39 @@ ipcMain.handle('screenshot:cancel', (event, sessionId) => {
   if (session) {
     screenshotSessions.delete(sessionId)
     hideScreenshotOverlay(session.overlay)
-    session.owner.send('screenshot:cancelled')
+    notifyScreenshotCancelled(session)
   }
   return { status: 'cancelled' }
 })
+
+export async function selectScreenshotRegionForDsh(payload = {}) {
+  const capture = payload.capture || {}
+  const path = payload.path || capture.path
+  if (typeof path !== 'string' || !path) throw new Error('截图选区缺少冻结图路径')
+  const data = await readFile(path)
+  const image = nativeImage.createFromBuffer(data)
+  if (image.isEmpty()) throw new Error('冻结截图数据无效')
+  const imageSize = {
+    width: Number(capture.width) || image.getSize().width,
+    height: Number(capture.height) || image.getSize().height
+  }
+  const displayBounds = capture.displayBounds || {
+    x: 0,
+    y: 0,
+    width: Math.max(1, Math.round(imageSize.width / (screen.getPrimaryDisplay().scaleFactor || 1))),
+    height: Math.max(1, Math.round(imageSize.height / (screen.getPrimaryDisplay().scaleFactor || 1)))
+  }
+  return new Promise((resolve) => {
+    void startScreenshotOverlaySession({
+      data,
+      displayBounds,
+      imageSize,
+      backend: capture.backend
+    }, { resolveSelection: resolve }).catch((error) => {
+      resolve({ canceled: true, reason: error?.message || 'cancelled_by_user' })
+    })
+  })
+}
 
 // ── 汇总画布项目文件 .moyuboard（F-009 S5）────────────────────
 const MOYUBOARD_MAX_BYTES = 512 * 1024 * 1024
@@ -2408,7 +2495,7 @@ ipcMain.handle('recovery:clear', async (event) => {
 
 ipcMain.handle('screenshot:save', async (event, payload) => {
   if (!isScreenshotActionSender(event)) {
-    throw new Error('只有主窗口或当前截图覆盖层可以保存截图')
+    throw new Error('只有受信工具窗口或当前截图覆盖层可以保存截图')
   }
   const data = payload?.data instanceof Uint8Array ? Buffer.from(payload.data) : null
   if (!data || data.byteLength > 100 * 1024 * 1024) {
@@ -2427,7 +2514,7 @@ ipcMain.handle('screenshot:save', async (event, payload) => {
 
 ipcMain.handle('screenshot:copy', (event, data) => {
   if (!isScreenshotActionSender(event)) {
-    throw new Error('只有主窗口或当前截图覆盖层可以复制截图')
+    throw new Error('只有受信工具窗口或当前截图覆盖层可以复制截图')
   }
   if (!(data instanceof Uint8Array) || data.byteLength > 100 * 1024 * 1024) {
     throw new Error('截图数据无效或超过 100 MB')
@@ -2439,14 +2526,17 @@ ipcMain.handle('screenshot:copy', (event, data) => {
 })
 
 function isScreenshotActionSender(event) {
-  if (mainWindow && event.sender === mainWindow.webContents) return true
+  try {
+    requireWebContentsCaller(event.sender, 'legacy.ipc')
+    return true
+  } catch {}
   return [...screenshotSessions.values()].some((session) =>
     !session.overlay.isDestroyed() && event.sender === session.overlay.webContents)
 }
 
 ipcMain.handle('screenshot:ocr', async (event, data) => {
   if (!isScreenshotActionSender(event)) {
-    throw new Error('只有主窗口或当前截图覆盖层可以执行截图 OCR')
+    throw new Error('只有受信工具窗口或当前截图覆盖层可以执行截图 OCR')
   }
   if (ocrBusy) throw new Error('已有 OCR 任务正在执行')
   if (!(data instanceof Uint8Array) || data.byteLength > 100 * 1024 * 1024) {
@@ -2474,7 +2564,7 @@ ipcMain.handle('screenshot:ocr', async (event, data) => {
 
 ipcMain.handle('screenshot:copy-text', (event, text) => {
   if (!isScreenshotActionSender(event)) {
-    throw new Error('只有主窗口或当前截图覆盖层可以复制 OCR 文字')
+    throw new Error('只有受信工具窗口或当前截图覆盖层可以复制 OCR 文字')
   }
   if (typeof text !== 'string' || Buffer.byteLength(text, 'utf8') > 2 * 1024 * 1024) {
     throw new Error('OCR 文本无效或超过 2 MB')
@@ -2488,12 +2578,14 @@ function getPinnedScreenshotSession(event, pinId) {
   if (!session || event.sender !== session.window.webContents) {
     throw new Error('钉图会话不存在或无权访问')
   }
+  // pin:<pinId> 主体：每个钉图窗口只能操作自己对应的 pinId。
+  // 这不是 legacy/mainWindow 特权，而是窗口与产物一一绑定的显式所有权。
   return session
 }
 
 ipcMain.handle('screenshot:pin', async (event, data) => {
   if (!isScreenshotActionSender(event)) {
-    throw new Error('只有主窗口或当前截图覆盖层可以创建钉图')
+    throw new Error('只有受信工具窗口或当前截图覆盖层可以创建钉图')
   }
   if (!(data instanceof Uint8Array) || data.byteLength > 100 * 1024 * 1024) {
     throw new Error('钉图数据无效或超过 100 MB')
@@ -2590,6 +2682,13 @@ ipcMain.handle('screenshot:pin-close', (event, pinId) => {
   return { status: 'closed' }
 })
 
+function closePinnedScreenshotSessions() {
+  for (const session of [...pinnedScreenshotSessions.values()]) {
+    if (!session.window.isDestroyed()) session.window.close()
+  }
+  pinnedScreenshotSessions.clear()
+}
+
 // ── 全局截图快捷键（规格 6 / F-16）──────────────────────────
 //
 // 只在应用运行期间有效，退出时注销——全局快捷键是进程级资源，
@@ -2655,6 +2754,32 @@ function notifyShortcutStatus(payload) {
   target.send('shortcut:status', payload)
 }
 
+async function runGlobalShortcutScreenshot() {
+  const source = await captureCurrentDisplay()
+  const selection = await new Promise((resolve) => {
+    void startScreenshotOverlaySession(source, {
+      resolveSelection: resolve
+    }).catch((error) => {
+      resolve({ canceled: true, reason: error?.message || 'cancelled_by_user' })
+    })
+  })
+  if (selection?.canceled || !selection?.path) return selection
+  const data = await readFile(selection.path)
+  const image = nativeImage.createFromBuffer(data)
+  if (image.isEmpty()) throw new Error('全局截图结果无法解析')
+  clipboard.writeImage(image)
+  return {
+    canceled: false,
+    copied: true,
+    ...rememberSystemScreenshot({
+      path: selection.path,
+      width: selection.width,
+      height: selection.height,
+      backend: selection.backend || source.backend
+    })
+  }
+}
+
 /**
  * 触发截图。
  *
@@ -2663,10 +2788,16 @@ function notifyShortcutStatus(payload) {
  */
 function triggerCaptureShortcut() {
   if (screenshotSessions.size > 0) return
-  if (!mainWindow || mainWindow.isDestroyed()) return
   // 不改变窗口状态。截图捕获的是用户按下快捷键那一刻真实可见的画面，
   // 覆盖层在冻结帧绘制完成后再一次性显示，避免全屏 Space 跳转和双画面闪烁。
-  mainWindow.webContents.send('shortcut:capture')
+  void runGlobalShortcutScreenshot().catch((error) => {
+    notifyShortcutStatus({
+      ok: false,
+      reason: 'capture-failed',
+      accelerator: captureShortcut,
+      message: `全局截图失败：${error?.message || error}`
+    })
+  })
 }
 
 /**
@@ -2830,6 +2961,7 @@ app.on('will-quit', () => {
 })
 
 app.on('before-quit', () => {
+  closePinnedScreenshotSessions()
   void stopDsh().catch(() => {})
   ocrWorkerPromise?.then((worker) => worker.terminate()).catch(() => {})
   if (comWorker) {

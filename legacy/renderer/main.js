@@ -2924,13 +2924,6 @@ window.api.onScreenshotCancelled(() => {
   captureTargetsCanvas = false
 })
 
-// ── 全局截图快捷键（规格 6）────────────────────────────────
-// 主进程注册 Ctrl+Shift+A，触发后走与命令栏按钮**同一个入口**，
-// 不复制第二套截图逻辑。
-window.api.onCaptureShortcut(() => {
-  startUnifiedCapture()
-})
-
 window.api.onShortcutStatus((status) => {
   // 注册成功不打扰用户；失败必须说清楚是被占用，且应用照常可用
   if (!status?.ok) showToast(status?.message || '全局截图快捷键注册失败')

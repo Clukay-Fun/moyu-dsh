@@ -27,11 +27,6 @@ contextBridge.exposeInMainWorld(
       return () => ipcRenderer.off('board:request-save', listener)
     },
     reportBoardSaveResult: (id, ok) => ipcRenderer.send('board:save-result', id, Boolean(ok)),
-    onCaptureShortcut: (handler) => {
-      const listener = () => handler()
-      ipcRenderer.on('shortcut:capture', listener)
-      return () => ipcRenderer.off('shortcut:capture', listener)
-    },
     onShortcutStatus: (handler) => {
       const listener = (_event, payload) => handler(payload)
       ipcRenderer.on('shortcut:status', listener)
