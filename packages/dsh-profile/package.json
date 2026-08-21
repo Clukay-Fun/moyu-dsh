@@ -1,0 +1,14 @@
+{
+  "name": "@moyu/dsh-profile",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./index.mjs",
+  "exports": {
+    ".": "./index.mjs"
+  },
+  "files": [
+    "index.mjs",
+    "cordis.patch.yml"
+  ]
+}
