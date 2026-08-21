@@ -70,12 +70,19 @@ function defaultCapture({ signal } = {}) {
   return desktop().call('desktop.requestScreenCapture')
 }
 
+// 人工路径（composer 按钮）：desktop.captureScreen 不弹确认。
+function defaultDirectCapture({ signal } = {}) {
+  if (signal?.aborted) throw Object.assign(new Error('TASK_CANCELLED'), { code: 'TASK_CANCELLED' })
+  return desktop().call('desktop.captureScreen')
+}
+
 function defaultSelect({ capture } = {}) {
   return desktop().call('desktop.selectScreenshotRegion', { capture })
 }
 
 export function createScreenshotService(options = {}) {
   const capture = options.capture || defaultCapture
+  const captureDirect = options.captureDirect || defaultDirectCapture
   const select = options.select || defaultSelect
   const createId = options.createId || randomUUID
   const stageTimeoutMs = options.stageTimeoutMs || DEFAULT_STAGE_TIMEOUT_MS
@@ -119,7 +126,8 @@ export function createScreenshotService(options = {}) {
   const run = async (job) => {
     try {
       armStageTimer(job, 'awaiting_consent')
-      const captured = await capture({ jobId: job.id, signal: job.controller.signal })
+      const captureFn = job.entry === 'direct' ? captureDirect : capture
+      const captured = await captureFn({ jobId: job.id, signal: job.controller.signal })
       if (isTerminal(job)) return
       if (captured?.canceled) {
         finish(job, 'cancelled', { reason: captured.reason || 'cancelled_by_consent' })
@@ -161,6 +169,7 @@ export function createScreenshotService(options = {}) {
         id,
         caller: payload.caller || 'dsh',
         resultSink: payload.resultSink || 'session',
+        entry: payload.entry === 'direct' ? 'direct' : 'tool',
         status: 'awaiting_consent',
         phase: 'awaiting_consent',
         controller: new AbortController()
@@ -260,10 +269,12 @@ export function apply(ctx) {
         try {
           const args = await readBody(req)
           if (args.operation === 'start') {
+            // 入口结构即授权：请求能到达这条同源受认证路由，等于用户点了按钮。
+            // caller/entry/resultSink 在此硬编码，不采信请求体里的同名参数。
             return sendJson(res, 200, service.start({
-              ...args,
-              caller: args.caller || 'renderer:moyu-screenshot-client',
-              resultSink: args.resultSink || 'plugin'
+              entry: 'direct',
+              caller: 'renderer:moyu-screenshot-composer',
+              resultSink: 'session'
             }))
           }
           if (args.operation === 'status') return sendJson(res, 200, service.status(args))

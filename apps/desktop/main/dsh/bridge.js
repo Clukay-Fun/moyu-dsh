@@ -180,6 +180,21 @@ export function createBridgeMethods({ generation, window }) {
       throw new Error('copy 需要 text 或 image')
     },
 
+    async 'desktop.captureScreen'() {
+      // 人工路径专用（composer 按钮）：无确认弹窗。模型路径必须走 requestScreenCapture。
+      const { captureScreenForDsh } = await import('../index.js')
+      const result = await captureScreenForDsh()
+      const file = await registry.register(result.path)
+      return {
+        canceled: false,
+        file,
+        width: result.width,
+        height: result.height,
+        backend: result.backend,
+        displayBounds: result.displayBounds
+      }
+    },
+
     async 'desktop.requestScreenCapture'() {
       const { requestScreenCaptureForDsh } = await import('../index.js')
       const result = await requestScreenCaptureForDsh({ parentWindow: parent() })

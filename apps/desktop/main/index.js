@@ -131,6 +131,7 @@ async function bootDshWindow({ recovery = false } = {}) {
     // 每代 Host 使用独立 session partition；崩溃换代时必须重建 WebContents，不能把
     // 新 origin 装进仍持有旧 token 注入器的页面。
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.destroy()
+    screenConsentAllowedForGeneration = false
     createWindow({
       url: dsh.host.url,
       session: dsh.session,
@@ -311,23 +312,38 @@ async function captureCurrentDisplay() {
   }
 }
 
+// 「本次会话内允许」只存内存、绑定当前 Host generation：换代即失效，不落盘。
+// 作用域是应用运行期（main 侧没有会话身份），比单次确认宽、比永久允许窄。
+let screenConsentAllowedForGeneration = false
+
+/** 模型路径：每次读屏前确认；用户勾选「本次会话内允许」后同代 Host 内不再弹。 */
 export async function requestScreenCaptureForDsh(options = {}) {
   const parentWindow = options.parentWindow && !options.parentWindow.isDestroyed()
     ? options.parentWindow
     : mainWindow && !mainWindow.isDestroyed()
       ? mainWindow
       : undefined
-  const result = await dialog.showMessageBox(parentWindow, {
-    type: 'question',
-    buttons: ['允许截图', '取消'],
-    defaultId: 1,
-    cancelId: 1,
-    message: '允许读取当前屏幕吗？',
-    detail: '截图会读取当前屏幕画面。本次操作不会被记住，下次请求截图时仍会再次确认。'
-  })
-  if (result.response !== 0) {
-    return { canceled: true, reason: 'cancelled_by_consent' }
+  if (!screenConsentAllowedForGeneration) {
+    const result = await dialog.showMessageBox(parentWindow, {
+      type: 'question',
+      buttons: ['允许截图', '取消'],
+      checkboxLabel: '本次会话内允许，不再询问',
+      checkboxChecked: false,
+      defaultId: 1,
+      cancelId: 1,
+      message: '允许模型读取当前屏幕吗？',
+      detail: '截图会读取当前屏幕画面。模型发起的截图默认每次都会先确认；勾选下方选项后本次运行内不再询问，重启应用或 Host 换代后恢复逐次确认。'
+    })
+    if (result.response !== 0) {
+      return { canceled: true, reason: 'cancelled_by_consent' }
+    }
+    if (result.checkboxChecked) screenConsentAllowedForGeneration = true
   }
+  return captureScreenForDsh()
+}
+
+/** 人工路径（composer 按钮）：请求到达即等于用户点击，不再弹确认。 */
+export async function captureScreenForDsh() {
   const capture = await captureCurrentDisplay()
   const filePath = await writeTemporaryScreenshotPng(capture.data)
   return {
