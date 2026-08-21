@@ -159,25 +159,36 @@ export function createScreenshotService(options = {}) {
     }
   }
 
+  const startInternal = ({ entry, caller, resultSink }) => {
+    if (activeJobId) {
+      return { status: 'busy', activeJobId }
+    }
+    const id = createId()
+    const job = {
+      id,
+      caller,
+      resultSink,
+      entry,
+      status: 'awaiting_consent',
+      phase: 'awaiting_consent',
+      controller: new AbortController()
+    }
+    jobs.set(id, job)
+    activeJobId = id
+    void run(job)
+    return serialize(job)
+  }
+
   const service = {
-    start(payload = {}) {
-      if (activeJobId) {
-        return { status: 'busy', activeJobId }
-      }
-      const id = createId()
-      const job = {
-        id,
-        caller: payload.caller || 'dsh',
-        resultSink: payload.resultSink || 'session',
-        entry: payload.entry === 'direct' ? 'direct' : 'tool',
-        status: 'awaiting_consent',
-        phase: 'awaiting_consent',
-        controller: new AbortController()
-      }
-      jobs.set(id, job)
-      activeJobId = id
-      void run(job)
-      return serialize(job)
+    // 确认策略的入口结构（§13.2）：两个命名入口各自固定 entry，调用方没有任何
+    // 字段能选择采集路径——人工路径免确认（desktop.captureScreen），
+    // 模型路径逐次确认（desktop.requestScreenCapture）。不要新增第三个入口。
+    startFromUser() {
+      return startInternal({ entry: 'direct', caller: 'renderer:moyu-screenshot-composer', resultSink: 'session' })
+    },
+
+    startFromTool() {
+      return startInternal({ entry: 'tool', caller: 'dsh', resultSink: 'session' })
     },
 
     status(payload = {}) {
@@ -250,7 +261,7 @@ export function apply(ctx) {
   const service = createScreenshotService()
   const operate = async (args = {}) => {
     if (args.operation === 'submit') {
-      return serializeForTool(service.start({ caller: 'dsh', resultSink: 'session' }))
+      return serializeForTool(service.startFromTool())
     }
     if (args.operation === 'status') {
       return serializeForTool(service.status(args))
@@ -270,12 +281,7 @@ export function apply(ctx) {
           const args = await readBody(req)
           if (args.operation === 'start') {
             // 入口结构即授权：请求能到达这条同源受认证路由，等于用户点了按钮。
-            // caller/entry/resultSink 在此硬编码，不采信请求体里的同名参数。
-            return sendJson(res, 200, service.start({
-              entry: 'direct',
-              caller: 'renderer:moyu-screenshot-composer',
-              resultSink: 'session'
-            }))
+            return sendJson(res, 200, service.startFromUser())
           }
           if (args.operation === 'status') return sendJson(res, 200, service.status(args))
           if (args.operation === 'cancel') return sendJson(res, 200, service.cancel(args))
