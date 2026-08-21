@@ -113,3 +113,5 @@
       name: '@moyu/dsh-plugin-legacy-tools'
     - id: moyu-image
       name: '@moyu/dsh-plugin-image'
+    - id: moyu-pdf
+      name: '@moyu/dsh-plugin-pdf'

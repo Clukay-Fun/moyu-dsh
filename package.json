@@ -9,7 +9,8 @@
     "packages/dsh-credentials-desktop",
     "packages/dsh-host-directory-picker-fixed",
     "packages/dsh-plugin-image",
-    "packages/dsh-plugin-legacy-tools"
+    "packages/dsh-plugin-legacy-tools",
+    "packages/dsh-plugin-pdf"
   ],
   "main": "./out/main/index.js",
   "engines": {

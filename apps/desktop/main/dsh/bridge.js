@@ -7,6 +7,7 @@
 // 不与 renderer / legacy / job 共用身份（§6.1）。
 import { BrowserWindow, clipboard, dialog, nativeImage, shell } from 'electron'
 import { randomUUID } from 'node:crypto'
+import { constants } from 'node:fs'
 import { basename, join } from 'node:path'
 import { copyFile, mkdir, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -57,6 +58,21 @@ export function createBridgeMethods({ generation, window }) {
   const subject = dshCaller(generation).id
   const parent = () => window?.() ?? BrowserWindow.getFocusedWindow() ?? undefined
   const registry = createFileRegistry(subject)
+  const prepareResult = async (payload = {}) => {
+    const resultId = requireString(payload.resultId, 'resultId')
+    if (!/^[a-f0-9-]{36}$/.test(resultId)) throw new Error('resultId 无效')
+    const kind = requireString(payload.kind, 'kind')
+    if (!['image', 'pdf'].includes(kind)) throw new Error('结果类型无效')
+    const directory = `${tmpdir()}/moyu-${kind}-results/${generation}/${resultId}`
+    await mkdir(directory, { recursive: true })
+    return { directory: await registry.register(directory) }
+  }
+  const registerResult = async (payload = {}) => {
+    const directory = registry.resolve(requireString(payload.directoryFileId, 'directoryFileId'))
+    const name = requireString(payload.name, 'name')
+    if (basename(name) !== name || /[\\/\0]/.test(name)) throw new Error('结果文件名无效')
+    return { file: await registry.register(join(directory, name)) }
+  }
 
   return {
     registry,
@@ -103,19 +119,20 @@ export function createBridgeMethods({ generation, window }) {
       return { path: registry.resolve(requireString(payload.fileId, 'fileId')) }
     },
 
+    async 'desktop.prepareResult'(payload = {}) {
+      return prepareResult(payload)
+    },
+
+    async 'desktop.registerResult'(payload = {}) {
+      return registerResult(payload)
+    },
+
     async 'desktop.prepareImageResult'(payload = {}) {
-      const resultId = requireString(payload.resultId, 'resultId')
-      if (!/^[a-f0-9-]{36}$/.test(resultId)) throw new Error('resultId 无效')
-      const directory = `${tmpdir()}/moyu-image-results/${generation}/${resultId}`
-      await mkdir(directory, { recursive: true })
-      return { directory: await registry.register(directory) }
+      return prepareResult({ ...payload, kind: 'image' })
     },
 
     async 'desktop.registerImageResult'(payload = {}) {
-      const directory = registry.resolve(requireString(payload.directoryFileId, 'directoryFileId'))
-      const name = requireString(payload.name, 'name')
-      if (basename(name) !== name || /[\\/\0]/.test(name)) throw new Error('结果文件名无效')
-      return { file: await registry.register(join(directory, name)) }
+      return registerResult(payload)
     },
 
     async 'desktop.saveRegisteredFile'(payload = {}) {
@@ -125,6 +142,28 @@ export function createBridgeMethods({ generation, window }) {
       if (result.canceled || !result.filePath) return { canceled: true }
       await copyFile(source, result.filePath)
       return { canceled: false, file: await registry.register(result.filePath) }
+    },
+
+    async 'desktop.saveRegisteredFiles'(payload = {}) {
+      const files = Array.isArray(payload.files) ? payload.files : []
+      if (!files.length || files.length > MAX_PICK) throw new Error('批量结果数量无效')
+      const entries = files.map((file) => {
+        const name = requireString(file?.name, 'name')
+        if (basename(name) !== name || /[\\/\0]/.test(name)) throw new Error('结果文件名无效')
+        return { source: registry.resolve(requireString(file?.fileId, 'fileId')), name }
+      })
+      const result = await dialog.showOpenDialog(parent(), { properties: ['openDirectory', 'createDirectory'] })
+      if (result.canceled || !result.filePaths[0]) return { canceled: true, files: [] }
+      const destinations = entries.map((entry) => ({ ...entry, destination: join(result.filePaths[0], entry.name) }))
+      if ((await Promise.all(destinations.map((entry) => stat(entry.destination).then(() => true).catch(() => false)))).some(Boolean)) {
+        throw new Error('目标目录已存在同名文件，请更换目录或先移走旧文件')
+      }
+      const saved = []
+      for (const entry of destinations) {
+        await copyFile(entry.source, entry.destination, constants.COPYFILE_EXCL)
+        saved.push(await registry.register(entry.destination))
+      }
+      return { canceled: false, files: saved }
     },
 
     async 'desktop.openLegacyExtension'(payload = {}) {

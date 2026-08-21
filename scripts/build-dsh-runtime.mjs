@@ -31,10 +31,16 @@ const MOYU_PLUGINS = {
   '@moyu/dsh-credentials-desktop': 'dsh-credentials-desktop',
   '@moyu/dsh-host-directory-picker-fixed': 'dsh-host-directory-picker-fixed',
   '@moyu/dsh-plugin-legacy-tools': 'dsh-plugin-legacy-tools',
-  '@moyu/dsh-plugin-image': 'dsh-plugin-image'
+  '@moyu/dsh-plugin-image': 'dsh-plugin-image',
+  '@moyu/dsh-plugin-pdf': 'dsh-plugin-pdf'
 }
 
-const RUNTIME_NATIVE_DEPENDENCIES = { sharp: '0.35.3' }
+const RUNTIME_DEPENDENCIES = {
+  'pdf-lib': '1.17.1',
+  'pdfjs-dist': '5.4.624',
+  'qpdf-run': '0.2.1',
+  sharp: '0.35.3'
+}
 
 // 运行期必需、但 electron-builder 依赖图到不了的包。打包后必须逐个在场。
 const REQUIRED_PACKAGES = [
@@ -58,7 +64,7 @@ async function main() {
       name: 'moyu-dsh-runtime',
       private: true,
       version: '0.0.0',
-      dependencies: { ...pinnedDependencies, ...RUNTIME_NATIVE_DEPENDENCIES }
+      dependencies: { ...pinnedDependencies, ...RUNTIME_DEPENDENCIES }
     }, null, 2)}\n`
   )
 

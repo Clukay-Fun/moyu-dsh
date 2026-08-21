@@ -72,7 +72,9 @@ Electron IPC。
 打包是最贵的验证手段，不是默认动作。
 
 - 日常改动：相关 harness + 静态检查 + `npm run build`。
-- 里程碑收口：完整 26 个 harness（23 Node + 3 个自启 Electron 的真机 harness）。
+- 里程碑收口：`tests/run-acceptance.mjs` 显式清单中的全部当前有效 harness，并确认新增功能的
+  专项 harness 已纳入清单；记录实际执行数量，不用固定数字当完成定义。自启 Electron 的真机
+  harness 是唯一覆盖 GUI 端到端的部分，不能只跑 Node 那部分。
   跑之前先 `pkill -9 -f "Electron.app/Contents/MacOS/Electron"`——真机 harness 会残留实例
   并互抢调试端口，表现为随机假失败甚至新实例 `SIGABRT`；先按残留排查，不要先怀疑产品代码。
 - 只有涉及打包布局 / `asar` / `extraResources` / `afterPack`、原生模块增减、签名与公证、

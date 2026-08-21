@@ -238,7 +238,7 @@ export function apply(ctx) {
 
   ctx.on('session/created', () => {
     const actual = ctx.tools.schemas().map((schema) => schema.name).sort()
-    const expected = ['image_convert']
+    const expected = ['image_convert', 'pdf_process']
     if (JSON.stringify(actual) !== JSON.stringify(expected)) {
       throw new Error(`moyu tool whitelist drift: expected ${expected.join(',')}; got ${actual.join(',')}`)
     }
