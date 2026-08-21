@@ -44,6 +44,13 @@ const RUNTIME_DEPENDENCIES = {
   sharp: '0.35.3'
 }
 
+// 这些依赖由 Moyu 插件直接 import。仅放在 dsh-runtime/node_modules 不够：
+// profile 会被复制到 userData/dsh/profiles/moyu，插件文件从 userData 下执行，
+// Node 普通解析够不到 Resources/dsh-runtime/node_modules。
+const PROFILE_RUNTIME_DEPENDENCIES = RUNTIME_DEPENDENCIES
+
+const COMPLETE_MARKER = '.complete.json'
+
 // 运行期必需、但 electron-builder 依赖图到不了的包。打包后必须逐个在场。
 const REQUIRED_PACKAGES = [
   '@deepseek-ai/dsh',
@@ -88,6 +95,15 @@ async function main() {
   console.log(`闭包就绪：@deepseek-ai/* ${scoped.length} 个包，必需包全部在场`)
 
   await buildProfileTemplate()
+  await writeFile(
+    join(target, COMPLETE_MARKER),
+    `${JSON.stringify({
+      version: 1,
+      profile: PROFILE_NAME,
+      dshVersion: DSH_VERSION,
+      completedAt: new Date().toISOString()
+    }, null, 2)}\n`
+  )
 }
 
 async function readPinnedDeepseekDependencies() {
@@ -175,6 +191,7 @@ async function buildProfileTemplate() {
     private: true,
     dependencies: {
       [SURFACE_BUNDLE]: DSH_VERSION,
+      ...PROFILE_RUNTIME_DEPENDENCIES,
       ...Object.fromEntries(Object.keys(MOYU_PLUGINS).map((name) => [name, '0.0.0']))
     },
     dsh: {
@@ -202,10 +219,45 @@ async function buildProfileTemplate() {
       await cp(source, dest, { recursive: true, dereference: true, filter })
     }
   }
+  await copyProfileRuntimeDependencies(profileDir, join(target, 'node_modules'))
 
   const patch = await readFile(join(profileDir, 'cordis.patch.yml'), 'utf8')
   const disabled = patch.match(/disabled: true/g)?.length ?? 0
   console.log(`profile 模板就绪：${PROFILE_NAME}，禁用 ${disabled} 个上游插件条目`)
+}
+
+async function copyProfileRuntimeDependencies(profileDir, runtimeModules) {
+  const lock = JSON.parse(await readFile(join(target, 'package-lock.json'), 'utf8'))
+  const names = collectDependencyClosure(lock, Object.keys(PROFILE_RUNTIME_DEPENDENCIES))
+  for (const name of names) {
+    const source = join(runtimeModules, ...name.split('/'))
+    if (!existsSync(source)) throw new Error(`profile 运行依赖缺失：${name}`)
+    const dest = join(profileDir, 'node_modules', ...name.split('/'))
+    await rm(dest, { recursive: true, force: true })
+    await mkdir(dirname(dest), { recursive: true })
+    await cp(source, dest, { recursive: true, dereference: true })
+  }
+  console.log(`profile 运行依赖就绪：${names.length} 个包`)
+}
+
+function collectDependencyClosure(lock, roots) {
+  const collected = new Set()
+  const queue = [...roots]
+  for (let name = queue.shift(); name; name = queue.shift()) {
+    if (collected.has(name)) continue
+    const entry = lock.packages?.[`node_modules/${name}`]
+    if (!entry || !supportsCurrentPlatform(entry)) continue
+    collected.add(name)
+    const deps = {
+      ...(entry.dependencies || {}),
+      ...(entry.optionalDependencies || {})
+    }
+    for (const dep of Object.keys(deps)) {
+      const depEntry = lock.packages?.[`node_modules/${dep}`]
+      if (depEntry && supportsCurrentPlatform(depEntry)) queue.push(dep)
+    }
+  }
+  return [...collected].sort((a, b) => a.localeCompare(b))
 }
 
 await main()

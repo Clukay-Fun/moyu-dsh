@@ -13,6 +13,20 @@ import { dispatchBridgeCall } from './bridge.js'
 import { createHostServiceClient } from './service-bridge.js'
 
 const READY_TIMEOUT_MS = 30_000
+const RUNTIME_COMPLETE_MARKER = '.complete.json'
+
+function runtimeRoot() {
+  return app.isPackaged
+    ? join(process.resourcesPath, 'dsh-runtime')
+    : join(app.getAppPath(), 'build', 'dsh-runtime')
+}
+
+function assertRuntimeComplete(root) {
+  const marker = join(root, RUNTIME_COMPLETE_MARKER)
+  if (!existsSync(marker)) {
+    throw new Error(`DSH 运行闭包未完成：缺少 ${marker}（build:dsh-runtime 可能被中断）`)
+  }
+}
 
 function workerPath() {
   // 与 com-worker 相同的交付方式：随 extraResources 落到 resources/workers。
@@ -32,9 +46,10 @@ export function resolveDshEntry() {
   // 打包后走 asar 外的独立运行闭包：DSH 的 profile loader 会建指向安装闭包的
   // 包级 symlink，链接指进 app.asar 时外部 profile 的 ESM import 无法回穿。
   if (app.isPackaged) {
+    const root = runtimeRoot()
+    assertRuntimeComplete(root)
     const entry = join(
-      process.resourcesPath,
-      'dsh-runtime', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'
+      root, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'
     )
     if (!existsSync(entry)) {
       throw new Error(`DSH 运行闭包缺失：${entry}（构建时未执行 build:dsh-runtime？）`)
@@ -62,9 +77,9 @@ export function dshHome() {
 export async function ensureProfile(profileName) {
   const home = dshHome()
   const profileDir = join(home, 'profiles', profileName)
-  const template = app.isPackaged
-    ? join(process.resourcesPath, 'dsh-runtime', 'home-template')
-    : join(app.getAppPath(), 'build', 'dsh-runtime', 'home-template')
+  const root = runtimeRoot()
+  assertRuntimeComplete(root)
+  const template = join(root, 'home-template')
   const source = join(template, 'profiles', profileName)
   if (!existsSync(source)) {
     throw new Error(`profile 模板缺失：${source}（构建时未执行 build:dsh-runtime？）`)
@@ -75,18 +90,17 @@ export async function ensureProfile(profileName) {
     return profileDir
   }
 
-  // profile 是应用拥有的唯一 Moyu composition，不是用户可安装插件的目录。升级时只同步
-  // 这三类受控资产，保留同一 DSH_HOME 下的会话、设置与其他用户数据。否则首次安装后新增
-  // 的原生插件永远进不了旧 profile，表现为“新包已交付但功能不存在”。
+  // profile 是应用拥有的唯一 Moyu composition，不是用户可安装插件的目录。升级时同步
+  // 受控 manifest、patch 与 node_modules 模板，保留同一 DSH_HOME 下的会话、设置与其他用户
+  // 数据。否则首次安装后新增插件/依赖永远进不了旧 profile，表现为“新包已交付但功能不存在”。
   await Promise.all([
     cp(join(source, 'package.json'), join(profileDir, 'package.json')),
     cp(join(source, 'cordis.patch.yml'), join(profileDir, 'cordis.patch.yml'))
   ])
-  const sourcePlugins = join(source, 'node_modules', '@moyu')
-  const installedPlugins = join(profileDir, 'node_modules', '@moyu')
-  await rm(installedPlugins, { recursive: true, force: true })
-  await mkdir(dirname(installedPlugins), { recursive: true })
-  await cp(sourcePlugins, installedPlugins, { recursive: true, dereference: false })
+  const sourceModules = join(source, 'node_modules')
+  const installedModules = join(profileDir, 'node_modules')
+  await rm(installedModules, { recursive: true, force: true })
+  await cp(sourceModules, installedModules, { recursive: true, dereference: false })
   return profileDir
 }
 
