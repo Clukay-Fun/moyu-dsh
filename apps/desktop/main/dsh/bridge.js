@@ -195,9 +195,10 @@ export function createBridgeMethods({ generation, window }) {
       }
     },
 
-    async 'desktop.requestScreenCapture'() {
+    async 'desktop.requestScreenCapture'(payload = {}) {
       const { requestScreenCaptureForDsh } = await import('../index.js')
-      const result = await requestScreenCaptureForDsh({ parentWindow: parent() })
+      const scope = typeof payload?.scope === 'string' ? payload.scope : undefined
+      const result = await requestScreenCaptureForDsh({ parentWindow: parent(), scope })
       if (result.canceled) return result
       const file = await registry.register(result.path)
       return {

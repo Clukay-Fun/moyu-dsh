@@ -65,9 +65,9 @@ function requireJob(jobs, id) {
   return job
 }
 
-function defaultCapture({ signal } = {}) {
+function defaultCapture({ signal, scope } = {}) {
   if (signal?.aborted) throw Object.assign(new Error('TASK_CANCELLED'), { code: 'TASK_CANCELLED' })
-  return desktop().call('desktop.requestScreenCapture')
+  return desktop().call('desktop.requestScreenCapture', { scope })
 }
 
 // 人工路径（composer 按钮）：desktop.captureScreen 不弹确认。
@@ -127,7 +127,7 @@ export function createScreenshotService(options = {}) {
     try {
       armStageTimer(job, 'awaiting_consent')
       const captureFn = job.entry === 'direct' ? captureDirect : capture
-      const captured = await captureFn({ jobId: job.id, signal: job.controller.signal })
+      const captured = await captureFn({ jobId: job.id, signal: job.controller.signal, scope: job.scope })
       if (isTerminal(job)) return
       if (captured?.canceled) {
         finish(job, 'cancelled', { reason: captured.reason || 'cancelled_by_consent' })
@@ -159,7 +159,7 @@ export function createScreenshotService(options = {}) {
     }
   }
 
-  const startInternal = ({ entry, caller, resultSink }) => {
+  const startInternal = ({ entry, caller, resultSink, scope }) => {
     if (activeJobId) {
       return { status: 'busy', activeJobId }
     }
@@ -169,6 +169,7 @@ export function createScreenshotService(options = {}) {
       caller,
       resultSink,
       entry,
+      scope,
       status: 'awaiting_consent',
       phase: 'awaiting_consent',
       controller: new AbortController()
@@ -187,8 +188,10 @@ export function createScreenshotService(options = {}) {
       return startInternal({ entry: 'direct', caller: 'renderer:moyu-screenshot-composer', resultSink: 'session' })
     },
 
-    startFromTool() {
-      return startInternal({ entry: 'tool', caller: 'dsh', resultSink: 'session' })
+    // scope = 发起调用的 DSH 会话 id（来自 exec.agent.session.id）：
+    // 「本次会话内允许」的授权粒度由 main 按它记账。
+    startFromTool({ scope } = {}) {
+      return startInternal({ entry: 'tool', caller: 'dsh', resultSink: 'session', scope })
     },
 
     status(payload = {}) {
@@ -259,9 +262,9 @@ function sendJson(res, status, value) {
 
 export function apply(ctx) {
   const service = createScreenshotService()
-  const operate = async (args = {}) => {
+  const operate = async (args = {}, exec = {}) => {
     if (args.operation === 'submit') {
-      return serializeForTool(service.startFromTool())
+      return serializeForTool(service.startFromTool({ scope: exec?.agent?.session?.id }))
     }
     if (args.operation === 'status') {
       return serializeForTool(service.status(args))
@@ -346,7 +349,7 @@ export function apply(ctx) {
       },
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }]
     },
-    execute: operate
+    execute: (args, exec) => operate(args, exec)
   }))
 
   ctx.on('session/created', () => {
