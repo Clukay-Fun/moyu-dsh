@@ -12,6 +12,17 @@ type Job = {
   error?: string
 }
 
+type DraftImage = { id: unknown }
+
+type InputShell = {
+  actions?: { addImages(ids: readonly unknown[]): boolean }
+}
+
+type ConversationService = {
+  createDraftImages(files: readonly File[]): readonly DraftImage[]
+  input?: { shells?: Map<string, InputShell> }
+}
+
 async function request(payload: Record<string, unknown>): Promise<any> {
   const response = await fetch('/moyu/screenshot', {
     method: 'POST',
@@ -23,76 +34,100 @@ async function request(payload: Record<string, unknown>): Promise<any> {
   return value
 }
 
-function ScreenshotPanel(): React.ReactElement {
-  const [job, setJob] = React.useState<Job>()
-  const [message, setMessage] = React.useState('')
-
-  React.useEffect(() => {
-    if (!job || ['completed', 'cancelled', 'failed'].includes(job.status)) return
-    const timer = window.setInterval(() => {
-      void request({ operation: 'status', job_id: job.jobId }).then(setJob).catch((error) => {
-        setMessage(error instanceof Error ? error.message : String(error))
-        window.clearInterval(timer)
-      })
-    }, 350)
-    return () => window.clearInterval(timer)
-  }, [job?.jobId, job?.status])
-
-  const submit = async (): Promise<void> => {
-    setMessage('')
-    try { setJob(await request({ operation: 'start' })) }
-    catch (error) { setMessage(error instanceof Error ? error.message : String(error)) }
+async function pollUntilTerminal(jobId: string): Promise<Job> {
+  for (let attempt = 0; attempt < 400; attempt += 1) {
+    const job: Job = await request({ operation: 'status', job_id: jobId })
+    if (['completed', 'cancelled', 'failed'].includes(job.status)) return job
+    await new Promise((resolve) => window.setTimeout(resolve, 350))
   }
+  throw new Error('截图等待超时')
+}
 
-  const action = async (operation: string): Promise<void> => {
-    if (!job) return
-    setMessage('')
+async function readResultPng(jobId: string): Promise<ArrayBuffer> {
+  const response = await fetch('/moyu/screenshot', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ operation: 'read', job_id: jobId }),
+  })
+  if (!response.ok) {
+    const value = await response.json().catch(() => ({}))
+    throw new Error(value.error || `读取截图失败：HTTP ${response.status}`)
+  }
+  return response.arrayBuffer()
+}
+
+function CaptureButton(props: { conversation?: () => ConversationService | undefined }): React.ReactElement {
+  const [busy, setBusy] = React.useState(false)
+  const [note, setNote] = React.useState('')
+
+  const capture = async (): Promise<void> => {
+    if (busy) return
+    setBusy(true)
+    setNote('')
     try {
-      const value = await request({ operation, job_id: job.jobId })
-      if (operation === 'cancel') setJob(value)
-      else if (operation === 'save' && !value.canceled) setMessage('截图已保存')
-      else if (operation === 'show') setMessage('已在 Finder 中定位')
-    } catch (error) { setMessage(error instanceof Error ? error.message : String(error)) }
+      const start = await request({
+        operation: 'start',
+        caller: 'renderer:moyu-screenshot-composer',
+        resultSink: 'session',
+      })
+      if (start.status === 'busy') {
+        throw new Error('已有截图进行中')
+      }
+      const job = await pollUntilTerminal(start.jobId)
+      if (job.status !== 'completed' || !job.result?.fileId) {
+        throw new Error(job.status === 'cancelled' ? '已取消' : job.error || '截图未完成')
+      }
+      const conversation = props.conversation?.()
+      const shells = conversation?.input?.shells ? [...conversation.input.shells.values()] : []
+      const shell = shells.at(-1)
+      if (!shell?.actions?.addImages) {
+        throw new Error('输入框尚未就绪，请进入会话后重试')
+      }
+      const bytes = await readResultPng(job.jobId)
+      const file = new File([bytes], `screenshot-${Date.now()}.png`, { type: 'image/png' })
+      const drafts = conversation!.createDraftImages([file])
+      shell.actions.addImages(drafts.map((draft) => draft.id))
+    } catch (error) {
+      setNote(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBusy(false)
+    }
   }
 
-  const waiting = job && !['completed', 'cancelled', 'failed'].includes(job.status)
-  const completed = job?.status === 'completed' && job.resultStatus !== 'expired' && job.result
-  const card: React.CSSProperties = { maxWidth: 720, padding: 24, border: '1px solid color-mix(in srgb, currentColor 16%, transparent)', borderRadius: 16 }
-  const row: React.CSSProperties = { display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginTop: 16 }
-  return React.createElement('section', { id: 'moyu-screenshot-capture', style: { padding: 24 } },
-    React.createElement('div', { style: card },
-      React.createElement('h2', { style: { marginTop: 0 } }, '截图'),
-      React.createElement('p', null, '模型截图会先请求确认；这里是人工入口，结果只留在截图面板，不会自动进入 legacy 画布。'),
-      React.createElement('div', { style: row },
-        React.createElement('button', { type: 'button', onClick: submit, disabled: Boolean(waiting) }, '开始区域截图'),
-        waiting ? React.createElement('button', { type: 'button', onClick: () => action('cancel') }, '取消') : null,
-      ),
-      job ? React.createElement('div', { style: { marginTop: 20 } },
-        React.createElement('p', { role: 'status' },
-          job.error || (completed
-            ? `完成 · ${job.result?.width}×${job.result?.height} · ${job.result?.backend || 'screen'}`
-            : job.status === 'cancelled'
-              ? `已取消 · ${job.reason || 'cancelled'}`
-              : `等待操作 · ${job.phase || job.status}`)),
-        completed ? React.createElement('div', { style: row },
-          React.createElement('button', { type: 'button', onClick: () => action('save') }, '另存为'),
-          React.createElement('button', { type: 'button', onClick: () => action('show') }, '在 Finder 中显示'),
-          React.createElement('small', null, '临时截图结果保留 1 小时。'),
-        ) : null,
-      ) : null,
-      message ? React.createElement('p', { role: 'alert' }, message) : null,
-    ),
-  )
+  return React.createElement('button', {
+    type: 'button',
+    title: note || '区域截图（截完作为附件插入输入框）',
+    'aria-label': '区域截图',
+    onClick: () => void capture(),
+    disabled: busy,
+    style: {
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      width: 28,
+      height: 28,
+      padding: 0,
+      border: 'none',
+      borderRadius: 8,
+      background: 'transparent',
+      color: 'inherit',
+      cursor: busy ? 'default' : 'pointer',
+      opacity: busy ? 0.45 : 1,
+    },
+  }, busy ? '…' : '✚')
 }
 
 export const name = 'moyu-screenshot-client'
 export const inject = ['slots']
 
 export function apply(ctx: ClientContext): void {
-  ctx.slots.inject('conversation.view', () => ctx.slots.register({
-    name: 'conversation.view', id: 'moyu-screenshot-capture-view', order: 30, label: () => '截图',
-  } as never, ScreenshotPanel as never))
-  ctx.slots.inject('settings.section', () => ctx.slots.register({
-    name: 'settings.section', id: 'moyu-screenshot-capture', order: 25, label: () => '截图',
-  } as never, ScreenshotPanel as never))
+  const conversation = () => {
+    try { return (ctx as unknown as { get(key: string): unknown }).get('conversation') as ConversationService }
+    catch { return undefined }
+  }
+  ctx.slots.inject('conversation.input.left', () => ctx.slots.register({
+    name: 'conversation.input.left',
+    id: 'moyu-screenshot-composer',
+    order: 100,
+  } as never, (() => React.createElement(CaptureButton, { conversation })) as never))
 }

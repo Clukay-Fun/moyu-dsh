@@ -1,4 +1,92 @@
-import { installTooltips } from './tooltip.js'
+// 截图覆盖层（v3.0.0 决策 20 后唯一保留的 WebContents 页面）。
+// 它是 screenshot_capture 采集链路的选区交互面：接收冻结帧、框选/标注、回报选区。
+// 由 apps/desktop/main/index.js 的 ensureScreenshotOverlay 加载，经最小 preload 通信。
+
+const INITIAL_DELAY = 450
+const SWITCH_GRACE = 120
+const EDGE_GAP = 8
+
+function installTooltips(root = document) {
+  if (root.querySelector('#app-tooltip')) return
+
+  const tooltip = root.createElement('div')
+  tooltip.id = 'app-tooltip'
+  tooltip.className = 'app-tooltip'
+  tooltip.setAttribute('role', 'tooltip')
+  tooltip.hidden = true
+  root.body.append(tooltip)
+
+  let active = null
+  let openTimer = 0
+  let closeTimer = 0
+
+  const targetFor = (node) => node instanceof Element ? node.closest('[data-tip]') : null
+
+  function clearTimers() {
+    window.clearTimeout(openTimer)
+    window.clearTimeout(closeTimer)
+  }
+
+  function position(target) {
+    const rect = target.getBoundingClientRect()
+    const tip = tooltip.getBoundingClientRect()
+    const left = Math.min(
+      Math.max(EDGE_GAP, rect.left + (rect.width - tip.width) / 2),
+      window.innerWidth - tip.width - EDGE_GAP
+    )
+    const roomAbove = rect.top - tip.height - EDGE_GAP
+    const top = roomAbove >= EDGE_GAP
+      ? roomAbove
+      : Math.min(window.innerHeight - tip.height - EDGE_GAP, rect.bottom + EDGE_GAP)
+    tooltip.style.left = `${Math.round(left)}px`
+    tooltip.style.top = `${Math.round(top)}px`
+    tooltip.dataset.side = roomAbove >= EDGE_GAP ? 'top' : 'bottom'
+  }
+
+  function show(target, instant, keyboard) {
+    if (!target?.isConnected || !target.dataset.tip) return
+    if (active && active !== target) active.removeAttribute('aria-describedby')
+    active = target
+    tooltip.textContent = target.dataset.tip
+    tooltip.hidden = false
+    tooltip.toggleAttribute('data-instant', instant || keyboard)
+    tooltip.toggleAttribute('data-keyboard', keyboard)
+    target.setAttribute('aria-describedby', tooltip.id)
+    position(target)
+  }
+
+  function schedule(target, keyboard = false) {
+    clearTimers()
+    if (!target || target.getAttribute('aria-disabled') === 'true') return
+    const instant = !tooltip.hidden
+    openTimer = window.setTimeout(() => show(target, instant, keyboard), instant || keyboard ? 0 : INITIAL_DELAY)
+  }
+
+  function hideSoon(target) {
+    window.clearTimeout(openTimer)
+    closeTimer = window.setTimeout(() => {
+      if (target && active !== target) return
+      active?.removeAttribute('aria-describedby')
+      active = null
+      tooltip.hidden = true
+      tooltip.removeAttribute('data-instant')
+      tooltip.removeAttribute('data-keyboard')
+    }, SWITCH_GRACE)
+  }
+
+  root.addEventListener('pointerover', (event) => {
+    const target = targetFor(event.target)
+    if (target && !target.contains(event.relatedTarget)) schedule(target)
+  })
+  root.addEventListener('pointerout', (event) => {
+    const target = targetFor(event.target)
+    if (target && !target.contains(event.relatedTarget)) hideSoon(target)
+  })
+  root.addEventListener('focusin', (event) => schedule(targetFor(event.target), true))
+  root.addEventListener('focusout', (event) => hideSoon(targetFor(event.target)))
+  window.addEventListener('blur', () => hideSoon(active))
+  window.addEventListener('resize', () => active && position(active))
+}
 
 installTooltips()
 
@@ -499,18 +587,6 @@ document.querySelector('#copy-capture').addEventListener('click', () => withBusy
   const data = await canvasPngBytes(finalCanvas())
   await window.api.copyScreenshot(data)
   tip.textContent = '截图已复制到剪贴板'
-}))
-document.querySelector('#pin-capture').addEventListener('click', () => withBusy('正在钉住截图…', async () => {
-  const data = await canvasPngBytes(finalCanvas())
-  await window.api.pinScreenshot(data)
-  tip.textContent = '截图已钉住'
-}))
-document.querySelector('#ocr-capture').addEventListener('click', () => withBusy('正在提取文字…', async () => {
-  const data = await canvasPngBytes(finalCanvas())
-  const result = await window.api.recognizeScreenshot(data)
-  if (!result.text?.trim()) throw new Error('未识别到文字')
-  await window.api.copyScreenshotText(result.text)
-  tip.textContent = '文字已提取并复制到剪贴板'
 }))
 
 textEditor.addEventListener('pointerdown', (event) => event.stopPropagation())
