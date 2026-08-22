@@ -2,6 +2,7 @@
 import { net, session } from 'electron'
 
 const TOKEN_HEADER = 'X-Moyu-Session'
+const PROBE_RETRY_DELAYS_MS = [100, 200, 400, 800, 1200, 1600]
 
 /** 每代 Host 用一个独立、非持久化的分区，避免 token 注入波及其他窗口。 */
 export function createDshSession(generation) {
@@ -40,7 +41,7 @@ export function installHeaderInjection(dshSession, host) {
  */
 export async function assertChromiumFenceEngaged(host) {
   const probeSession = session.fromPartition(`moyu-dsh-probe-${host.generation}`, { cache: false })
-  const response = await probeSession.fetch(host.url)
+  const response = await probeFetchWithRetry(probeSession, host.url)
   await response.arrayBuffer()
 
   const wsUrl = host.url.replace(/^http:/, 'ws:')
@@ -56,6 +57,25 @@ export async function assertChromiumFenceEngaged(host) {
   }
   if (failures.length) throw new Error(`DSH 认证 fence 未生效：${failures.join('；')}`)
   return { http: response.status, ws: 403 }
+}
+
+async function probeFetchWithRetry(probeSession, url) {
+  let lastError
+  for (const delayMs of [0, ...PROBE_RETRY_DELAYS_MS]) {
+    if (delayMs) await new Promise((resolve) => setTimeout(resolve, delayMs))
+    try {
+      return await probeSession.fetch(url)
+    } catch (error) {
+      if (!isConnectionLayerError(error)) throw error
+      lastError = error
+    }
+  }
+  throw lastError
+}
+
+function isConnectionLayerError(error) {
+  const message = String(error?.message || error)
+  return /ERR_CONNECTION_REFUSED|ERR_CONNECTION_RESET|ECONNREFUSED|ECONNRESET|socket hang up/i.test(message)
 }
 
 async function waitForEvidence(host, kind, timeoutMs = 5_000) {

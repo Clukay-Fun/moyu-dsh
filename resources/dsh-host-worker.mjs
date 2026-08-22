@@ -11,6 +11,13 @@ process.env.DSH_HOME = home
 if (typeof process.send !== 'function') throw new Error('DSH Host IPC 通道不可用')
 const send = (message) => process.send?.(message)
 
+process.on('uncaughtException', (err) => {
+  process.stderr.write(`[HOST UNCAUGHT] ${err?.stack || err}\n`)
+})
+process.on('unhandledRejection', (err) => {
+  process.stderr.write(`[HOST UNHANDLED] ${err?.stack || err}\n`)
+})
+
 function describeStartupError(error, depth = 0) {
   if (depth > 4) return '[错误链过深]'
   const lines = [error?.stack || error?.message || String(error)]
@@ -128,8 +135,21 @@ process.on('message', (message) => {
 // DSH 用 stdout 播报监听地址；这是当前唯一的就绪来源，转成结构化 ready 消息，
 // 主进程不解析 stdout（计划 §12 回填 4）。
 const originalLog = console.log.bind(console)
+const originalErr = console.error.bind(console)
+const originalWarn = console.warn.bind(console)
+
+console.error = (...args) => {
+  originalErr(...args)
+  process.stderr.write(`[HOST ERROR] ${args.map(String).join(' ')}\n`)
+}
+console.warn = (...args) => {
+  originalWarn(...args)
+  process.stderr.write(`[HOST WARN] ${args.map(String).join(' ')}\n`)
+}
+
 console.log = (...args) => {
   originalLog(...args)
+  process.stdout.write(`[HOST LOG] ${args.map(String).join(' ')}\n`)
   const match = args.map(String).join(' ').match(/^dsh web: (http:\/\/127\.0\.0\.1:\d+)/)
   if (!match) return
   fence.setOrigin(match[1])

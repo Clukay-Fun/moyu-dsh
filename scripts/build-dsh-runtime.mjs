@@ -220,6 +220,22 @@ async function buildProfileTemplate() {
   }
   await copyProfileRuntimeDependencies(profileDir, join(target, 'node_modules'))
 
+  // 为 agent-presets 提供默认的 moyu preset 模板，仅声明已在场的安全组件，解除对 standard 的隐式依赖
+  const presetDir = join(home, '.agent-presets', PROFILE_NAME)
+  await mkdir(presetDir, { recursive: true })
+  await writeFile(join(presetDir, 'preset.yml'), 'name: Moyu\ndescription: 摸鱼工具箱默认预设\n')
+  await writeFile(
+    join(presetDir, 'agent.cordis.yml'),
+    `# Moyu 预设：仅使用内置核心能力
+- id: agent-instructions
+  name: '@deepseek-ai/dsh-agent-instructions'
+  config:
+    maxBytes: 65536
+- id: tool-ask-user
+  name: '@deepseek-ai/dsh-tool-ask-user'
+`
+  )
+
   const patch = await readFile(join(profileDir, 'cordis.patch.yml'), 'utf8')
   const disabled = patch.match(/disabled: true/g)?.length ?? 0
   console.log(`profile 模板就绪：${PROFILE_NAME}，禁用 ${disabled} 个上游插件条目`)
