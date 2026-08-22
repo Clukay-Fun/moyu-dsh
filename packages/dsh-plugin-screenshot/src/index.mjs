@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { MOYU_TOOL_WHITELIST } from '@moyu/dsh-profile'
+import { assertMoyuToolSurface } from '@moyu/dsh-profile'
 
 export const name = 'moyu-screenshot'
 export const inject = ['webServer', 'tools']
@@ -65,9 +65,11 @@ function requireJob(jobs, id) {
   return job
 }
 
+// 模型路径确认：等待用户在原生对话框里「允许/取消」。用户需要时间决策，故给足
+// 超时；超时则任务以 cancelled_by_consent 终态返回（不会卡死模型回路）。
 function defaultCapture({ signal, scope } = {}) {
   if (signal?.aborted) throw Object.assign(new Error('TASK_CANCELLED'), { code: 'TASK_CANCELLED' })
-  return desktop().call('desktop.requestScreenCapture', { scope })
+  return desktop().call('desktop.requestScreenCapture', { scope }, { timeoutMs: 300000 })
 }
 
 // 人工路径（composer 按钮）：desktop.captureScreen 不弹确认。
@@ -262,9 +264,11 @@ function sendJson(res, status, value) {
 
 export function apply(ctx) {
   const service = createScreenshotService()
+
   const operate = async (args = {}, exec = {}) => {
     if (args.operation === 'submit') {
-      return serializeForTool(service.startFromTool({ scope: exec?.agent?.session?.id }))
+      const submitted = service.startFromTool({ scope: exec?.agent?.session?.id })
+      return serializeForTool(submitted)
     }
     if (args.operation === 'status') {
       return serializeForTool(service.status(args))
@@ -324,7 +328,7 @@ export function apply(ctx) {
 
   ctx.tools.register(defineTool({
     name: 'screenshot_capture',
-    description: 'Start, inspect, or cancel an interactive Moyu screenshot capture. Submit returns a job id; poll status until completed or cancelled.',
+    description: 'Capture the current screen via an interactive Moyu screenshot. Asynchronous job protocol: "submit" starts capture and immediately returns a jobId (with status: "awaiting_consent" requiring desktop user confirmation, or "processing"); poll "status" with job_id to obtain the resultId when completed; "cancel" aborts.',
     parameters: {
       operation: { type: 'string', enum: ['submit', 'status', 'cancel'], required: true },
       job_id: { type: 'string' }
@@ -352,17 +356,8 @@ export function apply(ctx) {
     execute: (args, exec) => operate(args, exec)
   }))
 
-  ctx.on('session/created', () => {
-    const actual = ctx.tools.schemas().map((schema) => schema.name).sort()
-    const expected = MOYU_TOOL_WHITELIST
-    if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-      const error = new Error(
-        `moyu tool whitelist drift：composition 实际注册 [${actual.join(', ')}]，`
-        + `白名单常量 [${expected.join(', ')}]；两处必须一致（@moyu/dsh-profile 与 cordis.patch.yml insert）`
-      )
-      process.stderr.write(`[moyu] ${error.message}\n`)
-      throw error
-    }
+  ctx.on('session/created', (session) => {
+    assertMoyuToolSurface(ctx, session)
   }, { global: true })
 
   ctx.effect(() => () => {

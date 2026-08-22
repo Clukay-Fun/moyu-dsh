@@ -4,19 +4,7 @@
   disabled: true
 - id: jobs
   disabled: true
-- id: subprocess
-  disabled: true
-- id: sandbox
-  disabled: true
-- id: sandbox-policy
-  disabled: true
-- id: bash-sandbox
-  disabled: true
 - id: pwsh-sandbox
-  disabled: true
-- id: permission
-  disabled: true
-- id: shell-env
   disabled: true
 - id: tool-bash
   disabled: true
@@ -74,13 +62,9 @@
   disabled: true
 - id: code-runtime
   disabled: true
-- id: plugin-inventory
-  disabled: true
 - id: cordis-host-runner
   disabled: true
 - id: cordis-client-runner
-  disabled: true
-- id: ui-settings-plugin-inventory
   disabled: true
 - id: ui-cordis
   disabled: true
@@ -94,16 +78,11 @@
   disabled: true
 - id: ui-goal
   disabled: true
-- id: ui-permission
-  disabled: true
-- id: ui-agent-preset
-  disabled: true
-- id: ui-settings-plugins
-  disabled: true
 - id: ui-plan
   disabled: true
 - id: agent-presets
-  disabled: true
+  config:
+    default: moyu
 - insert:
     - id: moyu-credentials-desktop
       name: '@moyu/dsh-credentials-desktop'

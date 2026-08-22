@@ -3,7 +3,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { randomUUID } from 'node:crypto'
 import { rm } from 'node:fs/promises'
 import { basename, join } from 'node:path'
-import { MOYU_TOOL_WHITELIST } from '@moyu/dsh-profile'
+import { assertMoyuToolSurface } from '@moyu/dsh-profile'
 
 export const name = 'moyu-image'
 export const inject = ['webServer', 'tools']
@@ -237,17 +237,8 @@ export function apply(ctx) {
     execute: operate
   }))
 
-  ctx.on('session/created', () => {
-    const actual = ctx.tools.schemas().map((schema) => schema.name).sort()
-    const expected = MOYU_TOOL_WHITELIST
-    if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-      const error = new Error(
-        `moyu tool whitelist drift：composition 实际注册 [${actual.join(', ')}]，`
-        + `白名单常量 [${expected.join(', ')}]；两处必须一致（@moyu/dsh-profile 与 cordis.patch.yml insert）`
-      )
-      process.stderr.write(`[moyu] ${error.message}\n`)
-      throw error
-    }
+  ctx.on('session/created', (session) => {
+    assertMoyuToolSurface(ctx, session)
   }, { global: true })
 
   ctx.effect(() => () => {

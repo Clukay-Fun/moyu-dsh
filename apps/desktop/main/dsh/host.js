@@ -85,6 +85,15 @@ export async function ensureProfile(profileName) {
     throw new Error(`profile 模板缺失：${source}（构建时未执行 build:dsh-runtime？）`)
   }
   await mkdir(join(home, 'profiles'), { recursive: true })
+
+  // 同步内置 agent-presets 模板到 DSH_HOME/.agent-presets（干净安装与升级均必须同步）
+  const sourcePresets = join(template, '.agent-presets')
+  const targetPresets = join(home, '.agent-presets')
+  if (existsSync(sourcePresets)) {
+    await mkdir(targetPresets, { recursive: true })
+    await cp(sourcePresets, targetPresets, { recursive: true, dereference: false })
+  }
+
   if (!existsSync(profileDir)) {
     await cp(source, profileDir, { recursive: true, dereference: false })
     return profileDir
@@ -101,6 +110,7 @@ export async function ensureProfile(profileName) {
   const installedModules = join(profileDir, 'node_modules')
   await rm(installedModules, { recursive: true, force: true })
   await cp(sourceModules, installedModules, { recursive: true, dereference: false })
+
   return profileDir
 }
 
@@ -120,7 +130,10 @@ export async function startHostGeneration(generation, { onStdout, profile } = {}
     execPath: process.execPath,
     // DSH 闭包里的 node-addon-require-builtin 需要它；M0a 已按此组合实测。
     execArgv: ['--expose-internals'],
-    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', MOYU_DSH_HOME: dshHome() },
+    // 模型路径的截图确认由主进程的原生对话框（desktop.requestScreenCapture，
+    // 带「本次会话内允许」复选框）单独负责。DSH 自带的审批层（permission /
+    // ui-permission）由用户在设置里自行选择策略（含 full access），不在主进程钉死。
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', DSH_HOME: dshHome(), MOYU_DSH_HOME: dshHome() },
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     serialization: 'advanced'
   })
