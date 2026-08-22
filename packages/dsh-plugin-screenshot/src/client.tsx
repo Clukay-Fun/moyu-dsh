@@ -87,6 +87,15 @@ function CaptureButton(props: { conversation?: () => ConversationService | undef
       const file = new File([bytes], `screenshot-${Date.now()}.png`, { type: 'image/png' })
       const drafts = conversation!.createDraftImages([file])
       shell.actions.addImages(drafts.map((draft) => draft.id))
+      window.__moyuScreenshotLastResult = {
+        fileId: job.result?.fileId,
+        name: job.result?.name,
+        width: job.result?.width,
+        height: job.result?.height,
+        backend: job.result?.backend,
+        draftIds: drafts.map((draft) => draft.id),
+        at: Date.now(),
+      }
     } catch (error) {
       setNote(error instanceof Error ? error.message : String(error))
     } finally {
@@ -98,6 +107,7 @@ function CaptureButton(props: { conversation?: () => ConversationService | undef
     type: 'button',
     title: note || '区域截图（截完作为附件插入输入框）',
     'aria-label': '区域截图',
+    'data-testid': 'moyu-screenshot',
     onClick: () => void capture(),
     disabled: busy,
     style: {
