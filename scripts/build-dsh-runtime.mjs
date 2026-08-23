@@ -18,7 +18,7 @@ const target = join(root, 'build', 'dsh-runtime')
 const npmCache = join(root, 'build', '.npm-cache-dsh')
 
 // 与根 package.json 保持同一个精确版本：不使用 dist-tag，也不用 caret。
-const DSH_VERSION = '0.1.0-rc.7'
+const DSH_VERSION = '0.1.1-rc.2'
 
 // 唯一产品 profile；不交付上游 standard/code/minimal/cordis。
 export const PROFILE_NAME = 'moyu'

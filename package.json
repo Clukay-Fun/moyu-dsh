@@ -129,7 +129,7 @@
     "afterPack": "scripts/after-pack-dsh-runtime.mjs"
   },
   "devDependencies": {
-    "@deepseek-ai/dsh": "0.1.0-rc.7",
+    "@deepseek-ai/dsh": "0.1.1-rc.2",
     "electron": "43.2.0",
     "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
