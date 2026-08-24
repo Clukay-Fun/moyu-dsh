@@ -58,28 +58,32 @@ async function readResultPng(jobId: string): Promise<ArrayBuffer> {
 }
 
 /**
- * Inline `ic-capture` style glyph — a viewfinder-with-shutter mark used by the
- * legacy Moyu toolbar, converted to a self-contained React SVG so the screenshot
- * button needs no external asset pipeline.
+ * Custom screenshot glyph drawn for Moyu — a viewfinder frame (four corner
+ * brackets) with a centered shutter dot, the conventional mark for "region
+ * screenshot / capture". Self-contained SVG using `currentColor` so it follows
+ * the button's text color in both light and dark themes.
  */
-function CaptureIcon({ size = 16 }: { size?: number }): React.ReactElement {
+function ScreenshotIcon({ size = 16 }: { size?: number }): React.ReactElement {
   return React.createElement(
     'svg',
     {
       width: size,
       height: size,
-      viewBox: '0 0 24 24',
+      viewBox: '0 0 16 16',
       fill: 'none',
       stroke: 'currentColor',
-      strokeWidth: 1.8,
+      strokeWidth: 1.5,
       strokeLinecap: 'round',
       strokeLinejoin: 'round',
+      xmlns: 'http://www.w3.org/2000/svg',
       'aria-hidden': true,
       focusable: false,
     },
-    React.createElement('path', { d: 'M3 8.5A1.5 1.5 0 0 1 4.5 7h2L8 5h8l1.5 2h2A1.5 1.5 0 0 1 21 8.5v9A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5z' }),
-    React.createElement('circle', { cx: 12, cy: 12.75, r: 3.5 }),
-    React.createElement('path', { d: 'M12 2v3M2 12.75h3M19 12.75h3' }),
+    React.createElement('path', { d: 'M3 6V4a1 1 0 0 1 1-1h2' }),
+    React.createElement('path', { d: 'M11 3h2a1 1 0 0 1 1 1v2' }),
+    React.createElement('path', { d: 'M13 10v2a1 1 0 0 1-1 1h-2' }),
+    React.createElement('path', { d: 'M5 13H4a1 1 0 0 1-1-1v-2' }),
+    React.createElement('circle', { cx: 8, cy: 8, r: 2.1, fill: 'currentColor', stroke: 'none' }),
   )
 }
 
@@ -159,7 +163,7 @@ function CaptureButton(props: { conversation?: () => ConversationService | undef
       transition: 'transform 120ms ease, background-color 120ms ease',
       transform: pressed ? 'scale(0.97)' : 'none',
     },
-  }, busy ? '…' : React.createElement(CaptureIcon))
+  }, busy ? '…' : React.createElement(ScreenshotIcon))
 }
 
 export const name = 'moyu-screenshot-client'
