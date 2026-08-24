@@ -1,7 +1,7 @@
 {
   "name": "moyu-tools",
   "version": "2.1.0",
-  "description": "面向设计工作流的 Windows Electron 工具箱",
+  "description": "MOYU 是一款基于 DeepSeek Harness 开发的智能桌面工作台。",
   "author": "Clukay",
   "private": true,
   "type": "module",
@@ -27,17 +27,18 @@
     "build:native:mac": "node scripts/build-macos-native.mjs",
     "build:tools:win": "powershell -ExecutionPolicy Bypass -File scripts/download-ffmpeg-win.ps1",
     "build:win": "npm run build:icon && npm run build:tools:win && npm run build && electron-builder --win portable --x64",
-    "build:mac": "npm run build:dsh-runtime && npm run apply-codex-web-overlay && npm run verify-overlay-applied && npm run build:native:mac && npm run build && electron-builder --mac dmg --arm64",
+    "build:mac": "npm run build:dsh-runtime && npm run apply-codex-web-overlay && npm run patch-upstream-brand && npm run verify-overlay-applied && npm run build:native:mac && npm run build && electron-builder --mac dmg --arm64",
     "verify:dsh-fence": "node scripts/verify-dsh-fence.mjs",
     "verify:dsh-bridge": "electron scripts/verify-dsh-bridge.mjs",
     "preview": "electron-vite preview",
     "build:dsh-runtime": "node scripts/build-dsh-runtime.mjs",
     "apply-codex-web-overlay": "node scripts/apply-codex-web-overlay.mjs",
+    "patch-upstream-brand": "node scripts/patch-upstream-brand.mjs",
     "verify-overlay-applied": "node tests/verify-overlay-applied.mjs"
   },
   "build": {
     "appId": "com.clukay.moyutools",
-    "productName": "摸鱼工具箱",
+    "productName": "MOYU",
     "asar": true,
     "asarUnpack": [
       "node_modules/sharp/**/*",
