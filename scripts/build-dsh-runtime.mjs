@@ -29,7 +29,8 @@ const SURFACE_BUNDLE = '@deepseek-ai/dsh-web-app'
 
 const MOYU_PLUGINS = {
   '@moyu/dsh-credentials-desktop': 'dsh-credentials-desktop',
-  '@moyu/dsh-host-directory-picker-fixed': 'dsh-host-directory-picker-fixed',
+  '@moyu/dsh-host-directory-picker-native': 'dsh-host-directory-picker-native',
+  '@moyu/dsh-plugin-session-export': 'dsh-plugin-session-export',
   '@moyu/dsh-plugin-image': 'dsh-plugin-image',
   '@moyu/dsh-plugin-pdf': 'dsh-plugin-pdf',
   '@moyu/dsh-plugin-screenshot': 'dsh-plugin-screenshot'
@@ -40,7 +41,9 @@ const RUNTIME_DEPENDENCIES = {
   'pdf-lib': '1.17.1',
   'pdfjs-dist': '5.4.624',
   'qpdf-run': '0.2.1',
-  sharp: '0.35.3'
+  sharp: '0.35.3',
+  '@deepseek-ai/dsh-host-directory-picker-native': '0.1.1-rc.2',
+  '@deepseek-ai/dsh-client-ui-directory-picker-native': '0.1.1-rc.2'
 }
 
 // 这些依赖由 Moyu 插件直接 import。仅放在 dsh-runtime/node_modules 不够：

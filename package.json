@@ -8,6 +8,8 @@
   "workspaces": [
     "packages/dsh-credentials-desktop",
     "packages/dsh-host-directory-picker-fixed",
+    "packages/dsh-plugin-session-export",
+    "packages/dsh-host-directory-picker-native",
     "packages/dsh-plugin-image",
     "packages/dsh-plugin-legacy-tools",
     "packages/dsh-plugin-pdf",
@@ -25,11 +27,13 @@
     "build:native:mac": "node scripts/build-macos-native.mjs",
     "build:tools:win": "powershell -ExecutionPolicy Bypass -File scripts/download-ffmpeg-win.ps1",
     "build:win": "npm run build:icon && npm run build:tools:win && npm run build && electron-builder --win portable --x64",
-    "build:mac": "npm run build:dsh-runtime && npm run build:native:mac && npm run build && electron-builder --mac dmg --arm64",
+    "build:mac": "npm run build:dsh-runtime && npm run apply-codex-web-overlay && npm run verify-overlay-applied && npm run build:native:mac && npm run build && electron-builder --mac dmg --arm64",
     "verify:dsh-fence": "node scripts/verify-dsh-fence.mjs",
     "verify:dsh-bridge": "electron scripts/verify-dsh-bridge.mjs",
     "preview": "electron-vite preview",
-    "build:dsh-runtime": "node scripts/build-dsh-runtime.mjs"
+    "build:dsh-runtime": "node scripts/build-dsh-runtime.mjs",
+    "apply-codex-web-overlay": "node scripts/apply-codex-web-overlay.mjs",
+    "verify-overlay-applied": "node tests/verify-overlay-applied.mjs"
   },
   "build": {
     "appId": "com.clukay.moyutools",

@@ -7171,33 +7171,29 @@ window.__ModuleLoader__.load({
 			const chipTitle = pendingWorkspace?.title ?? (sessionId === void 0 ? void 0 : sessionWorkspace?.title ?? (workspaces.phase === "ready" || cwd === void 0 || cwd === "" ? void 0 : workspaceLabel(cwd)));
 			const heroWorkspaceRow = (0, react_jsx_runtime.jsxs)("div", {
 				className: ConversationRoot_module_css_default.heroWorkspaceRow,
-				children: [
-					(0, react_jsx_runtime.jsx)(WorkspaceChip, {
-						buttonRef: pickerAnchor,
-						label: chipTitle,
-						menuOpen: pickerOpen,
-						onClick: () => {
-							setPickerOpen((open) => !open);
-						},
-						t
-					}),
-					renderSlot("conversation.hero.workspace", {
-						open: pickerOpen,
-						anchorRef: pickerAnchor,
-						selectedId: pendingWorkspaceId ?? sessionWorkspace?.workspaceId,
-						onPick: (workspaceId) => {
-							setPickerOpen(false);
-							setPendingWorkspaceId(workspaceId);
-							selectWorkspace(workspaceId).catch(() => {
-								setPendingWorkspaceId((current) => current === workspaceId ? void 0 : current);
-							});
-						},
-						onClose: () => {
-							setPickerOpen(false);
-						}
-					}),
-					renderSlot("conversation.hero.agentPreset", {})
-				]
+				children: [(0, react_jsx_runtime.jsx)(WorkspaceChip, {
+					buttonRef: pickerAnchor,
+					label: chipTitle,
+					menuOpen: pickerOpen,
+					onClick: () => {
+						setPickerOpen((open) => !open);
+					},
+					t
+				}), renderSlot("conversation.hero.workspace", {
+					open: pickerOpen,
+					anchorRef: pickerAnchor,
+					selectedId: pendingWorkspaceId ?? sessionWorkspace?.workspaceId,
+					onPick: (workspaceId) => {
+						setPickerOpen(false);
+						setPendingWorkspaceId(workspaceId);
+						selectWorkspace(workspaceId).catch(() => {
+							setPendingWorkspaceId((current) => current === workspaceId ? void 0 : current);
+						});
+					},
+					onClose: () => {
+						setPickerOpen(false);
+					}
+				})]
 			});
 			const inert = sessionId === void 0 || hero && chipTitle === void 0;
 			const inputBar = renderSlot("conversation.composer.bar", {
@@ -7288,73 +7284,6 @@ window.__ModuleLoader__.load({
 				return other !== void 0 && item.id === other.id && item.displayTitle === other.displayTitle;
 			});
 		}
-		function toolOutputText(block) {
-			if (!("content" in block)) return "";
-			const parts = block.content.map((item) => item.type === "text" ? item.text : JSON.stringify(item, null, 2));
-			if (parts.length === 0 && "error" in block && block.error !== void 0) parts.push(`${block.error.name}: ${block.error.code}`);
-			return parts.join("\n");
-		}
-		function BottomPanel({ panel, block, setPanel, t }) {
-			if (panel === null) return null;
-			const terminal = panel === "terminal";
-			const files = panel === "files";
-			return (0, react_jsx_runtime.jsxs)("section", {
-				className: ConversationRoot_module_css_default.bottomPanel,
-				"data-bottom-panel": "",
-				children: [(0, react_jsx_runtime.jsxs)("div", {
-					className: ConversationRoot_module_css_default.bottomPanelHeader,
-					children: [(0, react_jsx_runtime.jsx)("div", {
-						className: ConversationRoot_module_css_default.bottomPanelTabs,
-						role: "tablist",
-						"aria-label": t("bottomPanel.aria"),
-						children: [
-							"terminal",
-							"browser",
-							"files"
-						].map((id) => {
-							const label = id === "terminal" ? t("bottomPanel.terminal") : id === "browser" ? t("bottomPanel.browser") : t("bottomPanel.files");
-							return (0, react_jsx_runtime.jsx)("button", {
-								type: "button",
-								role: "tab",
-								"aria-selected": panel === id,
-								className: clsx(ConversationRoot_module_css_default.bottomPanelTab, panel === id && ConversationRoot_module_css_default.bottomPanelTabActive),
-								onClick: () => {
-									setPanel(id);
-								},
-								children: label
-							}, id);
-						})
-					}), (0, react_jsx_runtime.jsx)("button", {
-						type: "button",
-						className: ConversationRoot_module_css_default.bottomPanelClose,
-						"aria-label": t("bottomPanel.close"),
-						onClick: () => {
-							setPanel(null);
-						},
-						children: "×"
-					})]
-				}), (0, react_jsx_runtime.jsxs)("div", {
-					className: ConversationRoot_module_css_default.bottomPanelBody,
-					children: [
-						terminal && (block === null ? (0, react_jsx_runtime.jsx)("div", {
-							className: ConversationRoot_module_css_default.bottomPanelEmpty,
-							children: t("bottomPanel.terminal.empty")
-						}) : (0, react_jsx_runtime.jsx)("pre", {
-							className: ConversationRoot_module_css_default.bottomPanelCode,
-							children: toolOutputText(block)
-						})),
-						files && (0, react_jsx_runtime.jsx)("div", {
-							className: ConversationRoot_module_css_default.bottomPanelEmpty,
-							children: t("bottomPanel.files.empty")
-						}),
-						!terminal && !files && (0, react_jsx_runtime.jsx)("div", {
-							className: ConversationRoot_module_css_default.bottomPanelEmpty,
-							children: t("bottomPanel.browser.empty")
-						})
-					]
-				})]
-			});
-		}
 		/**
 		* Renders Session header chrome above the resident conversation scrollport.
 		* @param props - Strict Session store, view ledger, navigation, render, and locale shares.
@@ -7364,7 +7293,7 @@ window.__ModuleLoader__.load({
 			(0, react.useSyncExternalStore)(views.subscribe, views.version);
 			const tabs = views.list();
 			const selectedId = useStore((s) => s.view);
-			const bottomPanel = useStore((s) => s.bottomPanel ?? null);
+			useStore((s) => s.bottomPanel ?? null);
 			const active = resolveActiveView(tabs, selectedId);
 			const ancestry = useSessions((s) => deriveAncestry(s, sessionId), equalBreadcrumbs);
 			const composerPhase = useSession((s) => s.composerPhase);
@@ -7404,18 +7333,9 @@ window.__ModuleLoader__.load({
 							className: ConversationRoot_module_css_default.headerActions,
 							children: renderSlot("conversation.session.header.actions", {})
 						})]
-					}), (0, react_jsx_runtime.jsxs)("div", {
+					}), (0, react_jsx_runtime.jsx)("div", {
 						className: ConversationRoot_module_css_default.headerUtilities,
-						children: [renderSlot("conversation.session.header.utilities", {}), (0, react_jsx_runtime.jsx)("button", {
-							type: "button",
-							className: ConversationRoot_module_css_default.bottomPanelTab,
-							"aria-label": t("bottomPanel.open"),
-							"aria-pressed": bottomPanel === "terminal",
-							onClick: () => {
-								actions.setBottomPanel(bottomPanel === "terminal" ? null : "terminal");
-							},
-							children: t("bottomPanel.terminal")
-						})]
+						children: renderSlot("conversation.session.header.utilities", {})
 					})]
 				}), tabs.length > 1 && (0, react_jsx_runtime.jsx)("div", {
 					className: ConversationRoot_module_css_default.tabs,
@@ -7447,9 +7367,9 @@ window.__ModuleLoader__.load({
 			const inputState = useInput((s) => s);
 			const storedDraft = useStore((s) => s.draft);
 			const inspect = useStore((s) => s.inspect ?? null);
-			const bottomPanel = useStore((s) => s.bottomPanel ?? null);
+			useStore((s) => s.bottomPanel ?? null);
 			const selection = useStore((s) => s.selection);
-			const selectedTool = useSession((snapshot) => selection?.callId === void 0 ? null : findToolCall(snapshot, selection.callId) ?? null);
+			useSession((snapshot) => selection?.callId === void 0 ? null : findToolCall(snapshot, selection.callId) ?? null);
 			(0, react.useEffect)(() => {
 				if (inputState.draft === "" && storedDraft !== "") inputActions.setDraft(storedDraft);
 				const unmirror = bindDraftMirror(actions.setDraft);
@@ -7461,19 +7381,14 @@ window.__ModuleLoader__.load({
 				releaseSessionImages(sessionId);
 			}, [releaseSessionImages, sessionId]);
 			if (blank && composerPhase === "blank") return null;
-			return (0, react_jsx_runtime.jsxs)("div", {
+			return (0, react_jsx_runtime.jsx)("div", {
 				className: ConversationRoot_module_css_default.viewArea,
-				children: [active !== void 0 && renderSlot("conversation.view", {
+				children: active !== void 0 && renderSlot("conversation.view", {
 					inspect,
 					onInspectDone: () => {
 						actions.setInspect(null);
 					}
-				}, { only: active.id }), (0, react_jsx_runtime.jsx)(BottomPanel, {
-					panel: bottomPanel,
-					block: selectedTool,
-					setPanel: actions.setBottomPanel,
-					t
-				})]
+				}, { only: active.id })
 			});
 		}
 		//#endregion

@@ -99,7 +99,7 @@ async function main() {
   assert.equal(results.unknownMethod.code, 'UNKNOWN_METHOD')
   assert.equal(typeof methods['desktop.requestScreenCapture'], 'function')
   assert.equal(typeof methods['desktop.selectScreenshotRegion'], 'function')
-  results.rawCaptureRejected = await dispatchBridgeCall(methods, { id: 20, method: 'desktop.captureScreen' })
+  results.rawCaptureRejected = await dispatchBridgeCall(methods, { id: 20, method: 'desktop.unregisteredCapture' })
   assert.equal(results.rawCaptureRejected.ok, false)
   assert.equal(results.rawCaptureRejected.code, 'UNKNOWN_METHOD')
 

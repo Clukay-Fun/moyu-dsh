@@ -86,8 +86,10 @@
 - insert:
     - id: moyu-credentials-desktop
       name: '@moyu/dsh-credentials-desktop'
-    - id: moyu-directory-picker-fixed
-      name: '@moyu/dsh-host-directory-picker-fixed'
+    - id: moyu-directory-picker-native
+      name: '@moyu/dsh-host-directory-picker-native'
+    - id: moyu-directory-picker-native-client
+      name: '@deepseek-ai/dsh-client-ui-directory-picker-native'
     - id: moyu-image
       name: '@moyu/dsh-plugin-image'
     - id: moyu-pdf
@@ -96,3 +98,5 @@
       name: '@moyu/dsh-plugin-screenshot'
     - id: tool-ask-user
       name: '@deepseek-ai/dsh-tool-ask-user'
+    - id: moyu-session-export
+      name: '@moyu/dsh-plugin-session-export'

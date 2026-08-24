@@ -4,10 +4,54 @@ window.__ModuleLoader__.load({
 		var module = { exports: {} };
 		var exports = module.exports;
 		Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
+		let react = require("react");
 		let _deepseek_ai_dsh_client_runtime_client = require("@deepseek-ai/dsh-client-runtime/client");
 		let react_jsx_runtime = require("react/jsx-runtime");
-		let react = require("react");
 		let _deepseek_ai_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
+		// 复制到剪贴板：优先 navigator.clipboard，但它在部分沙箱渲染进程里会挂起或
+		// 被拒，所以用 1.5s 超时竞速兜底；失败再退到 textarea + execCommand（无需权限）。
+		function copyText(text) {
+			if (typeof text !== "string" || !text) return Promise.resolve(false);
+			const nav = (typeof navigator !== "undefined" && navigator.clipboard && navigator.clipboard.writeText)
+				? navigator.clipboard.writeText(text).then(() => {}).then(() => true).catch(() => false)
+				: Promise.resolve(false);
+			return Promise.race([
+				nav,
+				new Promise((resolve) => setTimeout(() => resolve(false), 1500))
+			]).then((ok) => {
+				if (ok) return true;
+				try {
+					const ta = document.createElement("textarea");
+					ta.value = text;
+					ta.style.position = "fixed";
+					ta.style.top = "-1000px";
+					ta.style.opacity = "0";
+					document.body.appendChild(ta);
+					ta.focus();
+					ta.select();
+					const done = document.execCommand("copy");
+					document.body.removeChild(ta);
+					return done;
+				} catch {
+					return false;
+				}
+			});
+		}
+		// 轻量错误提示（闭包内无现成 toast API，且未打包 antd）：
+		// 固定定位、自动消失，避免 catch {} 静默吞错。
+		function showErrorToast(message) {
+			try {
+				const el = document.createElement("div");
+				el.textContent = message;
+				el.style.cssText = "position:fixed;left:50%;top:24px;transform:translateX(-50%);z-index:2147483647;background:#e5484d;color:#fff;padding:8px 14px;border-radius:8px;font-size:13px;line-height:1.4;box-shadow:0 4px 16px rgba(0,0,0,.3);max-width:80vw;pointer-events:none;";
+				document.body.appendChild(el);
+				setTimeout(() => {
+					el.style.transition = "opacity .3s";
+					el.style.opacity = "0";
+					setTimeout(() => el.remove(), 320);
+				}, 3200);
+			} catch {}
+		}
 		//#region lib/types/client/stores.js
 		/**
 		* The workspace browser's viewing store: the session-list grouping mode,
@@ -18,6 +62,35 @@ window.__ModuleLoader__.load({
 		*/
 		/** Browser-local order account for the hierarchy-free flat Session list. */
 		const FLAT_SESSION_ORDER_KEY = "__flat_session_order__";
+		/**
+		* Create the session meta store handle (pinned/unread across reloads).
+		* @returns the store handle.
+		*/
+		function createSessionMetaStore() {
+			return (0, _deepseek_ai_dsh_client_runtime_client.defineStore)({
+				init: () => ({
+					pinned: [],
+					unread: []
+				}),
+				persist: "dsh.workspace.session-meta.v1",
+				actions: {
+					togglePin: (d, sessionId) => {
+						const i = d.pinned.indexOf(sessionId);
+						if (i === -1) d.pinned.push(sessionId);
+						else d.pinned.splice(i, 1);
+					},
+					toggleUnread: (d, sessionId) => {
+						const i = d.unread.indexOf(sessionId);
+						if (i === -1) d.unread.push(sessionId);
+						else d.unread.splice(i, 1);
+					},
+					clearUnread: (d, sessionId) => {
+						const i = d.unread.indexOf(sessionId);
+						if (i !== -1) d.unread.splice(i, 1);
+					}
+				}
+			});
+		}
 		/**
 		* Create the workspace browser viewing store handle.
 		* @returns the store handle (spec + type + identity + factory in one).
@@ -58,6 +131,22 @@ window.__ModuleLoader__.load({
 				}
 			});
 		}
+		/**
+		* Cross-instance shared session meta store (pinned / unread). A single
+		* module-level instance keeps every rendering component reactive to the same
+		* persisted state, so toggling from one tree node updates all others.
+		*/
+		const sessionMetaStore = createSessionMetaStore().create();
+		function useSessionMeta() {
+			const pinned = (0, react.useSyncExternalStore)(sessionMetaStore.subscribe, () => sessionMetaStore.getSnapshot().pinned);
+			const unread = (0, react.useSyncExternalStore)(sessionMetaStore.subscribe, () => sessionMetaStore.getSnapshot().unread);
+			return {
+				pinnedIds: (0, react.useMemo)(() => new Set(pinned), [pinned]),
+				unreadIds: (0, react.useMemo)(() => new Set(unread), [unread]),
+				togglePin: sessionMetaStore.actions.togglePin,
+				toggleUnread: sessionMetaStore.actions.toggleUnread
+			};
+		}
 		//#endregion
 		//#region ../../../node_modules/.pnpm/clsx@2.1.1/node_modules/clsx/dist/clsx.mjs
 		function r(e) {
@@ -90,6 +179,13 @@ window.__ModuleLoader__.load({
 		function byRecency(a, b) {
 			if (b.updatedAt !== a.updatedAt) return b.updatedAt - a.updatedAt;
 			return a.id < b.id ? -1 : 1;
+		}
+		/** Pinned sessions float to the top of their group; ties fall back to recency. */
+		function byPinnedFirst(a, b, pinnedIds) {
+			const pa = pinnedIds.has(a.id);
+			const pb = pinnedIds.has(b.id);
+			if (pa !== pb) return pa ? -1 : 1;
+			return byRecency(a, b);
 		}
 		/**
 		* Ordinary sessions are visible; among blank sessions, only the current one
@@ -188,7 +284,7 @@ window.__ModuleLoader__.load({
 		* @param view - local expansion arrays.
 		* @returns group sections in render order.
 		*/
-		function deriveGroups(list, workspaces, archivedSessionIds, view) {
+		function deriveGroups(list, workspaces, archivedSessionIds, view, pinnedIds) {
 			const archived = new Set(archivedSessionIds);
 			const expandedGroups = new Set(view.expandedGroups);
 			const descendants = (0, _deepseek_ai_dsh_client_runtime_client.indexSubagentDescendants)(list.byId);
@@ -205,7 +301,7 @@ window.__ModuleLoader__.load({
 					sessionCount: g.sessions.length,
 					expanded,
 					containsCurrent: g.key === currentGroup,
-					sessions: expanded ? g.sessions.map((session) => sessionNode(session, descendants)) : []
+					sessions: expanded ? g.sessions.slice().sort((a, b) => byPinnedFirst(a, b, pinnedIds)).map((session) => sessionNode(session, descendants)) : []
 				});
 			}
 			return groups;
@@ -219,7 +315,7 @@ window.__ModuleLoader__.load({
 		* @param archivedSessionIds - registry-global archive set.
 		* @returns flat rows in render order.
 		*/
-		function deriveFlat(list, archivedSessionIds) {
+		function deriveFlat(list, archivedSessionIds, pinnedIds) {
 			const archived = new Set(archivedSessionIds);
 			const descendants = (0, _deepseek_ai_dsh_client_runtime_client.indexSubagentDescendants)(list.byId);
 			const rows = [];
@@ -228,7 +324,7 @@ window.__ModuleLoader__.load({
 				if (s === void 0 || !sessionVisible(s, list.current, archived)) continue;
 				rows.push(s);
 			}
-			rows.sort(byRecency);
+			rows.sort((a, b) => byPinnedFirst(a, b, pinnedIds));
 			return rows.map((session) => sessionNode(session, descendants));
 		}
 		/**
@@ -331,7 +427,7 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region \0dsh-css:/Users/clukay/Program/deepseek-harness/packages/client/ui-workspace/src/client/rows/Rows.module.css.mjs
-		const css$3 = ".W1OuRW_projectRow,.W1OuRW_sessionRow{cursor:pointer;user-select:none;color:var(--dsw-alias-label-primary);border-radius:8px;align-items:center;gap:6px;padding:0 8px;display:flex}.W1OuRW_projectRow:hover,.W1OuRW_sessionRow:hover,.W1OuRW_sessionRow.W1OuRW_selected{background:var(--dsw-alias-interactive-bg-hover)}.W1OuRW_searchResultRow{box-sizing:border-box;cursor:pointer;text-align:left;width:100%;min-height:48px;color:var(--dsw-alias-label-primary);background:0 0;border:none;border-radius:8px;flex-direction:column;align-items:stretch;padding:4px 8px;display:flex}.W1OuRW_searchResultRow:hover,.W1OuRW_searchResultRow.W1OuRW_selected{background:var(--dsw-alias-interactive-bg-hover)}.W1OuRW_searchResultHeading{align-items:center;min-width:0;display:flex}.W1OuRW_searchResultTitle{text-overflow:ellipsis;white-space:nowrap;min-width:0;margin-left:4px;font-size:14px;line-height:20px;overflow:hidden}.W1OuRW_searchResultMeta{align-items:center;gap:6px;min-width:0;margin-left:20px;display:flex}.W1OuRW_searchResultWorkspace,.W1OuRW_searchResultSnippet{text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:17px;overflow:hidden}.W1OuRW_searchResultWorkspace{max-width:40%;color:var(--dsw-alias-label-tertiary);flex:none}.W1OuRW_searchResultSnippet{min-width:0;color:var(--dsw-alias-label-secondary);flex:1}.W1OuRW_projectRow{box-sizing:border-box;align-items:center;height:34px}.W1OuRW_projectRow .W1OuRW_rowActions{height:20px}.W1OuRW_sessionRow{height:32px;animation:W1OuRW_row-in .15s var(--ds-ease-in-out);gap:0}.W1OuRW_sessionRow .W1OuRW_title{margin:0 6px 0 4px}.W1OuRW_flatSessionRowWithoutStatus .W1OuRW_title{margin-left:0}@keyframes W1OuRW_row-in{0%{opacity:0}}.W1OuRW_slot{width:16px;height:20px;color:var(--dsw-alias-label-tertiary);flex:none;justify-content:center;align-items:center;display:inline-flex}.W1OuRW_visuallyHidden{clip:rect(0 0 0 0);white-space:nowrap;width:1px;height:1px;position:absolute;overflow:hidden}.W1OuRW_folderActive{color:var(--dsw-alias-state-business-primary)}.W1OuRW_projectRow .W1OuRW_chevron{display:none}.W1OuRW_projectRow:hover .W1OuRW_chevron{display:inline-flex}.W1OuRW_projectRow:hover .W1OuRW_folder{display:none}.W1OuRW_arrow{transition:transform .15s var(--ds-ease-in-out)}.W1OuRW_arrowOpen{transform:rotate(90deg)}.W1OuRW_projectText{flex-direction:column;flex:1;gap:2px;min-width:0;display:flex}.W1OuRW_title{text-overflow:ellipsis;white-space:nowrap;min-width:0;font-size:14px;line-height:20px;overflow:hidden}.W1OuRW_renameInput{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-button-elevated-fill);min-width:0;color:inherit;border-radius:4px;outline:none;padding:0 2px;font-size:14px;line-height:20px}.W1OuRW_sessionRow .W1OuRW_title{flex:1}.W1OuRW_meta{text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:20px;overflow:hidden}.W1OuRW_time{color:var(--dsw-alias-label-tertiary);flex:none;font-size:12px;line-height:20px}.W1OuRW_dot{flex:none}.W1OuRW_rowActions{flex:none;align-items:center;gap:12px;display:none}.W1OuRW_projectRow:hover .W1OuRW_rowActions,.W1OuRW_sessionRow:hover .W1OuRW_rowActions,.W1OuRW_projectRow.W1OuRW_menuOpen .W1OuRW_rowActions,.W1OuRW_sessionRow.W1OuRW_menuOpen .W1OuRW_rowActions{display:inline-flex}.W1OuRW_sessionRow:hover .W1OuRW_time,.W1OuRW_sessionRow.W1OuRW_menuOpen .W1OuRW_time{display:none}.W1OuRW_projectRow.W1OuRW_menuOpen,.W1OuRW_sessionRow.W1OuRW_menuOpen{background:var(--dsw-alias-interactive-bg-hover)}.W1OuRW_sessionRow.W1OuRW_dropBefore,.W1OuRW_sessionRow.W1OuRW_dropAfter{position:relative}.W1OuRW_sessionRow.W1OuRW_dropBefore:before,.W1OuRW_sessionRow.W1OuRW_dropAfter:after{content:\"\";z-index:1;background:linear-gradient(55deg, transparent calc(50% - 1px), var(--dsw-alias-state-business-primary) calc(50% - 1px) calc(50% + 1px), transparent calc(50% + 1px)) 0 0 / 5px 7px no-repeat, linear-gradient(125deg, transparent calc(50% - 1px), var(--dsw-alias-state-business-primary) calc(50% - 1px) calc(50% + 1px), transparent calc(50% + 1px)) 0 5px / 5px 7px no-repeat, linear-gradient(var(--dsw-alias-state-business-primary) 0 0) 4px 5px / calc(100% - 4px) 2px no-repeat;pointer-events:none;height:12px;position:absolute;left:0;right:4px}.W1OuRW_sessionRow.W1OuRW_dropBefore:before{top:-7px}.W1OuRW_sessionRow.W1OuRW_dropAfter:after{bottom:-7px}.W1OuRW_hoverContent{flex-direction:column;gap:8px;display:flex}.W1OuRW_hoverTitle{color:#fff;overflow-wrap:break-word;font-size:14px;line-height:20px}.W1OuRW_hoverPath{color:#cfd3d6;word-break:break-all;font-size:12px;line-height:16px}.W1OuRW_hoverTime{color:#cfd3d6;font-size:12px;line-height:16px}.W1OuRW_hoverStatus{color:#adb2b8;align-items:center;gap:8px;font-size:12px;line-height:20px;display:flex}.W1OuRW_iconButton{cursor:pointer;width:16px;height:16px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.W1OuRW_iconButton:hover{color:var(--dsw-alias-label-primary)}.W1OuRW_chevron{color:var(--dsw-alias-label-caption)}@media (prefers-reduced-motion:reduce){.W1OuRW_sessionRow,.W1OuRW_arrow{transition:none;animation:none}}";
+		const css$3 = ".W1OuRW_projectRow,.W1OuRW_sessionRow{cursor:pointer;user-select:none;color:var(--dsw-alias-label-primary);border-radius:8px;align-items:center;gap:6px;padding:0 8px;display:flex}.W1OuRW_projectRow:hover,.W1OuRW_sessionRow:hover,.W1OuRW_sessionRow.W1OuRW_selected{background:var(--dsw-alias-interactive-bg-hover)}.W1OuRW_searchResultRow{box-sizing:border-box;cursor:pointer;text-align:left;width:100%;min-height:48px;color:var(--dsw-alias-label-primary);background:0 0;border:none;border-radius:8px;flex-direction:column;align-items:stretch;padding:4px 8px;display:flex}.W1OuRW_searchResultRow:hover,.W1OuRW_searchResultRow.W1OuRW_selected{background:var(--dsw-alias-interactive-bg-hover)}.W1OuRW_searchResultHeading{align-items:center;min-width:0;display:flex}.W1OuRW_searchResultTitle{text-overflow:ellipsis;white-space:nowrap;min-width:0;margin-left:4px;font-size:14px;line-height:20px;overflow:hidden}.W1OuRW_searchResultMeta{align-items:center;gap:6px;min-width:0;margin-left:20px;display:flex}.W1OuRW_searchResultWorkspace,.W1OuRW_searchResultSnippet{text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:17px;overflow:hidden}.W1OuRW_searchResultWorkspace{max-width:40%;color:var(--dsw-alias-label-tertiary);flex:none}.W1OuRW_searchResultSnippet{min-width:0;color:var(--dsw-alias-label-secondary);flex:1}.W1OuRW_projectRow{box-sizing:border-box;align-items:center;height:34px}.W1OuRW_projectRow .W1OuRW_rowActions{height:20px}.W1OuRW_sessionRow{height:32px;animation:W1OuRW_row-in .15s var(--ds-ease-in-out);gap:0}.W1OuRW_sessionRow .W1OuRW_title{margin:0 6px 0 4px}.W1OuRW_flatSessionRowWithoutStatus .W1OuRW_title{margin-left:0}@keyframes W1OuRW_row-in{0%{opacity:0}}.W1OuRW_slot{width:16px;height:20px;color:var(--dsw-alias-label-tertiary);flex:none;justify-content:center;align-items:center;display:inline-flex}.W1OuRW_visuallyHidden{clip:rect(0 0 0 0);white-space:nowrap;width:1px;height:1px;position:absolute;overflow:hidden}.W1OuRW_folderActive{color:var(--dsw-alias-state-business-primary)}.W1OuRW_projectRow .W1OuRW_chevron{display:none}.W1OuRW_projectRow:hover .W1OuRW_chevron{display:inline-flex}.W1OuRW_projectRow:hover .W1OuRW_folder{display:none}.W1OuRW_arrow{transition:transform .15s var(--ds-ease-in-out)}.W1OuRW_arrowOpen{transform:rotate(90deg)}.W1OuRW_projectText{flex-direction:column;flex:1;gap:2px;min-width:0;display:flex}.W1OuRW_title{text-overflow:ellipsis;white-space:nowrap;min-width:0;font-size:14px;line-height:20px;overflow:hidden}.W1OuRW_renameInput{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-button-elevated-fill);min-width:0;color:inherit;border-radius:4px;outline:none;padding:0 2px;font-size:14px;line-height:20px}.W1OuRW_sessionRow .W1OuRW_title{flex:1}.W1OuRW_meta{text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:20px;overflow:hidden}.W1OuRW_time{color:var(--dsw-alias-label-tertiary);flex:none;font-size:12px;line-height:20px}.W1OuRW_dot{flex:none}.W1OuRW_rowActions{flex:none;align-items:center;gap:12px;display:none}.W1OuRW_projectRow:hover .W1OuRW_rowActions,.W1OuRW_sessionRow:hover .W1OuRW_rowActions,.W1OuRW_projectRow.W1OuRW_menuOpen .W1OuRW_rowActions,.W1OuRW_sessionRow.W1OuRW_menuOpen .W1OuRW_rowActions{display:inline-flex}.W1OuRW_sessionRow:hover .W1OuRW_time,.W1OuRW_sessionRow.W1OuRW_menuOpen .W1OuRW_time{display:none}.W1OuRW_projectRow.W1OuRW_menuOpen,.W1OuRW_sessionRow.W1OuRW_menuOpen{background:var(--dsw-alias-interactive-bg-hover)}.W1OuRW_sessionRow.W1OuRW_dropBefore,.W1OuRW_sessionRow.W1OuRW_dropAfter{position:relative}.W1OuRW_sessionRow.W1OuRW_dropBefore:before,.W1OuRW_sessionRow.W1OuRW_dropAfter:after{content:\"\";z-index:1;background:linear-gradient(55deg, transparent calc(50% - 1px), var(--dsw-alias-state-business-primary) calc(50% - 1px) calc(50% + 1px), transparent calc(50% + 1px)) 0 0 / 5px 7px no-repeat, linear-gradient(125deg, transparent calc(50% - 1px), var(--dsw-alias-state-business-primary) calc(50% - 1px) calc(50% + 1px), transparent calc(50% + 1px)) 0 5px / 5px 7px no-repeat, linear-gradient(var(--dsw-alias-state-business-primary) 0 0) 4px 5px / calc(100% - 4px) 2px no-repeat;pointer-events:none;height:12px;position:absolute;left:0;right:4px}.W1OuRW_sessionRow.W1OuRW_dropBefore:before{top:-7px}.W1OuRW_sessionRow.W1OuRW_dropAfter:after{bottom:-7px}.W1OuRW_hoverContent{flex-direction:column;gap:8px;display:flex}.W1OuRW_hoverTitle{color:#fff;overflow-wrap:break-word;font-size:14px;line-height:20px}.W1OuRW_hoverPath{color:#cfd3d6;word-break:break-all;font-size:12px;line-height:16px}.W1OuRW_hoverTime{color:#cfd3d6;font-size:12px;line-height:16px}.W1OuRW_hoverStatus{color:#adb2b8;align-items:center;gap:8px;font-size:12px;line-height:20px;display:flex}.W1OuRW_iconButton{cursor:pointer;width:16px;height:16px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.W1OuRW_iconButton:hover{color:var(--dsw-alias-label-primary)}.W1OuRW_iconButton:active{transform:scale(.97)}.W1OuRW_iconButtonActive{color:var(--dsw-alias-state-business-primary)}.W1OuRW_titleUnread{font-weight:600}.W1OuRW_unreadDot{background:var(--dsw-alias-state-business-primary);vertical-align:middle;border-radius:50%;flex:none;width:6px;height:6px;margin-left:6px;display:inline-block}.W1OuRW_chevron{color:var(--dsw-alias-label-caption)}@media (prefers-reduced-motion:reduce){.W1OuRW_sessionRow,.W1OuRW_arrow{transition:none;animation:none}}";
 		const tagId$3 = "@deepseek-ai/dsh-client-ui-workspace/Rows.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$3) + "]") === null) {
 			const tag = document.createElement("style");
@@ -356,6 +452,7 @@ window.__ModuleLoader__.load({
 			"hoverTime": "W1OuRW_hoverTime",
 			"hoverTitle": "W1OuRW_hoverTitle",
 			"iconButton": "W1OuRW_iconButton",
+			"iconButtonActive": "W1OuRW_iconButtonActive",
 			"menuOpen": "W1OuRW_menuOpen",
 			"meta": "W1OuRW_meta",
 			"projectRow": "W1OuRW_projectRow",
@@ -374,6 +471,8 @@ window.__ModuleLoader__.load({
 			"slot": "W1OuRW_slot",
 			"time": "W1OuRW_time",
 			"title": "W1OuRW_title",
+			"titleUnread": "W1OuRW_titleUnread",
+			"unreadDot": "W1OuRW_unreadDot",
 			"visuallyHidden": "W1OuRW_visuallyHidden"
 		};
 		//#endregion
@@ -385,6 +484,43 @@ window.__ModuleLoader__.load({
 		* except workspace Rename/Delete and session Rename/Fork/Archive; the session
 		* and workspace hover cards are suppressed while a menu is open.
 		*/
+		/** Inline glyphs for actions without a primitive icon export. */
+		function PinIcon({ size = 16 }) {
+			return (0, react_jsx_runtime.jsxs)("svg", {
+				width: size,
+				height: size,
+				viewBox: "0 0 24 24",
+				fill: "none",
+				stroke: "currentColor",
+				strokeWidth: 1.8,
+				strokeLinecap: "round",
+				strokeLinejoin: "round",
+				"aria-hidden": true,
+				focusable: "false",
+				children: [(0, react_jsx_runtime.jsx)("path", { d: "M9 4h6l-1 6 3 3v2H7v-2l3-3-1-6Z" }), (0, react_jsx_runtime.jsx)("path", { d: "M12 15v5" })]
+			});
+		}
+		function MailIcon({ size = 16 }) {
+			return (0, react_jsx_runtime.jsxs)("svg", {
+				width: size,
+				height: size,
+				viewBox: "0 0 24 24",
+				fill: "none",
+				stroke: "currentColor",
+				strokeWidth: 1.8,
+				strokeLinecap: "round",
+				strokeLinejoin: "round",
+				"aria-hidden": true,
+				focusable: "false",
+				children: [(0, react_jsx_runtime.jsx)("rect", {
+					x: "3",
+					y: "5",
+					width: "18",
+					height: "14",
+					rx: "2"
+				}), (0, react_jsx_runtime.jsx)("path", { d: "m4 7 8 6 8-6" })]
+			});
+		}
 		/** Row display title: blank rows show the localized New Session label. */
 		function displayTitle(node, t) {
 			return node.blank ? t("session.new") : node.title;
@@ -690,14 +826,44 @@ window.__ModuleLoader__.load({
 		* @param props.t - the browser root's locale seat.
 		* @returns the session row.
 		*/
-		function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork, onArchive, drag, flat = false, t }) {
+		function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork, onArchive, drag, flat = false, t, pinned = false, unread = false, onTogglePin, onToggleUnread, workspaces = [], onMoveToWorkspace, onCopySession, onCopyMarkdown }) {
 			const row = node;
 			const title = displayTitle(node, t);
 			const selected = node.id === currentId;
 			const statuses = sessionStatuses(node, t);
 			const showStatus = statuses[0].state !== "done" || row.completed;
 			const [menuOpen, setMenuOpen] = (0, react.useState)(false);
+			const [menuRect, setMenuRect] = (0, react.useState)(null);
+			const rowRef = (0, react.useRef)(null);
+			const moveSubmenu = [{
+				id: "move-none",
+				label: t("moveToWorkspace.none"),
+				icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconFolderOpenOutline16, {})
+			}, ...workspaces.map((ws) => ({
+				id: `move-${ws.id ?? "none"}`,
+				label: ws.label,
+				icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconFolderOpenOutline16, {})
+			}))];
+			const copySubmenu = [{
+				id: "copy-session",
+				label: t("copy.session"),
+				icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCopyOutline16, {})
+			}, {
+				id: "copy-markdown",
+				label: t("copy.markdown"),
+				icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCopyOutline16, {})
+			}];
 			const sessionMenuItems = [
+				{
+					id: pinned ? "unpin" : "pin",
+					label: pinned ? t("pin.remove") : t("pin.add"),
+					icon: (0, react_jsx_runtime.jsx)(PinIcon, {})
+				},
+				{
+					id: unread ? "mark-read" : "mark-unread",
+					label: unread ? t("unread.markRead") : t("unread.markUnread"),
+					icon: (0, react_jsx_runtime.jsx)(MailIcon, {})
+				},
 				{
 					id: "rename",
 					label: t("rename"),
@@ -712,6 +878,22 @@ window.__ModuleLoader__.load({
 					id: "archive",
 					label: t("menu.archiveSession"),
 					icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconArchiveOutline20, { size: 16 })
+				},
+				{
+					type: "separator",
+					id: "sep-move"
+				},
+				{
+					id: "move",
+					label: t("moveToWorkspace.title"),
+					icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconFolderOpenOutline16, {}),
+					submenu: moveSubmenu
+				},
+				{
+					id: "copy",
+					label: t("copy.title"),
+					icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCopyOutline16, {}),
+					submenu: copySubmenu
 				}
 			];
 			return (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.HoverCard, {
@@ -719,6 +901,12 @@ window.__ModuleLoader__.load({
 					className: clsx(Rows_module_css_default.sessionRow, selected && Rows_module_css_default.selected, menuOpen && Rows_module_css_default.menuOpen, flat && !showStatus && Rows_module_css_default.flatSessionRowWithoutStatus, drag?.marker === "before" && Rows_module_css_default.dropBefore, drag?.marker === "after" && Rows_module_css_default.dropAfter),
 					role: "treeitem",
 					"aria-selected": selected,
+					ref: rowRef,
+					onContextMenu: (e) => {
+						e.preventDefault();
+						setMenuRect(new DOMRect(e.clientX, e.clientY, 1, 1));
+						setMenuOpen(true);
+					},
 					onClick: () => {
 						onOpen(node.id);
 					},
@@ -745,41 +933,75 @@ window.__ModuleLoader__.load({
 							className: Rows_module_css_default.slot,
 							children: showStatus && (0, react_jsx_runtime.jsx)(SessionStatusDots, { statuses })
 						}),
-						(0, react_jsx_runtime.jsx)("span", {
-							className: Rows_module_css_default.title,
-							children: title
+						(0, react_jsx_runtime.jsxs)("span", {
+							className: clsx(Rows_module_css_default.title, unread && Rows_module_css_default.titleUnread),
+							children: [title, unread && (0, react_jsx_runtime.jsx)("span", {
+								className: Rows_module_css_default.unreadDot,
+								"aria-label": t("unread.label")
+							})]
 						}),
 						!row.blank && (0, react_jsx_runtime.jsx)("span", {
 							className: Rows_module_css_default.time,
 							children: timeLabel(row.updatedAt, now, t)
 						}),
-						!row.blank && (0, react_jsx_runtime.jsx)("span", {
+						!row.blank && (0, react_jsx_runtime.jsxs)("span", {
 							className: Rows_module_css_default.rowActions,
-							children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Menu, {
-								open: menuOpen,
-								onClose: () => {
-									setMenuOpen(false);
-								},
-								items: sessionMenuItems,
-								onSelect: (id) => {
-									setMenuOpen(false);
-									if (id === "rename") onRename(node.id, row.title);
-									if (id === "fork") onFork(node.id);
-									if (id === "archive") onArchive(node.id);
-								},
-								portal: true,
-								closeOnPointerLeave: true,
-								anchor: (0, react_jsx_runtime.jsx)("button", {
+							children: [
+								(0, react_jsx_runtime.jsx)("button", {
 									type: "button",
-									className: Rows_module_css_default.iconButton,
-									"aria-label": t("actions.session.aria", { name: title }),
+									className: clsx(Rows_module_css_default.iconButton, pinned && Rows_module_css_default.iconButtonActive),
+									"aria-label": pinned ? t("pin.remove.aria", { name: title }) : t("pin.add.aria", { name: title }),
+									"aria-pressed": pinned,
+									title: pinned ? t("pin.remove") : t("pin.add"),
 									onClick: (e) => {
 										e.stopPropagation();
-										setMenuOpen((v) => !v);
+										onTogglePin?.(node.id);
 									},
-									children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconEllipsisOutline16, {})
+									children: (0, react_jsx_runtime.jsx)(PinIcon, {})
+								}),
+								(0, react_jsx_runtime.jsx)("button", {
+									type: "button",
+									className: Rows_module_css_default.iconButton,
+									"aria-label": t("menu.archiveSession.aria", { name: title }),
+									title: t("menu.archiveSession"),
+									onClick: (e) => {
+										e.stopPropagation();
+										onArchive(node.id);
+									},
+									children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconArchiveOutline20, { size: 16 })
+								}),
+								(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Menu, {
+									open: menuOpen,
+									onClose: () => {
+										setMenuOpen(false);
+									},
+									items: sessionMenuItems,
+									getAnchorRect: () => menuRect ?? rowRef.current?.getBoundingClientRect() ?? void 0,
+									onSelect: (id) => {
+										setMenuOpen(false);
+										if (id === "pin") onTogglePin?.(node.id);
+										else if (id === "unpin") onTogglePin?.(node.id);
+										else if (id === "mark-unread") onToggleUnread?.(node.id);
+										else if (id === "mark-read") onToggleUnread?.(node.id);
+										else if (id === "rename") onRename(node.id, row.title);
+										else if (id === "fork") onFork(node.id);
+										else if (id === "archive") onArchive(node.id);
+										else if (id === "move-none") onMoveToWorkspace?.(node.id, void 0);
+										else if (id?.startsWith("move-")) onMoveToWorkspace?.(node.id, id.slice(5));
+										else if (id === "copy-session") onCopySession?.(node.id);
+										else if (id === "copy-markdown") onCopyMarkdown?.(node.id);
+									},
+									portal: true,
+									anchor: (0, react_jsx_runtime.jsx)("span", {
+										"aria-hidden": true,
+										style: {
+											position: "absolute",
+											width: 0,
+											height: 0
+										}
+									})
 								})
-							})
+							]
 						})
 					]
 				}),
@@ -1030,23 +1252,18 @@ window.__ModuleLoader__.load({
 		* menu in between; the flow and its error dialog live in WorkspacePicker
 		* (same package — direct composition, no slot between them).
 		*/
-		/** Codex-style application navigation; workspace/session browsing stays below it. */
-		function SurfaceNavigation({ wide, surface, selectSurface, t }) {
+		/**
+		* Codex-style application navigation; workspace/session browsing stays below it.
+		* Pull Requests and Browser surfaces are intentionally omitted from the Moyu
+		* build — they are not part of the three-tool product surface.
+		*/
+		function SurfaceNavigation({ wide, surface, selectSurface, t, startSession }) {
 			const items = [
 				{
 					id: "conversation",
 					label: t("surface.conversation"),
-					icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconNewChatOutline16, {})
-				},
-				{
-					id: "pull-requests",
-					label: t("surface.pullRequests"),
-					icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconBranchOutline16, {})
-				},
-				{
-					id: "browser",
-					label: t("surface.browser"),
-					icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconGlobeOutline14, {})
+					icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconNewChatOutline16, {}),
+					create: true
 				},
 				{
 					id: "scheduled",
@@ -1072,7 +1289,8 @@ window.__ModuleLoader__.load({
 						"aria-current": surface === item.id ? "page" : void 0,
 						"aria-label": item.label,
 						onClick: () => {
-							selectSurface(item.id);
+							if (item.create) startSession();
+							else selectSurface(item.id);
 						},
 						children: [item.icon, wide && (0, react_jsx_runtime.jsx)("span", { children: item.label })]
 					})
@@ -1252,6 +1470,35 @@ window.__ModuleLoader__.load({
 		/** The scrolling session tree; unmounting drops the sessions subscription and expand-all state. */
 		function SessionTree({ useSessions, startSession, open, forkSession, workspaces, archivedSessionIds, onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive, insertWorkspaceBefore, insertSessionBefore, orderBy, groupExpansion, setGroupExpanded, sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, t }) {
 			const list = useSessions((s) => s);
+			const { pinnedIds, unreadIds, togglePin, toggleUnread } = useSessionMeta();
+			const workspaceMoveTargets = (0, react.useMemo)(() => [{
+				id: void 0,
+				label: t("moveToWorkspace.none")
+			}, ...workspaces.map((ws) => ({
+				id: ws.workspaceId,
+				label: ws.title
+			}))], [workspaces, t]);
+			const onMoveToWorkspace = (id, workspaceId) => {
+				if (workspaceId === void 0) return;
+				insertSessionBefore(workspaceId, id).catch((reason) => {
+					console.warn("move session to workspace failed:", reason);
+				});
+			};
+			const onCopySession = (id) => {
+				forkSession(id);
+			};
+			const onCopyMarkdown = async (id) => {
+				try {
+					const res = await fetch("/moyu/session-export", {
+						method: "POST",
+						headers: { "content-type": "application/json" },
+						body: JSON.stringify({ sessionId: id })
+					});
+					if (!res.ok) return;
+					const data = await res.json();
+					if (typeof data.markdown === "string" && data.markdown) await copyText(data.markdown);
+				} catch {}
+			};
 			const current = list.current;
 			const [expandedSessionGroups, setExpandedSessionGroups] = (0, react.useState)([]);
 			const [drag, setDrag] = (0, react.useState)(null);
@@ -1321,12 +1568,13 @@ window.__ModuleLoader__.load({
 			const groups = (0, react.useMemo)(() => deriveGroups(list, orderedWorkspaces, archivedSessionIds, {
 				expandedGroups,
 				...sessionOrderByAccount[""] === void 0 ? {} : { ungroupedOrder: sessionOrderByAccount[""] }
-			}), [
+			}, pinnedIds), [
 				list,
 				orderedWorkspaces,
 				archivedSessionIds,
 				expandedGroups,
-				sessionOrderByAccount
+				sessionOrderByAccount,
+				pinnedIds
 			]);
 			const now = Date.now();
 			const commitSessionDrag = (activeDrag, over) => {
@@ -1498,7 +1746,15 @@ window.__ModuleLoader__.load({
 													sessionDropCommitted.current = false;
 												}
 											},
-											t
+											t,
+											pinned: pinnedIds.has(node.id),
+											unread: unreadIds.has(node.id),
+											onTogglePin: togglePin,
+											onToggleUnread: toggleUnread,
+											workspaces: workspaceMoveTargets,
+											onMoveToWorkspace,
+											onCopySession,
+											onCopyMarkdown
 										}, node.id);
 									}),
 									group.sessions.length > COLLAPSED_SESSION_LIMIT && (0, react_jsx_runtime.jsx)("button", {
@@ -1519,9 +1775,38 @@ window.__ModuleLoader__.load({
 			});
 		}
 		/** The flat "In one list" body: every session is one draggable top-level row. */
-		function FlatList({ useSessions, open, forkSession, onSessionRename, onSessionArchive, archivedSessionIds, orderBy, sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, t }) {
+		function FlatList({ useSessions, open, forkSession, onSessionRename, onSessionArchive, archivedSessionIds, workspaces, insertSessionBefore, orderBy, sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, t }) {
 			const list = useSessions((s) => s);
-			const baseRows = (0, react.useMemo)(() => deriveFlat(list, archivedSessionIds), [list, archivedSessionIds]);
+			const { pinnedIds, unreadIds, togglePin, toggleUnread } = useSessionMeta();
+			const workspaceMoveTargets = (0, react.useMemo)(() => [{
+				id: void 0,
+				label: t("moveToWorkspace.none")
+			}, ...workspaces.map((ws) => ({
+				id: ws.workspaceId,
+				label: ws.title
+			}))], [workspaces, t]);
+			const onMoveToWorkspace = (id, workspaceId) => {
+				if (workspaceId === void 0) return;
+				insertSessionBefore(workspaceId, id).catch((reason) => {
+					console.warn("move session to workspace failed:", reason);
+				});
+			};
+			const onCopySession = (id) => {
+				forkSession(id);
+			};
+			const onCopyMarkdown = async (id) => {
+				try {
+					const res = await fetch("/moyu/session-export", {
+						method: "POST",
+						headers: { "content-type": "application/json" },
+						body: JSON.stringify({ sessionId: id })
+					});
+					if (!res.ok) return;
+					const data = await res.json();
+					if (typeof data.markdown === "string" && data.markdown) await copyText(data.markdown);
+				} catch {}
+			};
+			const baseRows = (0, react.useMemo)(() => deriveFlat(list, archivedSessionIds, pinnedIds), [list, archivedSessionIds, pinnedIds]);
 			const sessionIds = (0, react.useMemo)(() => baseRows.map((row) => row.id), [baseRows]);
 			const previousOrderBy = (0, react.useRef)(orderBy);
 			(0, react.useEffect)(() => {
@@ -1630,7 +1915,15 @@ window.__ModuleLoader__.load({
 									dropCommitted.current = false;
 								}
 							},
-							t
+							t,
+							pinned: pinnedIds.has(node.id),
+							unread: unreadIds.has(node.id),
+							onTogglePin: togglePin,
+							onToggleUnread: toggleUnread,
+							workspaces: workspaceMoveTargets,
+							onMoveToWorkspace,
+							onCopySession,
+							onCopyMarkdown
 						}, node.id);
 					})]
 				}), (0, react_jsx_runtime.jsx)("span", { className: WorkspaceBrowser_module_css_default.fade })]
@@ -1698,16 +1991,17 @@ window.__ModuleLoader__.load({
 		* @param props - composed slot props (shell owner share + store + injected actions).
 		* @returns the region element tree.
 		*/
-		function WorkspaceBrowser({ wide, surface, selectSurface, expandSidebar, useSessions, useWorkspaces, useStore, actions, startSession, open, renameSession, forkSession, renameWorkspace, deleteWorkspace, insertWorkspaceBefore, archiveSession, insertSessionBefore, createWorkspace, searchSessions, searchResultLimit, useDirectoryFlow, renderSlot, t }) {
+		function WorkspaceBrowser({ wide, surface, selectSurface, expandSidebar, useSessions, useWorkspaces, useStore, actions, startSession, open, renameSession, forkSession, renameWorkspace, deleteWorkspace, insertWorkspaceBefore, archiveSession, insertSessionBefore, createWorkspace, searchSessions, useArchivedSessionIds, searchResultLimit, useDirectoryFlow, renderSlot, t }) {
 			const workspaces = useWorkspaces((state) => state.items);
 			const workspacePhase = useWorkspaces((state) => state.phase);
-			const archivedSessionIds = useWorkspaces((state) => state.archivedSessionIds);
+			const archivedSessionIds = useArchivedSessionIds();
 			const directoryFlowAvailable = useDirectoryFlow((occupied) => occupied);
 			const groupBy = useStore((s) => s.groupBy);
 			const orderBy = useStore((s) => s.orderBy);
 			const groupExpansion = useStore((s) => s.groupExpansion);
 			const sessionOrderByAccount = useStore((s) => s.sessionOrderByAccount);
 			const sessionUpdatedAtByAccount = useStore((s) => s.sessionUpdatedAtByAccount);
+			const { pinnedIds, unreadIds, togglePin, toggleUnread } = useSessionMeta();
 			(0, react.useEffect)(() => {
 				if (workspacePhase !== "ready") return;
 				actions.retainAccountKeys([
@@ -1867,10 +2161,17 @@ window.__ModuleLoader__.load({
 				setSessionRenameDraft(currentTitle);
 				setSessionRenameError(null);
 			};
-			const onSessionArchive = (sessionId) => {
-				archiveSession(sessionId).catch((reason) => {
-					console.warn("session archive rejected:", reason);
-				});
+			const onSessionArchive = async (sessionId) => {
+				// ctx.workspaces.archiveSession（WorkspaceRuntime）成功时解析为 undefined、失败时 throw。
+				// 归档是持久操作，由 Host 写入 registry；归档成功后运行时快照（manager.getSnapshot）
+				// 会经 installArchived 更新，useArchivedSessionIds 订阅即刷新，会话随之隐藏。
+				try {
+					await archiveSession(sessionId);
+					console.info("[moyu] archive ok:", sessionId);
+				} catch (err) {
+					console.error("[moyu] archive failed:", err);
+					showErrorToast("归档失败：" + (err?.message || String(err)));
+				}
 			};
 			const [deleteTarget, setDeleteTarget] = (0, react.useState)(null);
 			const [deleting, setDeleting] = (0, react.useState)(false);
@@ -1907,7 +2208,8 @@ window.__ModuleLoader__.load({
 						wide,
 						surface,
 						selectSurface,
-						t
+						t,
+						startSession
 					}),
 					(0, react_jsx_runtime.jsxs)("div", {
 						className: WorkspaceBrowser_module_css_default.sectionHeader,
@@ -2058,6 +2360,8 @@ window.__ModuleLoader__.load({
 							onSessionRename,
 							onSessionArchive,
 							archivedSessionIds,
+							workspaces,
+							insertSessionBefore,
 							orderBy,
 							sessionOrderByAccount,
 							sessionUpdatedAtByAccount,
@@ -2337,6 +2641,21 @@ window.__ModuleLoader__.load({
 			"delete.pending": "正在删除工作区…",
 			"menu.fork": "分叉会话",
 			"menu.archiveSession": "归档会话",
+			"menu.archiveSession.aria": "归档会话“{name}”",
+			"menu.open": "更多操作",
+			"menu.open.aria": "会话“{name}”的更多操作",
+			"pin.add": "置顶",
+			"pin.remove": "取消置顶",
+			"pin.add.aria": "置顶会话“{name}”",
+			"pin.remove.aria": "取消置顶会话“{name}”",
+			"unread.markUnread": "标记为未读",
+			"unread.markRead": "标记为已读",
+			"unread.label": "未读",
+			"moveToWorkspace.title": "移动到工作区",
+			"moveToWorkspace.none": "无工作区",
+			"copy.title": "复制",
+			"copy.session": "复制会话",
+			"copy.markdown": "复制为 Markdown",
 			"sessions.count.one": "{n} 个会话",
 			"sessions.count.other": "{n} 个会话",
 			"actions.workspace.aria": "工作区“{name}”的操作",
@@ -2360,7 +2679,7 @@ window.__ModuleLoader__.load({
 			"time.months": "{n}个月",
 			"time.years": "{n}年",
 			"time.ago": "{t}前",
-			"surface.conversation": "对话",
+			"surface.conversation": "新对话",
 			"surface.navigation": "应用导航",
 			"surface.pullRequests": "拉取请求",
 			"surface.browser": "站点",
@@ -2414,6 +2733,21 @@ window.__ModuleLoader__.load({
 			"delete.pending": "Deleting workspace…",
 			"menu.fork": "Fork session",
 			"menu.archiveSession": "Archive session",
+			"menu.archiveSession.aria": "Archive session “{name}”",
+			"menu.open": "More actions",
+			"menu.open.aria": "More actions for session “{name}”",
+			"pin.add": "Pin",
+			"pin.remove": "Unpin",
+			"pin.add.aria": "Pin session “{name}”",
+			"pin.remove.aria": "Unpin session “{name}”",
+			"unread.markUnread": "Mark as unread",
+			"unread.markRead": "Mark as read",
+			"unread.label": "Unread",
+			"moveToWorkspace.title": "Move to workspace",
+			"moveToWorkspace.none": "No workspace",
+			"copy.title": "Copy",
+			"copy.session": "Copy session",
+			"copy.markdown": "Copy as Markdown",
 			"sessions.count.one": "{n} session",
 			"sessions.count.other": "{n} sessions",
 			"actions.workspace.aria": "Workspace actions for {name}",
@@ -2437,7 +2771,7 @@ window.__ModuleLoader__.load({
 			"time.months": "{n}mo",
 			"time.years": "{n}y",
 			"time.ago": "{t} ago",
-			"surface.conversation": "Chat",
+			"surface.conversation": "New Chat",
 			"surface.navigation": "Application navigation",
 			"surface.pullRequests": "Pull Requests",
 			"surface.browser": "Browser",
@@ -2492,6 +2826,28 @@ window.__ModuleLoader__.load({
 			});
 			const browserFlowSource = flowSource("sidebar.workspaces.directoryFlow");
 			const pickerFlowSource = flowSource("conversation.hero.workspace.directoryFlow");
+			const workspacesManager = ctx.workspaces.manager;
+			const useArchivedSessionIds = () => {
+				const [ids, setIds] = (0, react.useState)(() => {
+					try {
+						return workspacesManager ? workspacesManager.getSnapshot().archivedSessionIds || [] : [];
+					} catch {
+						return [];
+					}
+				});
+				(0, react.useEffect)(() => {
+					if (!workspacesManager || typeof workspacesManager.subscribe !== "function") return;
+					const sync = () => {
+						try {
+							setIds(workspacesManager.getSnapshot().archivedSessionIds || []);
+						} catch {
+						}
+					};
+					sync();
+					return workspacesManager.subscribe(sync);
+				}, []);
+				return ids;
+			};
 			const browserInjected = () => ({
 				startSession: (workspaceId) => {
 					ctx.layout.setSurface("conversation");
@@ -2502,6 +2858,7 @@ window.__ModuleLoader__.load({
 					ctx.sessions.open(sessionId);
 				},
 				searchSessions,
+				useArchivedSessionIds,
 				searchResultLimit: ctx.sessions.searchResultLimit,
 				renameSession: async (sessionId, title) => {
 					const session = ctx.sessions.binding(sessionId)?.session;
@@ -2526,9 +2883,7 @@ window.__ModuleLoader__.load({
 				insertWorkspaceBefore: async (workspaceId, beforeWorkspaceId) => {
 					await ctx.workspaces.insertBefore(workspaceId, beforeWorkspaceId);
 				},
-				archiveSession: async (sessionId) => {
-					await ctx.workspaces.archiveSession(sessionId);
-				},
+				archiveSession: (sessionId) => ctx.workspaces.archiveSession(sessionId),
 				insertSessionBefore: async (workspaceId, sessionId, beforeSessionId) => {
 					await ctx.workspaces.insertSessionBefore(workspaceId, sessionId, beforeSessionId);
 				},

@@ -19,10 +19,12 @@ import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, stat, unlink, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { currentDsh, logStartup, startDsh, stopDsh } from './dsh/index.js'
 import { installNavigationPolicy, installSessionPolicy } from './dsh/session-policy.js'
 
+const __dirname = dirname(fileURLToPath(import.meta.url))
 let mainWindow = null
 
 function resolveWindowIcon() {

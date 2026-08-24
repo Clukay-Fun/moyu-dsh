@@ -2,6 +2,7 @@ import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import React from 'react'
 
+
 type Job = {
   jobId: string
   status: string
@@ -56,9 +57,37 @@ async function readResultPng(jobId: string): Promise<ArrayBuffer> {
   return response.arrayBuffer()
 }
 
+/**
+ * Inline `ic-capture` style glyph — a viewfinder-with-shutter mark used by the
+ * legacy Moyu toolbar, converted to a self-contained React SVG so the screenshot
+ * button needs no external asset pipeline.
+ */
+function CaptureIcon({ size = 16 }: { size?: number }): React.ReactElement {
+  return React.createElement(
+    'svg',
+    {
+      width: size,
+      height: size,
+      viewBox: '0 0 24 24',
+      fill: 'none',
+      stroke: 'currentColor',
+      strokeWidth: 1.8,
+      strokeLinecap: 'round',
+      strokeLinejoin: 'round',
+      'aria-hidden': true,
+      focusable: false,
+    },
+    React.createElement('path', { d: 'M3 8.5A1.5 1.5 0 0 1 4.5 7h2L8 5h8l1.5 2h2A1.5 1.5 0 0 1 21 8.5v9A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5z' }),
+    React.createElement('circle', { cx: 12, cy: 12.75, r: 3.5 }),
+    React.createElement('path', { d: 'M12 2v3M2 12.75h3M19 12.75h3' }),
+  )
+}
+
 function CaptureButton(props: { conversation?: () => ConversationService | undefined }): React.ReactElement {
   const [busy, setBusy] = React.useState(false)
   const [note, setNote] = React.useState('')
+  const [pressed, setPressed] = React.useState(false)
+  const [hover, setHover] = React.useState(false)
 
   const capture = async (): Promise<void> => {
     if (busy) return
@@ -110,6 +139,10 @@ function CaptureButton(props: { conversation?: () => ConversationService | undef
     'data-testid': 'moyu-screenshot',
     onClick: () => void capture(),
     disabled: busy,
+    onMouseDown: () => { if (!busy) setPressed(true) },
+    onMouseUp: () => { setPressed(false) },
+    onMouseLeave: () => { setPressed(false); setHover(false) },
+    onMouseEnter: () => { setHover(true) },
     style: {
       display: 'inline-flex',
       alignItems: 'center',
@@ -119,12 +152,14 @@ function CaptureButton(props: { conversation?: () => ConversationService | undef
       padding: 0,
       border: 'none',
       borderRadius: 8,
-      background: 'transparent',
+      background: hover && !busy ? 'rgba(127,127,127,0.16)' : 'transparent',
       color: 'inherit',
       cursor: busy ? 'default' : 'pointer',
       opacity: busy ? 0.45 : 1,
+      transition: 'transform 120ms ease, background-color 120ms ease',
+      transform: pressed ? 'scale(0.97)' : 'none',
     },
-  }, busy ? '…' : '✚')
+  }, busy ? '…' : React.createElement(CaptureIcon))
 }
 
 export const name = 'moyu-screenshot-client'
