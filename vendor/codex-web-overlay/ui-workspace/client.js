@@ -5,6 +5,45 @@ window.__ModuleLoader__.load({
 		var exports = module.exports;
 		Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 		let react = require("react");
+
+		// === MoyuIcon：Lucide 内联图标适配层 ===
+		// 图标数据提取自 lucide-react@1.33.0（ISC License）dist/esm/icons 的 __iconNode，构建期手工内联。
+		// 纯构建期内联：无任何 lucide 运行时 require。默认 16px / strokeWidth 1.75 / aria-hidden。
+		const MOYU_LUCIDE = {"SquarePen":[["path",{"d":"M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"}],["path",{"d":"M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"}]],"ListTodo":[["path",{"d":"M13 5h8"}],["path",{"d":"M13 12h8"}],["path",{"d":"M13 19h8"}],["path",{"d":"m3 17 2 2 4-4"}],["rect",{"x":"3","y":"4","width":"6","height":"6","rx":"1"}]],"Blocks":[["path",{"d":"M10 22V7a1 1 0 0 0-1-1H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5a1 1 0 0 0-1-1H2"}],["rect",{"x":"14","y":"2","width":"8","height":"8","rx":"1"}]],"GitFork":[["circle",{"cx":"12","cy":"18","r":"3"}],["circle",{"cx":"6","cy":"6","r":"3"}],["circle",{"cx":"18","cy":"6","r":"3"}],["path",{"d":"M18 9v2c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1V9"}],["path",{"d":"M12 12v3"}]],"Globe":[["circle",{"cx":"12","cy":"12","r":"10"}],["path",{"d":"M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"}],["path",{"d":"M2 12h20"}]],"SlidersHorizontal":[["path",{"d":"M10 5H3"}],["path",{"d":"M12 19H3"}],["path",{"d":"M14 3v4"}],["path",{"d":"M16 17v4"}],["path",{"d":"M21 12h-9"}],["path",{"d":"M21 19h-5"}],["path",{"d":"M21 5h-7"}],["path",{"d":"M8 10v4"}],["path",{"d":"M8 12H3"}]],"Search":[["path",{"d":"m21 21-4.34-4.34"}],["circle",{"cx":"11","cy":"11","r":"8"}]],"X":[["path",{"d":"M18 6 6 18"}],["path",{"d":"m6 6 12 12"}]],"FolderPlus":[["path",{"d":"M12 10v6"}],["path",{"d":"M9 13h6"}],["path",{"d":"M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"}]],"Plus":[["path",{"d":"M5 12h14"}],["path",{"d":"M12 5v14"}]],"ChevronRight":[["path",{"d":"m9 18 6-6-6-6"}]],"Folder":[["path",{"d":"M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"}]],"FolderOpen":[["path",{"d":"m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"}]],"FolderInput":[["path",{"d":"M2 9V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-1"}],["path",{"d":"M2 13h10"}],["path",{"d":"m9 16 3-3-3-3"}]],"Ellipsis":[["circle",{"cx":"12","cy":"12","r":"1"}],["circle",{"cx":"19","cy":"12","r":"1"}],["circle",{"cx":"5","cy":"12","r":"1"}]],"Pencil":[["path",{"d":"M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"}],["path",{"d":"m15 5 4 4"}]],"Copy":[["rect",{"width":"14","height":"14","x":"8","y":"8","rx":"2","ry":"2"}],["path",{"d":"M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"}]],"Archive":[["rect",{"width":"20","height":"5","x":"2","y":"3","rx":"1"}],["path",{"d":"M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"}],["path",{"d":"M10 12h4"}]],"Trash2":[["path",{"d":"M10 11v6"}],["path",{"d":"M14 11v6"}],["path",{"d":"M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"}],["path",{"d":"M3 6h18"}],["path",{"d":"M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"}]],"ClipboardCopy":[["rect",{"width":"8","height":"4","x":"8","y":"2","rx":"1","ry":"1"}],["path",{"d":"M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"}],["path",{"d":"M16 4h2a2 2 0 0 1 2 2v4"}],["path",{"d":"M21 14H11"}],["path",{"d":"m15 10-4 4 4 4"}]],"Pin":[["path",{"d":"M12 17v5"}],["path",{"d":"M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"}]],"PinOff":[["path",{"d":"M12 17v5"}],["path",{"d":"M15 9.34V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H7.89"}],["path",{"d":"m2 2 20 20"}],["path",{"d":"M9 9v1.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h11"}]],"CircleDot":[["circle",{"cx":"12","cy":"12","r":"10"}],["circle",{"cx":"12","cy":"12","r":"1"}]]};
+		function MoyuLucideIcon(props) {
+			const size = props.size || 16;
+			return react_jsx_runtime.jsx("svg", {
+				xmlns: "http://www.w3.org/2000/svg", width: size, height: size, viewBox: "0 0 24 24",
+				fill: "none", stroke: "currentColor", strokeWidth: props.strokeWidth || 1.75,
+				strokeLinecap: "round", strokeLinejoin: "round",
+				className: props.className, style: props.style,
+				"aria-hidden": "true", focusable: "false",
+				children: props.node.map((entry, index) => react_jsx_runtime.jsx(entry[0], entry[1], index))
+			});
+		}
+		const moyuSquarePen = (props) => (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: MOYU_LUCIDE.SquarePen }, props));
+		const moyuListTodo = (props) => (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: MOYU_LUCIDE.ListTodo }, props));
+		const moyuBlocks = (props) => (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: MOYU_LUCIDE.Blocks }, props));
+		const moyuGitFork = (props) => (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: MOYU_LUCIDE.GitFork }, props));
+		const moyuGlobe = (props) => (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: MOYU_LUCIDE.Globe }, props));
+		const moyuSlidersHorizontal = (props) => (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: MOYU_LUCIDE.SlidersHorizontal }, props));
+		const moyuSearch = (props) => (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: MOYU_LUCIDE.Search }, props));
+		const moyuX = (props) => (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: MOYU_LUCIDE.X }, props));
+		const moyuFolderPlus = (props) => (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: MOYU_LUCIDE.FolderPlus }, props));
+		const moyuPlus = (props) => (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: MOYU_LUCIDE.Plus }, props));
+		const moyuChevronRight = (props) => (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: MOYU_LUCIDE.ChevronRight }, props));
+		const moyuFolder = (props) => (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: MOYU_LUCIDE.Folder }, props));
+		const moyuFolderOpen = (props) => (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: MOYU_LUCIDE.FolderOpen }, props));
+		const moyuFolderInput = (props) => (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: MOYU_LUCIDE.FolderInput }, props));
+		const moyuEllipsis = (props) => (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: MOYU_LUCIDE.Ellipsis }, props));
+		const moyuPencil = (props) => (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: MOYU_LUCIDE.Pencil }, props));
+		const moyuCopy = (props) => (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: MOYU_LUCIDE.Copy }, props));
+		const moyuArchive = (props) => (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: MOYU_LUCIDE.Archive }, props));
+		const moyuTrash2 = (props) => (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: MOYU_LUCIDE.Trash2 }, props));
+		const moyuClipboardCopy = (props) => (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: MOYU_LUCIDE.ClipboardCopy }, props));
+		const moyuPin = (props) => (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: MOYU_LUCIDE.Pin }, props));
+		const moyuPinOff = (props) => (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: MOYU_LUCIDE.PinOff }, props));
+		const moyuCircleDot = (props) => (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: MOYU_LUCIDE.CircleDot }, props));
 		let _deepseek_ai_dsh_client_runtime_client = require("@deepseek-ai/dsh-client-runtime/client");
 		let react_jsx_runtime = require("react/jsx-runtime");
 		let _deepseek_ai_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
@@ -78,6 +117,10 @@ window.__ModuleLoader__.load({
 						const i = d.pinned.indexOf(sessionId);
 						if (i === -1) d.pinned.push(sessionId);
 						else d.pinned.splice(i, 1);
+					},
+					unpin: (d, sessionId) => {
+						const i = d.pinned.indexOf(sessionId);
+						if (i !== -1) d.pinned.splice(i, 1);
 					},
 					toggleUnread: (d, sessionId) => {
 						const i = d.unread.indexOf(sessionId);
@@ -427,7 +470,7 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region \0dsh-css:/Users/clukay/Program/deepseek-harness/packages/client/ui-workspace/src/client/rows/Rows.module.css.mjs
-		const css$3 = ".W1OuRW_projectRow,.W1OuRW_sessionRow{cursor:pointer;user-select:none;color:var(--dsw-alias-label-primary);border-radius:8px;align-items:center;gap:6px;padding:0 8px;display:flex}.W1OuRW_projectRow:hover,.W1OuRW_sessionRow:hover,.W1OuRW_sessionRow.W1OuRW_selected{background:var(--dsw-alias-interactive-bg-hover)}.W1OuRW_searchResultRow{box-sizing:border-box;cursor:pointer;text-align:left;width:100%;min-height:48px;color:var(--dsw-alias-label-primary);background:0 0;border:none;border-radius:8px;flex-direction:column;align-items:stretch;padding:4px 8px;display:flex}.W1OuRW_searchResultRow:hover,.W1OuRW_searchResultRow.W1OuRW_selected{background:var(--dsw-alias-interactive-bg-hover)}.W1OuRW_searchResultHeading{align-items:center;min-width:0;display:flex}.W1OuRW_searchResultTitle{text-overflow:ellipsis;white-space:nowrap;min-width:0;margin-left:4px;font-size:14px;line-height:20px;overflow:hidden}.W1OuRW_searchResultMeta{align-items:center;gap:6px;min-width:0;margin-left:20px;display:flex}.W1OuRW_searchResultWorkspace,.W1OuRW_searchResultSnippet{text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:17px;overflow:hidden}.W1OuRW_searchResultWorkspace{max-width:40%;color:var(--dsw-alias-label-tertiary);flex:none}.W1OuRW_searchResultSnippet{min-width:0;color:var(--dsw-alias-label-secondary);flex:1}.W1OuRW_projectRow{box-sizing:border-box;align-items:center;height:34px}.W1OuRW_projectRow .W1OuRW_rowActions{height:20px}.W1OuRW_sessionRow{height:32px;animation:W1OuRW_row-in .15s var(--ds-ease-in-out);gap:0}.W1OuRW_sessionRow .W1OuRW_title{margin:0 6px 0 4px}.W1OuRW_flatSessionRowWithoutStatus .W1OuRW_title{margin-left:0}@keyframes W1OuRW_row-in{0%{opacity:0}}.W1OuRW_slot{width:16px;height:20px;color:var(--dsw-alias-label-tertiary);flex:none;justify-content:center;align-items:center;display:inline-flex}.W1OuRW_visuallyHidden{clip:rect(0 0 0 0);white-space:nowrap;width:1px;height:1px;position:absolute;overflow:hidden}.W1OuRW_folderActive{color:var(--dsw-alias-state-business-primary)}.W1OuRW_projectRow .W1OuRW_chevron{display:none}.W1OuRW_projectRow:hover .W1OuRW_chevron{display:inline-flex}.W1OuRW_projectRow:hover .W1OuRW_folder{display:none}.W1OuRW_arrow{transition:transform .15s var(--ds-ease-in-out)}.W1OuRW_arrowOpen{transform:rotate(90deg)}.W1OuRW_projectText{flex-direction:column;flex:1;gap:2px;min-width:0;display:flex}.W1OuRW_title{text-overflow:ellipsis;white-space:nowrap;min-width:0;font-size:14px;line-height:20px;overflow:hidden}.W1OuRW_renameInput{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-button-elevated-fill);min-width:0;color:inherit;border-radius:4px;outline:none;padding:0 2px;font-size:14px;line-height:20px}.W1OuRW_sessionRow .W1OuRW_title{flex:1}.W1OuRW_meta{text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:20px;overflow:hidden}.W1OuRW_time{color:var(--dsw-alias-label-tertiary);flex:none;font-size:12px;line-height:20px}.W1OuRW_dot{flex:none}.W1OuRW_rowActions{flex:none;align-items:center;gap:12px;display:none}.W1OuRW_projectRow:hover .W1OuRW_rowActions,.W1OuRW_sessionRow:hover .W1OuRW_rowActions,.W1OuRW_projectRow.W1OuRW_menuOpen .W1OuRW_rowActions,.W1OuRW_sessionRow.W1OuRW_menuOpen .W1OuRW_rowActions{display:inline-flex}.W1OuRW_sessionRow:hover .W1OuRW_time,.W1OuRW_sessionRow.W1OuRW_menuOpen .W1OuRW_time{display:none}.W1OuRW_projectRow.W1OuRW_menuOpen,.W1OuRW_sessionRow.W1OuRW_menuOpen{background:var(--dsw-alias-interactive-bg-hover)}.W1OuRW_sessionRow.W1OuRW_dropBefore,.W1OuRW_sessionRow.W1OuRW_dropAfter{position:relative}.W1OuRW_sessionRow.W1OuRW_dropBefore:before,.W1OuRW_sessionRow.W1OuRW_dropAfter:after{content:\"\";z-index:1;background:linear-gradient(55deg, transparent calc(50% - 1px), var(--dsw-alias-state-business-primary) calc(50% - 1px) calc(50% + 1px), transparent calc(50% + 1px)) 0 0 / 5px 7px no-repeat, linear-gradient(125deg, transparent calc(50% - 1px), var(--dsw-alias-state-business-primary) calc(50% - 1px) calc(50% + 1px), transparent calc(50% + 1px)) 0 5px / 5px 7px no-repeat, linear-gradient(var(--dsw-alias-state-business-primary) 0 0) 4px 5px / calc(100% - 4px) 2px no-repeat;pointer-events:none;height:12px;position:absolute;left:0;right:4px}.W1OuRW_sessionRow.W1OuRW_dropBefore:before{top:-7px}.W1OuRW_sessionRow.W1OuRW_dropAfter:after{bottom:-7px}.W1OuRW_hoverContent{flex-direction:column;gap:8px;display:flex}.W1OuRW_hoverTitle{color:#fff;overflow-wrap:break-word;font-size:14px;line-height:20px}.W1OuRW_hoverPath{color:#cfd3d6;word-break:break-all;font-size:12px;line-height:16px}.W1OuRW_hoverTime{color:#cfd3d6;font-size:12px;line-height:16px}.W1OuRW_hoverStatus{color:#adb2b8;align-items:center;gap:8px;font-size:12px;line-height:20px;display:flex}.W1OuRW_iconButton{cursor:pointer;width:16px;height:16px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.W1OuRW_iconButton:hover{color:var(--dsw-alias-label-primary)}.W1OuRW_iconButton:active{transform:scale(.97)}.W1OuRW_iconButtonActive{color:var(--dsw-alias-state-business-primary)}.W1OuRW_titleUnread{font-weight:600}.W1OuRW_unreadDot{background:var(--dsw-alias-state-business-primary);vertical-align:middle;border-radius:50%;flex:none;width:6px;height:6px;margin-left:6px;display:inline-block}.W1OuRW_chevron{color:var(--dsw-alias-label-caption)}@media (prefers-reduced-motion:reduce){.W1OuRW_sessionRow,.W1OuRW_arrow{transition:none;animation:none}}";
+		const css$3 = ".W1OuRW_projectRow,.W1OuRW_sessionRow{position:relative;cursor:pointer;user-select:none;color:var(--dsw-alias-label-primary);border-radius:8px;align-items:center;gap:6px;padding:0 8px;display:flex;transition:background 120ms ease}.W1OuRW_projectRow:hover,.W1OuRW_sessionRow:hover,.W1OuRW_sessionRow.W1OuRW_selected{background:var(--dsw-alias-interactive-bg-hover)}.W1OuRW_searchResultRow{box-sizing:border-box;cursor:pointer;text-align:left;width:100%;min-height:48px;color:var(--dsw-alias-label-primary);background:0 0;border:none;border-radius:8px;flex-direction:column;align-items:stretch;padding:4px 8px;display:flex}.W1OuRW_searchResultRow:hover,.W1OuRW_searchResultRow.W1OuRW_selected{background:var(--dsw-alias-interactive-bg-hover)}.W1OuRW_searchResultHeading{align-items:center;min-width:0;display:flex}.W1OuRW_searchResultTitle{text-overflow:ellipsis;white-space:nowrap;min-width:0;margin-left:4px;font-size:14px;line-height:20px;overflow:hidden}.W1OuRW_searchResultMeta{align-items:center;gap:6px;min-width:0;margin-left:20px;display:flex}.W1OuRW_searchResultWorkspace,.W1OuRW_searchResultSnippet{text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:17px;overflow:hidden}.W1OuRW_searchResultWorkspace{max-width:40%;color:var(--dsw-alias-label-tertiary);flex:none}.W1OuRW_searchResultSnippet{min-width:0;color:var(--dsw-alias-label-secondary);flex:1}.W1OuRW_projectRow{box-sizing:border-box;align-items:center;height:34px}.W1OuRW_projectRow .W1OuRW_rowActions{height:20px}.W1OuRW_sessionRow{height:32px;animation:W1OuRW_row-in .15s var(--ds-ease-in-out);gap:0}.W1OuRW_sessionRow .W1OuRW_title{margin:0 6px 0 4px}.W1OuRW_flatSessionRowWithoutStatus .W1OuRW_title{margin-left:0}@keyframes W1OuRW_row-in{0%{opacity:0}}.W1OuRW_slot{width:16px;height:20px;color:var(--dsw-alias-label-tertiary);flex:none;justify-content:center;align-items:center;display:inline-flex}.W1OuRW_visuallyHidden{clip:rect(0 0 0 0);white-space:nowrap;width:1px;height:1px;position:absolute;overflow:hidden}.W1OuRW_folderActive{color:var(--dsw-alias-state-business-primary)}.W1OuRW_projectRow .W1OuRW_chevron{display:none}.W1OuRW_projectRow:hover .W1OuRW_chevron{display:inline-flex}.W1OuRW_projectRow:hover .W1OuRW_folder{display:none}.W1OuRW_arrow{transition:transform .15s var(--ds-ease-in-out)}.W1OuRW_arrowOpen{transform:rotate(90deg)}.W1OuRW_projectText{flex-direction:column;flex:1;gap:2px;min-width:0;display:flex}.W1OuRW_title{text-overflow:ellipsis;white-space:nowrap;min-width:0;font-size:14px;line-height:20px;font-weight:400;overflow:hidden}.W1OuRW_titlePinned{font-weight:500}.W1OuRW_titleUnread{font-weight:600}.W1OuRW_pinIndicator{position:absolute;left:2px;top:50%;transform:translateY(-50%);width:2px;height:12px;border-radius:1px;background:var(--dsw-alias-state-business-primary);pointer-events:none}.W1OuRW_renameInput{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-button-elevated-fill);min-width:0;color:inherit;border-radius:4px;outline:none;padding:0 2px;font-size:14px;line-height:20px}.W1OuRW_sessionRow .W1OuRW_title{flex:1}.W1OuRW_meta{text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:20px;overflow:hidden}.W1OuRW_time{color:var(--dsw-alias-label-tertiary);flex:none;font-size:12px;line-height:20px}.W1OuRW_dot{flex:none}.W1OuRW_rowActions{flex:none;align-items:center;gap:4px;display:none}.W1OuRW_projectRow:hover .W1OuRW_rowActions,.W1OuRW_sessionRow:hover .W1OuRW_rowActions,.W1OuRW_projectRow.W1OuRW_menuOpen .W1OuRW_rowActions,.W1OuRW_sessionRow.W1OuRW_menuOpen .W1OuRW_rowActions,.W1OuRW_rowActionsPinned{display:inline-flex}.W1OuRW_sessionRow:hover .W1OuRW_time,.W1OuRW_sessionRow.W1OuRW_menuOpen .W1OuRW_time{display:none}.W1OuRW_projectRow.W1OuRW_menuOpen,.W1OuRW_sessionRow.W1OuRW_menuOpen{background:var(--dsw-alias-interactive-bg-hover)}.W1OuRW_sessionRow.W1OuRW_dropBefore,.W1OuRW_sessionRow.W1OuRW_dropAfter{position:relative}.W1OuRW_sessionRow.W1OuRW_dropBefore:before,.W1OuRW_sessionRow.W1OuRW_dropAfter:after{content:\"\";z-index:1;background:linear-gradient(55deg, transparent calc(50% - 1px), var(--dsw-alias-state-business-primary) calc(50% - 1px) calc(50% + 1px), transparent calc(50% + 1px)) 0 0 / 5px 7px no-repeat, linear-gradient(125deg, transparent calc(50% - 1px), var(--dsw-alias-state-business-primary) calc(50% - 1px) calc(50% + 1px), transparent calc(50% + 1px)) 0 5px / 5px 7px no-repeat, linear-gradient(var(--dsw-alias-state-business-primary) 0 0) 4px 5px / calc(100% - 4px) 2px no-repeat;pointer-events:none;height:12px;position:absolute;left:0;right:4px}.W1OuRW_sessionRow.W1OuRW_dropBefore:before{top:-7px}.W1OuRW_sessionRow.W1OuRW_dropAfter:after{bottom:-7px}.W1OuRW_hoverContent{flex-direction:column;gap:8px;display:flex}.W1OuRW_hoverTitle{color:#fff;overflow-wrap:break-word;font-size:14px;line-height:20px}.W1OuRW_hoverPath{color:#cfd3d6;word-break:break-all;font-size:12px;line-height:16px}.W1OuRW_hoverTime{color:#cfd3d6;font-size:12px;line-height:16px}.W1OuRW_hoverStatus{color:#adb2b8;align-items:center;gap:8px;font-size:12px;line-height:20px;display:flex}.W1OuRW_iconButton{cursor:pointer;width:16px;height:16px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex;transition:color 120ms ease, opacity 120ms ease, transform 120ms ease}.W1OuRW_iconButton:hover{color:var(--dsw-alias-label-primary)}.W1OuRW_iconButton:active{transform:scale(.97)}.W1OuRW_iconButtonActive{color:var(--dsw-alias-state-business-primary)}.W1OuRW_archiveButtonPinned{opacity:0;pointer-events:none;transition:opacity 120ms ease}.W1OuRW_sessionRow:hover .W1OuRW_archiveButtonPinned,.W1OuRW_sessionRow.W1OuRW_menuOpen .W1OuRW_archiveButtonPinned{opacity:1;pointer-events:auto}.W1OuRW_pinButtonPinned{color:var(--dsw-alias-state-business-primary);opacity:0.85}.W1OuRW_pinButtonPinned:hover{color:var(--dsw-alias-state-business-primary);opacity:1}.W1OuRW_unreadDot{background:var(--dsw-alias-state-business-primary);vertical-align:middle;border-radius:50%;flex:none;width:6px;height:6px;margin-left:6px;display:inline-block}.W1OuRW_chevron{color:var(--dsw-alias-label-caption)}@media (prefers-reduced-motion:reduce){.W1OuRW_sessionRow,.W1OuRW_arrow,.W1OuRW_iconButton,.W1OuRW_archiveButtonPinned{transition:none!important;animation:none!important}}";
 		const tagId$3 = "@deepseek-ai/dsh-client-ui-workspace/Rows.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$3) + "]") === null) {
 			const tag = document.createElement("style");
@@ -437,6 +480,8 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var Rows_module_css_default = {
+			"archiveButton": "W1OuRW_archiveButton",
+			"archiveButtonPinned": "W1OuRW_archiveButtonPinned",
 			"arrow": "W1OuRW_arrow",
 			"arrowOpen": "W1OuRW_arrowOpen",
 			"chevron": "W1OuRW_chevron",
@@ -455,11 +500,16 @@ window.__ModuleLoader__.load({
 			"iconButtonActive": "W1OuRW_iconButtonActive",
 			"menuOpen": "W1OuRW_menuOpen",
 			"meta": "W1OuRW_meta",
+			"pinButton": "W1OuRW_pinButton",
+			"pinButtonPinned": "W1OuRW_pinButtonPinned",
+			"pinIndicator": "W1OuRW_pinIndicator",
+			"pinned": "W1OuRW_pinned",
 			"projectRow": "W1OuRW_projectRow",
 			"projectText": "W1OuRW_projectText",
 			"renameInput": "W1OuRW_renameInput",
 			"row-in": "W1OuRW_row-in",
 			"rowActions": "W1OuRW_rowActions",
+			"rowActionsPinned": "W1OuRW_rowActionsPinned",
 			"searchResultHeading": "W1OuRW_searchResultHeading",
 			"searchResultMeta": "W1OuRW_searchResultMeta",
 			"searchResultRow": "W1OuRW_searchResultRow",
@@ -471,6 +521,7 @@ window.__ModuleLoader__.load({
 			"slot": "W1OuRW_slot",
 			"time": "W1OuRW_time",
 			"title": "W1OuRW_title",
+			"titlePinned": "W1OuRW_titlePinned",
 			"titleUnread": "W1OuRW_titleUnread",
 			"unreadDot": "W1OuRW_unreadDot",
 			"visuallyHidden": "W1OuRW_visuallyHidden"
@@ -485,42 +536,12 @@ window.__ModuleLoader__.load({
 		* and workspace hover cards are suppressed while a menu is open.
 		*/
 		/** Inline glyphs for actions without a primitive icon export. */
-		function PinIcon({ size = 16 }) {
-			return (0, react_jsx_runtime.jsxs)("svg", {
-				width: size,
-				height: size,
-				viewBox: "0 0 24 24",
-				fill: "none",
-				stroke: "currentColor",
-				strokeWidth: 1.8,
-				strokeLinecap: "round",
-				strokeLinejoin: "round",
-				"aria-hidden": true,
-				focusable: "false",
-				children: [(0, react_jsx_runtime.jsx)("path", { d: "M9 4h6l-1 6 3 3v2H7v-2l3-3-1-6Z" }), (0, react_jsx_runtime.jsx)("path", { d: "M12 15v5" })]
-			});
-		}
-		function MailIcon({ size = 16 }) {
-			return (0, react_jsx_runtime.jsxs)("svg", {
-				width: size,
-				height: size,
-				viewBox: "0 0 24 24",
-				fill: "none",
-				stroke: "currentColor",
-				strokeWidth: 1.8,
-				strokeLinecap: "round",
-				strokeLinejoin: "round",
-				"aria-hidden": true,
-				focusable: "false",
-				children: [(0, react_jsx_runtime.jsx)("rect", {
-					x: "3",
-					y: "5",
-					width: "18",
-					height: "14",
-					rx: "2"
-				}), (0, react_jsx_runtime.jsx)("path", { d: "m4 7 8 6 8-6" })]
-			});
-		}
+		function PinIcon(props) {
+					return (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: props && props.off ? MOYU_LUCIDE.PinOff : MOYU_LUCIDE.Pin }, props));
+				}
+		function MailIcon(props) {
+					return (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: MOYU_LUCIDE.CircleDot }, props));
+				}
 		/** Row display title: blank rows show the localized New Session label. */
 		function displayTitle(node, t) {
 			return node.blank ? t("session.new") : node.title;
@@ -595,11 +616,11 @@ window.__ModuleLoader__.load({
 			const workspaceMenuItems = [{
 				id: "rename",
 				label: t("rename"),
-				icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconEditOutline16, {})
+				icon: (0, react_jsx_runtime.jsx)(moyuPencil, {})
 			}, {
 				id: "delete",
 				label: t("delete.workspace"),
-				icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconTrashOutline16, {}),
+				icon: (0, react_jsx_runtime.jsx)(moyuTrash2, {}),
 				danger: true
 			}];
 			const ownRow = (0, react_jsx_runtime.jsxs)("div", {
@@ -617,11 +638,11 @@ window.__ModuleLoader__.load({
 				children: [
 					(0, react_jsx_runtime.jsx)("span", {
 						className: clsx(Rows_module_css_default.slot, Rows_module_css_default.folder, active && Rows_module_css_default.folderActive),
-						children: row.expanded ? (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconFolderOpen16, {}) : (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconFolderClose16, {})
+						children: row.expanded ? (0, react_jsx_runtime.jsx)(moyuFolderOpen, {}) : (0, react_jsx_runtime.jsx)(moyuFolder, {})
 					}),
 					(0, react_jsx_runtime.jsx)("span", {
 						className: clsx(Rows_module_css_default.slot, Rows_module_css_default.chevron),
-						children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconTriangleRightFill14, { className: clsx(Rows_module_css_default.arrow, row.expanded && Rows_module_css_default.arrowOpen) })
+						children: (0, react_jsx_runtime.jsx)(moyuChevronRight, { className: clsx(Rows_module_css_default.arrow, row.expanded && Rows_module_css_default.arrowOpen) })
 					}),
 					(0, react_jsx_runtime.jsx)("span", {
 						className: Rows_module_css_default.projectText,
@@ -655,7 +676,7 @@ window.__ModuleLoader__.load({
 									e.stopPropagation();
 									setMenuOpen((v) => !v);
 								},
-								children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconEllipsisOutline16, {})
+								children: (0, react_jsx_runtime.jsx)(moyuEllipsis, {})
 							})
 						}), (0, react_jsx_runtime.jsx)("button", {
 							type: "button",
@@ -665,7 +686,7 @@ window.__ModuleLoader__.load({
 								e.stopPropagation();
 								onCreate();
 							},
-							children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconPlusOutline16, {})
+							children: (0, react_jsx_runtime.jsx)(moyuPlus, {})
 						})]
 					})
 				]
@@ -838,26 +859,26 @@ window.__ModuleLoader__.load({
 			const moveSubmenu = [{
 				id: "move-none",
 				label: t("moveToWorkspace.none"),
-				icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconFolderOpenOutline16, {})
+				icon: (0, react_jsx_runtime.jsx)(moyuFolder, {})
 			}, ...workspaces.map((ws) => ({
 				id: `move-${ws.id ?? "none"}`,
 				label: ws.label,
-				icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconFolderOpenOutline16, {})
+				icon: (0, react_jsx_runtime.jsx)(moyuFolder, {})
 			}))];
 			const copySubmenu = [{
 				id: "copy-session",
 				label: t("copy.session"),
-				icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCopyOutline16, {})
+				icon: (0, react_jsx_runtime.jsx)(moyuCopy, {})
 			}, {
 				id: "copy-markdown",
 				label: t("copy.markdown"),
-				icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCopyOutline16, {})
+				icon: (0, react_jsx_runtime.jsx)(moyuClipboardCopy, {})
 			}];
 			const sessionMenuItems = [
 				{
 					id: pinned ? "unpin" : "pin",
 					label: pinned ? t("pin.remove") : t("pin.add"),
-					icon: (0, react_jsx_runtime.jsx)(PinIcon, {})
+					icon: (0, react_jsx_runtime.jsx)(PinIcon, { off: pinned })
 				},
 				{
 					id: unread ? "mark-read" : "mark-unread",
@@ -867,17 +888,17 @@ window.__ModuleLoader__.load({
 				{
 					id: "rename",
 					label: t("rename"),
-					icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconEditOutline16, {})
+					icon: (0, react_jsx_runtime.jsx)(moyuPencil, {})
 				},
 				{
 					id: "fork",
 					label: t("menu.fork"),
-					icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconBranchOutline16, {})
+					icon: (0, react_jsx_runtime.jsx)(moyuGitFork, {})
 				},
 				{
 					id: "archive",
 					label: t("menu.archiveSession"),
-					icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconArchiveOutline20, { size: 16 })
+					icon: (0, react_jsx_runtime.jsx)(moyuArchive, { size: 16 })
 				},
 				{
 					type: "separator",
@@ -886,19 +907,19 @@ window.__ModuleLoader__.load({
 				{
 					id: "move",
 					label: t("moveToWorkspace.title"),
-					icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconFolderOpenOutline16, {}),
+					icon: (0, react_jsx_runtime.jsx)(moyuFolderInput, {}),
 					submenu: moveSubmenu
 				},
 				{
 					id: "copy",
 					label: t("copy.title"),
-					icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCopyOutline16, {}),
+					icon: (0, react_jsx_runtime.jsx)(moyuCopy, {}),
 					submenu: copySubmenu
 				}
 			];
 			return (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.HoverCard, {
 				anchor: (0, react_jsx_runtime.jsxs)("div", {
-					className: clsx(Rows_module_css_default.sessionRow, selected && Rows_module_css_default.selected, menuOpen && Rows_module_css_default.menuOpen, flat && !showStatus && Rows_module_css_default.flatSessionRowWithoutStatus, drag?.marker === "before" && Rows_module_css_default.dropBefore, drag?.marker === "after" && Rows_module_css_default.dropAfter),
+					className: clsx(Rows_module_css_default.sessionRow, selected && Rows_module_css_default.selected, pinned && Rows_module_css_default.pinned, menuOpen && Rows_module_css_default.menuOpen, flat && !showStatus && Rows_module_css_default.flatSessionRowWithoutStatus, drag?.marker === "before" && Rows_module_css_default.dropBefore, drag?.marker === "after" && Rows_module_css_default.dropAfter),
 					role: "treeitem",
 					"aria-selected": selected,
 					ref: rowRef,
@@ -929,27 +950,42 @@ window.__ModuleLoader__.load({
 						drag.drop(rowHalf(e));
 					},
 					children: [
+						pinned && (0, react_jsx_runtime.jsx)("span", {
+							className: Rows_module_css_default.pinIndicator,
+							"aria-hidden": "true"
+						}),
 						(!flat || showStatus) && (0, react_jsx_runtime.jsx)("span", {
 							className: Rows_module_css_default.slot,
 							children: showStatus && (0, react_jsx_runtime.jsx)(SessionStatusDots, { statuses })
 						}),
 						(0, react_jsx_runtime.jsxs)("span", {
-							className: clsx(Rows_module_css_default.title, unread && Rows_module_css_default.titleUnread),
+							className: clsx(Rows_module_css_default.title, pinned && Rows_module_css_default.titlePinned, unread && Rows_module_css_default.titleUnread),
 							children: [title, unread && (0, react_jsx_runtime.jsx)("span", {
 								className: Rows_module_css_default.unreadDot,
 								"aria-label": t("unread.label")
 							})]
 						}),
-						!row.blank && (0, react_jsx_runtime.jsx)("span", {
+						!row.blank && !pinned && (0, react_jsx_runtime.jsx)("span", {
 							className: Rows_module_css_default.time,
 							children: timeLabel(row.updatedAt, now, t)
 						}),
 						!row.blank && (0, react_jsx_runtime.jsxs)("span", {
-							className: Rows_module_css_default.rowActions,
+							className: clsx(Rows_module_css_default.rowActions, pinned && Rows_module_css_default.rowActionsPinned),
 							children: [
 								(0, react_jsx_runtime.jsx)("button", {
 									type: "button",
-									className: clsx(Rows_module_css_default.iconButton, pinned && Rows_module_css_default.iconButtonActive),
+									className: clsx(Rows_module_css_default.iconButton, Rows_module_css_default.archiveButton, pinned && Rows_module_css_default.archiveButtonPinned),
+									"aria-label": t("menu.archiveSession.aria", { name: title }),
+									title: t("menu.archiveSession"),
+									onClick: (e) => {
+										e.stopPropagation();
+										onArchive(node.id);
+									},
+									children: (0, react_jsx_runtime.jsx)(moyuArchive, { size: 16 })
+								}),
+								(0, react_jsx_runtime.jsx)("button", {
+									type: "button",
+									className: clsx(Rows_module_css_default.iconButton, Rows_module_css_default.pinButton, pinned && Rows_module_css_default.pinButtonPinned),
 									"aria-label": pinned ? t("pin.remove.aria", { name: title }) : t("pin.add.aria", { name: title }),
 									"aria-pressed": pinned,
 									title: pinned ? t("pin.remove") : t("pin.add"),
@@ -957,18 +993,7 @@ window.__ModuleLoader__.load({
 										e.stopPropagation();
 										onTogglePin?.(node.id);
 									},
-									children: (0, react_jsx_runtime.jsx)(PinIcon, {})
-								}),
-								(0, react_jsx_runtime.jsx)("button", {
-									type: "button",
-									className: Rows_module_css_default.iconButton,
-									"aria-label": t("menu.archiveSession.aria", { name: title }),
-									title: t("menu.archiveSession"),
-									onClick: (e) => {
-										e.stopPropagation();
-										onArchive(node.id);
-									},
-									children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconArchiveOutline20, { size: 16 })
+									children: (0, react_jsx_runtime.jsx)(PinIcon, { off: false })
 								}),
 								(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Menu, {
 									open: menuOpen,
@@ -1056,14 +1081,14 @@ window.__ModuleLoader__.load({
 			const addEntries = flowAvailable ? [{
 				id: ADD_WORKSPACE,
 				label: t("menu.addWorkspace"),
-				icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconPlusOutline16, { size: 16 }),
+				icon: (0, react_jsx_runtime.jsx)(moyuPlus, { size: 16 }),
 				disabled: flowBusy
 			}] : [];
 			const pinAdd = !addOnly && workspaces.length > 0;
 			const items = pinAdd ? workspaces.map((workspace) => ({
 				id: workspace.workspaceId,
 				label: workspace.title,
-				icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconFolderClose16, { size: 16 }),
+				icon: (0, react_jsx_runtime.jsx)(moyuFolder, { size: 16 }),
 				disabled: flowBusy
 			})) : addEntries;
 			const menuIsEmpty = items.length === 0;
@@ -1262,18 +1287,18 @@ window.__ModuleLoader__.load({
 				{
 					id: "conversation",
 					label: t("surface.conversation"),
-					icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconNewChatOutline16, {}),
+					icon: (0, react_jsx_runtime.jsx)(moyuSquarePen, { size: 18 }),
 					create: true
 				},
 				{
 					id: "scheduled",
 					label: t("surface.scheduled"),
-					icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconChecklistOutline14, {})
+					icon: (0, react_jsx_runtime.jsx)(moyuListTodo, { size: 18 })
 				},
 				{
 					id: "plugins",
 					label: t("surface.plugins"),
-					icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCordisPluginOutline14, {})
+					icon: (0, react_jsx_runtime.jsx)(moyuBlocks, { size: 18 })
 				}
 			];
 			return (0, react_jsx_runtime.jsx)("nav", {
@@ -1457,7 +1482,7 @@ window.__ModuleLoader__.load({
 						onClick: () => {
 							setOpen((v) => !v);
 						},
-						children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconPersonalizationOutline16, {})
+						children: (0, react_jsx_runtime.jsx)(moyuSlidersHorizontal, {})
 					})
 				})
 			});
@@ -2166,6 +2191,8 @@ window.__ModuleLoader__.load({
 				// 归档是持久操作，由 Host 写入 registry；归档成功后运行时快照（manager.getSnapshot）
 				// 会经 installArchived 更新，useArchivedSessionIds 订阅即刷新，会话随之隐藏。
 				try {
+					sessionMetaStore.actions.unpin(sessionId);
+					sessionMetaStore.actions.clearUnread(sessionId);
 					await archiveSession(sessionId);
 					console.info("[moyu] archive ok:", sessionId);
 				} catch (err) {
@@ -2243,7 +2270,7 @@ window.__ModuleLoader__.load({
 													setWsPickerOpen(false);
 													setSearchExpanded(true);
 												},
-												children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconSearchOutline16, { size: searchExpanded ? 11 : 14 })
+												children: (0, react_jsx_runtime.jsx)(moyuSearch, { size: searchExpanded ? 11 : 14 })
 											})
 										}),
 										(0, react_jsx_runtime.jsx)("input", {
@@ -2272,7 +2299,7 @@ window.__ModuleLoader__.load({
 												setQuery("");
 												setSearchExpanded(false);
 											},
-											children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCloseFill14, {})
+											children: (0, react_jsx_runtime.jsx)(moyuX, {})
 										})
 									]
 								})
@@ -2301,7 +2328,7 @@ window.__ModuleLoader__.load({
 										onClick: () => {
 											setWsPickerOpen((v) => !v);
 										},
-										children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconProjectAddOutline16, { size: wide ? 16 : 18 })
+										children: (0, react_jsx_runtime.jsx)(moyuFolderPlus, { size: wide ? 16 : 18 })
 									})
 								})]
 							}),
@@ -2338,7 +2365,7 @@ window.__ModuleLoader__.load({
 									setSearchOnExpand(true);
 									expandSidebar();
 								},
-								children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconSearchOutline16, { size: 18 })
+								children: (0, react_jsx_runtime.jsx)(moyuSearch, { size: 18 })
 							})
 						})
 					}),
@@ -2558,10 +2585,10 @@ window.__ModuleLoader__.load({
 		//#region lib/types/client/SurfaceView.js
 		/** Browser-only application surfaces that do not have a backend capability yet. */
 		function SurfaceGlyph({ surface }) {
-			if (surface === "pull-requests") return (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconBranchOutline16, { size: 20 });
-			if (surface === "browser") return (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconGlobeOutline14, { size: 20 });
-			if (surface === "scheduled") return (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconChecklistOutline14, { size: 20 });
-			return (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCordisPluginOutline14, { size: 20 });
+			if (surface === "pull-requests") return (0, react_jsx_runtime.jsx)(moyuGitFork, { size: 20 });
+			if (surface === "browser") return (0, react_jsx_runtime.jsx)(moyuGlobe, { size: 20 });
+			if (surface === "scheduled") return (0, react_jsx_runtime.jsx)(moyuListTodo, { size: 20 });
+			return (0, react_jsx_runtime.jsx)(moyuBlocks, { size: 20 });
 		}
 		/** Render a truthful empty or handoff state for an unconfigured surface. */
 		function SurfaceView({ surface, openSettings, t }) {
@@ -2644,7 +2671,7 @@ window.__ModuleLoader__.load({
 			"menu.archiveSession.aria": "归档会话“{name}”",
 			"menu.open": "更多操作",
 			"menu.open.aria": "会话“{name}”的更多操作",
-			"pin.add": "置顶",
+			"pin.add": "置顶会话",
 			"pin.remove": "取消置顶",
 			"pin.add.aria": "置顶会话“{name}”",
 			"pin.remove.aria": "取消置顶会话“{name}”",
@@ -2736,8 +2763,8 @@ window.__ModuleLoader__.load({
 			"menu.archiveSession.aria": "Archive session “{name}”",
 			"menu.open": "More actions",
 			"menu.open.aria": "More actions for session “{name}”",
-			"pin.add": "Pin",
-			"pin.remove": "Unpin",
+			"pin.add": "Pin session",
+			"pin.remove": "Unpin session",
 			"pin.add.aria": "Pin session “{name}”",
 			"pin.remove.aria": "Unpin session “{name}”",
 			"unread.markUnread": "Mark as unread",

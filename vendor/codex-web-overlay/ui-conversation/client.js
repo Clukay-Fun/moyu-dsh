@@ -5,6 +5,35 @@ window.__ModuleLoader__.load({
 		var exports = module.exports;
 		Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 		let _deepseek_ai_dsh_client_ui_slots = require("@deepseek-ai/dsh-client-ui-slots");
+
+		// === MoyuIcon：Lucide 内联图标适配层 ===
+		// 图标数据提取自 lucide-react@1.33.0（ISC License）dist/esm/icons 的 __iconNode，构建期手工内联。
+		// 纯构建期内联：无任何 lucide 运行时 require。默认 16px / strokeWidth 1.75 / aria-hidden。
+		const MOYU_LUCIDE = {"ArrowUp":[["path",{"d":"m5 12 7-7 7 7"}],["path",{"d":"M12 19V5"}]],"Square":[["rect",{"width":"18","height":"18","x":"3","y":"3","rx":"2"}]],"Paperclip":[["path",{"d":"m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551"}]],"ChevronDown":[["path",{"d":"m6 9 6 6 6-6"}]],"ChevronUp":[["path",{"d":"m18 15-6-6-6 6"}]],"ChevronRight":[["path",{"d":"m9 18 6-6-6-6"}]],"Pencil":[["path",{"d":"M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"}],["path",{"d":"m15 5 4 4"}]],"Copy":[["rect",{"width":"14","height":"14","x":"8","y":"8","rx":"2","ry":"2"}],["path",{"d":"M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"}]],"Check":[["path",{"d":"M20 6 9 17l-5-5"}]],"GitFork":[["circle",{"cx":"12","cy":"18","r":"3"}],["circle",{"cx":"6","cy":"6","r":"3"}],["circle",{"cx":"18","cy":"6","r":"3"}],["path",{"d":"M18 9v2c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1V9"}],["path",{"d":"M12 12v3"}]],"Trash2":[["path",{"d":"M10 11v6"}],["path",{"d":"M14 11v6"}],["path",{"d":"M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"}],["path",{"d":"M3 6h18"}],["path",{"d":"M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"}]],"X":[["path",{"d":"M18 6 6 18"}],["path",{"d":"m6 6 12 12"}]],"ListTodo":[["path",{"d":"M13 5h8"}],["path",{"d":"M13 12h8"}],["path",{"d":"M13 19h8"}],["path",{"d":"m3 17 2 2 4-4"}],["rect",{"x":"3","y":"4","width":"6","height":"6","rx":"1"}]]};
+		function MoyuLucideIcon(props) {
+			const size = props.size || 16;
+			return react_jsx_runtime.jsx("svg", {
+				xmlns: "http://www.w3.org/2000/svg", width: size, height: size, viewBox: "0 0 24 24",
+				fill: "none", stroke: "currentColor", strokeWidth: props.strokeWidth || 1.75,
+				strokeLinecap: "round", strokeLinejoin: "round",
+				className: props.className, style: props.style,
+				"aria-hidden": "true", focusable: "false",
+				children: props.node.map((entry, index) => react_jsx_runtime.jsx(entry[0], entry[1], index))
+			});
+		}
+		const moyuArrowUp = (props) => (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: MOYU_LUCIDE.ArrowUp }, props));
+		const moyuSquare = (props) => (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: MOYU_LUCIDE.Square }, props));
+		const moyuPaperclip = (props) => (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: MOYU_LUCIDE.Paperclip }, props));
+		const moyuChevronDown = (props) => (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: MOYU_LUCIDE.ChevronDown }, props));
+		const moyuChevronUp = (props) => (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: MOYU_LUCIDE.ChevronUp }, props));
+		const moyuChevronRight = (props) => (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: MOYU_LUCIDE.ChevronRight }, props));
+		const moyuPencil = (props) => (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: MOYU_LUCIDE.Pencil }, props));
+		const moyuCopy = (props) => (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: MOYU_LUCIDE.Copy }, props));
+		const moyuCheck = (props) => (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: MOYU_LUCIDE.Check }, props));
+		const moyuGitFork = (props) => (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: MOYU_LUCIDE.GitFork }, props));
+		const moyuTrash2 = (props) => (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: MOYU_LUCIDE.Trash2 }, props));
+		const moyuX = (props) => (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: MOYU_LUCIDE.X }, props));
+		const moyuListTodo = (props) => (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: MOYU_LUCIDE.ListTodo }, props));
 		let _deepseek_ai_dsh_client_runtime_client = require("@deepseek-ai/dsh-client-runtime/client");
 		let _deepseek_ai_cordis = require("@deepseek-ai/cordis");
 		let react_jsx_runtime = require("react/jsx-runtime");
@@ -3399,7 +3428,7 @@ window.__ModuleLoader__.load({
 						(0, react_jsx_runtime.jsx)("span", {
 							className: clsx(PermissionSelect_module_css_default.chevron, open && PermissionSelect_module_css_default.chevronOpen),
 							"aria-hidden": true,
-							children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconChevronDownOutline14, {})
+							children: (0, react_jsx_runtime.jsx)(moyuChevronDown, {})
 						})
 					]
 				})
@@ -4071,7 +4100,7 @@ window.__ModuleLoader__.load({
 												disabled: locked || toggleCommandMenu === void 0,
 												onMouseDown: keepFocus,
 												onClick: onToggleCommandMenu,
-												children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconPlusOutline16, { size: 14 })
+												children: (0, react_jsx_runtime.jsx)(moyuPaperclip, { size: 14 })
 											})
 										}),
 										(0, react_jsx_runtime.jsxs)("div", {
@@ -4127,29 +4156,7 @@ window.__ModuleLoader__.load({
 												disabled: primaryStops ? stop === void 0 : empty || disabled || machineBusy,
 												onMouseDown: keepFocus,
 												onClick: onPrimary,
-												children: primaryStops ? (0, react_jsx_runtime.jsx)("svg", {
-													viewBox: "0 0 16 16",
-													width: "16",
-													height: "16",
-													"aria-hidden": true,
-													children: (0, react_jsx_runtime.jsx)("rect", {
-														x: "3",
-														y: "3",
-														width: "10",
-														height: "10",
-														rx: "3",
-														fill: "currentColor"
-													})
-												}) : (0, react_jsx_runtime.jsx)("svg", {
-													viewBox: "0 0 16 16",
-													width: "16",
-													height: "16",
-													"aria-hidden": true,
-													children: (0, react_jsx_runtime.jsx)("path", {
-														d: "M8.3125 0.980183C8.66767 1.0531 8.97902 1.20418 9.2627 1.43233C9.48724 1.61297 9.73029 1.85793 9.97949 2.10714L14.707 6.83468L13.293 8.24874L9 3.95577V15.0417H7V3.95577L2.70703 8.24874L1.29297 6.83468L6.02051 2.10714C6.26971 1.85793 6.51277 1.61297 6.7373 1.43233C6.97662 1.23986 7.28445 1.04402 7.6875 0.980183C7.8973 0.947006 8.1031 0.95516 8.3125 0.980183Z",
-														fill: "currentColor"
-													})
-												})
+												children: primaryStops ? (0, react_jsx_runtime.jsx)(moyuSquare, { size: 16 }) : (0, react_jsx_runtime.jsx)(moyuArrowUp, { size: 16 })
 											})
 										})
 									]
@@ -4234,7 +4241,7 @@ window.__ModuleLoader__.load({
 						onClick: () => {
 							setOpen((value) => !value);
 						},
-						children: [t(selectedLabel), (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconChevronDownOutline14, { className: EnterBehaviorRow_module_css_default.chevron })]
+						children: [t(selectedLabel), (0, react_jsx_runtime.jsx)(moyuChevronDown, { className: EnterBehaviorRow_module_css_default.chevron })]
 					})
 				})]
 			});
@@ -4317,7 +4324,7 @@ window.__ModuleLoader__.load({
 							}), (0, react_jsx_runtime.jsx)("span", {
 								className: MessageItem_module_css_default.compactionDisclosureIcon,
 								"data-compaction-disclosure": open ? "expanded" : "collapsed",
-								children: open ? (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconChevronDownOutline14, {}) : (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconChevronRightOutline14, {})
+								children: open ? (0, react_jsx_runtime.jsx)(moyuChevronDown, {}) : (0, react_jsx_runtime.jsx)(moyuChevronRight, {})
 							})]
 						}),
 						(0, react_jsx_runtime.jsx)("span", {
@@ -5100,7 +5107,7 @@ window.__ModuleLoader__.load({
 							className: MessageIconActions_module_css_default.action,
 							"aria-label": copied ? t("copied") : t("copy"),
 							onClick: onCopy,
-							children: copied ? (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCheckOutline16, {}) : (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCopyOutline16, {})
+							children: copied ? (0, react_jsx_runtime.jsx)(moyuCheck, {}) : (0, react_jsx_runtime.jsx)(moyuCopy, {})
 						})
 					}),
 					extraActions,
@@ -5115,7 +5122,7 @@ window.__ModuleLoader__.load({
 							"aria-describedby": branchUnavailable ? reasonId : void 0,
 							"data-unavailable": branchUnavailable || void 0,
 							onClick: branchUnavailable ? void 0 : onBranch,
-							children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconBranchOutline16, {})
+							children: (0, react_jsx_runtime.jsx)(moyuGitFork, {})
 						})
 					}),
 					onBranch !== void 0 && branchUnavailable && (0, react_jsx_runtime.jsx)("span", {
@@ -5872,7 +5879,7 @@ window.__ModuleLoader__.load({
 								/* v8 ignore next -- ref-null guard: the button only renders alongside the mounted list. */
 								if (local !== null) toBottom(scrollerOf(local));
 							},
-							children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconChevronDownOutline14, {})
+							children: (0, react_jsx_runtime.jsx)(moyuChevronDown, {})
 						})
 					})]
 				}), fileOpenError !== null && (0, react_jsx_runtime.jsx)(FileOpenErrorDialog, {
@@ -6606,7 +6613,7 @@ window.__ModuleLoader__.load({
 							(0, react_jsx_runtime.jsx)("span", {
 								className: TodoPanel_module_css_default.lead,
 								"aria-hidden": true,
-								children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconChecklistOutline14, {})
+								children: (0, react_jsx_runtime.jsx)(moyuListTodo, {})
 							}),
 							(0, react_jsx_runtime.jsx)("span", {
 								className: TodoPanel_module_css_default.title,
@@ -6619,7 +6626,7 @@ window.__ModuleLoader__.load({
 							(0, react_jsx_runtime.jsx)("span", {
 								className: TodoPanel_module_css_default.chevron,
 								"aria-hidden": true,
-								children: collapsed ? (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconChevronUpOutline14, {}) : (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconChevronDownOutline14, {})
+								children: collapsed ? (0, react_jsx_runtime.jsx)(moyuChevronUp, {}) : (0, react_jsx_runtime.jsx)(moyuChevronDown, {})
 							})
 						]
 					}), !collapsed && (0, react_jsx_runtime.jsx)("ul", {
@@ -6769,7 +6776,7 @@ window.__ModuleLoader__.load({
 							(0, react_jsx_runtime.jsx)("span", {
 								className: QueueDock_module_css_default.chevron,
 								"aria-hidden": true,
-								children: expanded ? (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconChevronDownOutline14, {}) : (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconChevronUpOutline14, {})
+								children: expanded ? (0, react_jsx_runtime.jsx)(moyuChevronDown, {}) : (0, react_jsx_runtime.jsx)(moyuChevronUp, {})
 							})
 						]
 					}), (0, react_jsx_runtime.jsx)("ul", {
@@ -6823,7 +6830,7 @@ window.__ModuleLoader__.load({
 											onClick: () => {
 												saveEdit();
 											},
-											children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCheckOutline16, { size: 14 })
+											children: (0, react_jsx_runtime.jsx)(moyuCheck, { size: 14 })
 										})
 									}), (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
 										label: t("queue.cancelEdit"),
@@ -6837,7 +6844,7 @@ window.__ModuleLoader__.load({
 											onClick: () => {
 												setEditing(null);
 											},
-											children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCloseOutline16, { size: 14 })
+											children: (0, react_jsx_runtime.jsx)(moyuX, { size: 14 })
 										})
 									})] }) : (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
 										(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
@@ -6857,7 +6864,7 @@ window.__ModuleLoader__.load({
 														text: row.text
 													});
 												},
-												children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconEditOutline16, { size: 14 })
+												children: (0, react_jsx_runtime.jsx)(moyuPencil, { size: 14 })
 											})
 										}),
 										(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
@@ -6872,7 +6879,7 @@ window.__ModuleLoader__.load({
 												onClick: () => {
 													applyAction(row.id, { kind: "remove" }, t("queue.removeFailed"));
 												},
-												children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconTrashOutline16, { size: 14 })
+												children: (0, react_jsx_runtime.jsx)(moyuTrash2, { size: 14 })
 											})
 										}),
 										(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
@@ -6889,7 +6896,7 @@ window.__ModuleLoader__.load({
 												onClick: () => {
 													applyAction(row.id, { kind: "steer" }, t("queue.steerFailed"));
 												},
-												children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconSendOutline14, {})
+												children: (0, react_jsx_runtime.jsx)(moyuArrowUp, {})
 											})
 										})
 									] })
@@ -7012,7 +7019,7 @@ window.__ModuleLoader__.load({
 						className: HeroShell_module_css_default.workspaceLabel,
 						children: label ?? t("hero.chooseWorkspace")
 					}),
-					(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconChevronDownOutline14, {
+					(0, react_jsx_runtime.jsx)(moyuChevronDown, {
 						className: HeroShell_module_css_default.chevron,
 						size: 12
 					})
