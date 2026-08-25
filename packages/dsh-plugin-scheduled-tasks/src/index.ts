@@ -80,13 +80,15 @@ export class ScheduledTasksService extends Service {
       }
       for (const t of parsed.tasks ?? []) this.tasks.set(t.id, t)
       for (const [taskId, list] of Object.entries(parsed.runs ?? {})) this.runs.set(taskId, list)
-      await this.recover()
-      this.rescheduleAll()
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
         this.ctx.logger?.error?.('[moyu-scheduled-tasks] load failed', e)
       }
     }
+    // Propagate: if recover's reconciliation persist fails, ready rejects and the
+    // plugin enters an unavailable state rather than silently serving stale state.
+    await this.recover()
+    this.rescheduleAll()
   }
 
   /**
@@ -110,9 +112,15 @@ export class ScheduledTasksService extends Service {
     }
     this.activeRuns.clear()
     if (changed) {
-      await this.persist().catch((e) =>
-        this.ctx.logger?.error?.('[moyu-scheduled-tasks] recover persist failed', e),
-      )
+      // Persist reconciliation. Errors are logged AND propagated so that
+      // `load()`'s `ready` rejects and the plugin enters an unavailable state
+      // rather than serving state that disagrees with disk.
+      try {
+        await this.persist()
+      } catch (e) {
+        this.ctx.logger?.error?.('[moyu-scheduled-tasks] recover persist failed', e)
+        throw e
+      }
     }
   }
 
@@ -279,82 +287,102 @@ export class ScheduledTasksService extends Service {
     // same task sees the guard and cannot start a second run.
     this.activeRuns.set(taskId, runId)
 
-    await this.validateCwd(task.cwd)
-    await this.ensureWorkspace(task)
-
-    task.lastRunAt = Date.now()
-    task.nextRunAt = null
-
-    const sessionId = `scheduled-${taskId}-${runId}` as unknown as SessionId
-
-    let handle: AgentHandle
     try {
-      handle = await this.ctx.agents.create({
-        sessionId,
-        meta: { cwd: task.cwd, agentPreset: 'moyu' },
-      })
-    } catch (e) {
-      run.status = 'failed'
-      run.errorCode = 'agent_create_failed'
-      run.errorMessage = String((e as Error).message)
-      run.finishedAt = Date.now()
-      this.activeRuns.delete(taskId)
-      await this.persist()
-      throw e
-    }
-    this.handles.add(handle)
-
-    const agent = handle.agent
-    run.sessionId = String(sessionId)
-    run.startedAt = Date.now()
-
-    let failed = false
-    let errorInfo: unknown
-    const offError = agent.ctx.on('agent/error', (p: { error: unknown }) => {
-      failed = true
-      errorInfo = p.error
-    })
-
-    try {
-      const message = createUserMessage({
-        content: [{ type: 'text', text: task.prompt }],
-        source: {
-          kind: 'plugin',
-          plugin: PLUGIN_NAME,
-          summary: `scheduled: ${task.title}`,
-        } as never,
-      })
       try {
-        agent.followup(message)
+        await this.validateCwd(task.cwd)
+        await this.ensureWorkspace(task)
+      } catch (e) {
+        // Workspace gone / permission lost / not accessible: converge to a
+        // failed run so it is persisted and the active-run guard is released.
+        run.status = 'failed'
+        run.errorCode = 'validation'
+        run.errorMessage = String((e as Error).message)
+        run.finishedAt = Date.now()
+        await this.persist()
+        throw e
+      }
+
+      task.lastRunAt = Date.now()
+      task.nextRunAt = null
+
+      const sessionId = `scheduled-${taskId}-${runId}` as unknown as SessionId
+
+      let handle: AgentHandle
+      try {
+        handle = await this.ctx.agents.create({
+          sessionId,
+          meta: { cwd: task.cwd, agentPreset: 'moyu' },
+        })
+      } catch (e) {
+        run.status = 'failed'
+        run.errorCode = 'agent_create_failed'
+        run.errorMessage = String((e as Error).message)
+        run.finishedAt = Date.now()
+        await this.persist()
+        throw e
+      }
+      this.handles.add(handle)
+
+      const agent = handle.agent
+      run.sessionId = String(sessionId)
+      run.startedAt = Date.now()
+
+      let failed = false
+      let errorInfo: unknown
+      const offError = agent.ctx.on('agent/error', (p: { error: unknown }) => {
+        failed = true
+        errorInfo = p.error
+      })
+
+      try {
+        const message = createUserMessage({
+          content: [{ type: 'text', text: task.prompt }],
+          source: {
+            kind: 'plugin',
+            plugin: PLUGIN_NAME,
+            summary: `scheduled: ${task.title}`,
+          } as never,
+        })
+        try {
+          agent.followup(message)
+        } catch (e) {
+          failed = true
+          errorInfo = e
+        }
+        await agent.whenIdle()
       } catch (e) {
         failed = true
-        errorInfo = e
+        errorInfo = errorInfo ?? e
+      } finally {
+        if (typeof offError === 'function') offError()
       }
-      await agent.whenIdle()
-    } catch (e) {
-      failed = true
-      errorInfo = errorInfo ?? e
+
+      // Only transition to a terminal state if this run is still 'running'.
+      // A concurrent dispose()/recover() may have already marked it interrupted,
+      // and we must not overwrite that with a success.
+      if (run.status === 'running') {
+        if (failed) {
+          run.status = 'failed'
+          run.errorCode = run.errorCode ?? 'agent_error'
+          run.errorMessage = errorInfo instanceof Error ? errorInfo.message : String(errorInfo)
+        } else {
+          run.status = 'succeeded'
+        }
+        run.finishedAt = Date.now()
+      }
+      await this.persist()
+
+      // Explicit release: stop the live agent loop once the turn is done.
+      // The session log persists; only the live agent handle is torn down.
+      this.handles.delete(handle)
+      await handle.dispose().catch(() => {})
+
+      return run
     } finally {
-      if (typeof offError === 'function') offError()
+      // Every exit path (success, validation failure, agent-create failure,
+      // agent error, dispose interruption) must release the active-run guard.
       this.activeRuns.delete(taskId)
     }
-
-    if (failed) {
-      run.status = 'failed'
-      run.errorCode = run.errorCode ?? 'agent_error'
-      run.errorMessage = errorInfo instanceof Error ? errorInfo.message : String(errorInfo)
-    } else {
-      run.status = 'succeeded'
-    }
-    run.finishedAt = Date.now()
-    await this.persist()
-
-    // Explicit release: stop the live agent loop once the turn is done.
-    // The session log persists; only the live agent handle is torn down.
-    this.handles.delete(handle)
-    await handle.dispose().catch(() => {})
-
-    return run
   }
 
   private rescheduleAll(): void {

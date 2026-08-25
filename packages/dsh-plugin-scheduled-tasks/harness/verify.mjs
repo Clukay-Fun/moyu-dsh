@@ -194,13 +194,49 @@ const d = svcD.runTaskNow(tD.id)
 // let runTaskNow register the run (it yields at `await this.ready` first)
 await new Promise((r) => setTimeout(r, 20))
 await svcD.dispose()
-const storeD = JSON.parse(await readFile('/tmp/moyu-schedule-verify/scheduled-tasks/store.json', 'utf8'))
-assert.equal(storeD.runs[tD.id][0].status, 'failed', 'dispose marks active run interrupted')
-assert.equal(storeD.runs[tD.id][0].errorCode, 'interrupted')
+const storeD1 = JSON.parse(await readFile('/tmp/moyu-schedule-verify/scheduled-tasks/store.json', 'utf8'))
+assert.equal(storeD1.runs[tD.id][0].status, 'failed', 'dispose marks active run interrupted')
+assert.equal(storeD1.runs[tD.id][0].errorCode, 'interrupted')
+// Let the original (blocked) run fully finish, then verify the FINAL persisted
+// state is NOT overwritten to succeeded by runTaskNow's terminal transition.
 blockIdle = false
 resolveIdle && resolveIdle()
 await d.catch(() => {})
-console.log('PASS: SCHEDULE-02 dispose - in-flight run marked interrupted')
+const storeD2 = JSON.parse(await readFile('/tmp/moyu-schedule-verify/scheduled-tasks/store.json', 'utf8'))
+assert.equal(storeD2.runs[tD.id][0].status, 'failed', 'final state not overwritten to succeeded after dispose')
+assert.equal(storeD2.runs[tD.id][0].errorCode, 'interrupted')
+console.log('PASS: SCHEDULE-02 dispose - in-flight run marked interrupted, not overwritten')
+
+// (4) validation failure must converge: run marked failed + persisted, guard released.
+// createTask() itself validates cwd, so craft a task with an inaccessible cwd
+// directly into the store, then drive runTaskNow into the failure path.
+const verifyV = '/tmp/moyu-schedule-verify-v'
+await mkdir(verifyV + '/scheduled-tasks', { recursive: true })
+await writeFile(
+  verifyV + '/scheduled-tasks/store.json',
+  JSON.stringify({
+    tasks: [{ id: 't-bad', title: 'bad', prompt: 'p', cwd: '/no-such-dir-9f3a2c', enabled: false, nextRunAt: null, lastRunAt: null, createdAt: 1, updatedAt: 1 }],
+    runs: {},
+  }),
+)
+process.env.MOYU_DSH_HOME = verifyV
+const svcV = new ScheduledTasksService(mockCtx)
+await svcV.ready
+await assert.rejects(
+  svcV.runTaskNow('t-bad'),
+  /not accessible|ENOENT|no such file|not exist/i,
+  'runTaskNow rejects on invalid cwd',
+)
+const storeV = JSON.parse(await readFile(verifyV + '/scheduled-tasks/store.json', 'utf8'))
+assert.equal(storeV.runs['t-bad'][0].status, 'failed', 'invalid cwd marks run failed + persisted')
+assert.equal(storeV.runs['t-bad'][0].errorCode, 'validation', 'validation errorCode set')
+// re-run must NOT be blocked by a stale activeRuns entry
+await assert.rejects(
+  svcV.runTaskNow('t-bad'),
+  /not accessible|ENOENT|no such file|not exist/i,
+  're-run not blocked (activeRuns cleared), still rejects on cwd',
+)
+console.log('PASS: SCHEDULE-02 validation failure converges (no stuck running)')
 
 console.log('\nALL CHECKS PASSED (SCHEDULE-01 + SCHEDULE-02)')
 process.exit(0)
