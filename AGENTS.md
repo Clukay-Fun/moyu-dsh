@@ -12,7 +12,7 @@
 **已移出范围，不要重新引入**：条码、格式工厂（FFmpeg）、OCR、Illustrator/Office COM
 联动、Fabric 画布、PDF organizer、钉图（pin）。摸鱼工具箱（legacy renderer）已整体
 删除，与本应用**不再有任何连接**；其实现存档在 `dev` 分支历史与
-`~/Program/moyu-tools-legacy-ref/`（只读）。
+独立维护在 `~/Program/moyu-tools/`；`~/Program/moyu-tools-legacy-ref/` 仅保留为迁移时的只读快照。
 
 DSH Web UI 是唯一主界面，运行在本地 DSH origin 上。DSH Host 使用 Electron 自带运行时以
 `ELECTRON_RUN_AS_NODE=1` 启动独立 Node 子进程，只能通过有类型的进程 IPC 窄桥调用白名单
