@@ -14,6 +14,7 @@
     "packages/dsh-plugin-legacy-tools",
     "packages/dsh-plugin-pdf",
     "packages/dsh-plugin-screenshot",
+    "packages/dsh-plugin-scheduled-tasks",
     "packages/dsh-profile"
   ],
   "main": "./out/main/index.js",

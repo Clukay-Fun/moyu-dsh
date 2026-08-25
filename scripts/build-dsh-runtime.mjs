@@ -33,7 +33,8 @@ const MOYU_PLUGINS = {
   '@moyu/dsh-plugin-session-export': 'dsh-plugin-session-export',
   '@moyu/dsh-plugin-image': 'dsh-plugin-image',
   '@moyu/dsh-plugin-pdf': 'dsh-plugin-pdf',
-  '@moyu/dsh-plugin-screenshot': 'dsh-plugin-screenshot'
+  '@moyu/dsh-plugin-screenshot': 'dsh-plugin-screenshot',
+  '@moyu/dsh-plugin-scheduled-tasks': 'dsh-plugin-scheduled-tasks'
 }
 
 const RUNTIME_DEPENDENCIES = {
