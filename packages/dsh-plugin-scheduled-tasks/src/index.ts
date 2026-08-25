@@ -59,6 +59,7 @@ export class ScheduledTasksService extends Service {
   private runs = new Map<string, ScheduledRun[]>()
   private timers = new Map<string, ReturnType<typeof setTimeout>>()
   private handles = new Set<AgentHandle>()
+  private activeRuns = new Map<string, string>()
   private writeChain: Promise<void> = Promise.resolve()
   private storeFile = join(resolveDataDir(), 'store.json')
   ready: Promise<void>
@@ -79,11 +80,39 @@ export class ScheduledTasksService extends Service {
       }
       for (const t of parsed.tasks ?? []) this.tasks.set(t.id, t)
       for (const [taskId, list] of Object.entries(parsed.runs ?? {})) this.runs.set(taskId, list)
+      await this.recover()
       this.rescheduleAll()
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
         this.ctx.logger?.error?.('[moyu-scheduled-tasks] load failed', e)
       }
+    }
+  }
+
+  /**
+   * Reconcile state left by a previous process after restart/reload: any run
+   * still marked `running` can never finish (its agent/handle is gone), so it is
+   * marked interrupted. Active-run tracking is cleared — a fresh process owns
+   * nothing in flight.
+   */
+  private async recover(): Promise<void> {
+    let changed = false
+    for (const runs of this.runs.values()) {
+      for (const run of runs) {
+        if (run.status === 'running') {
+          run.status = 'failed'
+          run.errorCode = 'interrupted'
+          run.errorMessage = 'run interrupted by host restart or reload'
+          run.finishedAt = Date.now()
+          changed = true
+        }
+      }
+    }
+    this.activeRuns.clear()
+    if (changed) {
+      await this.persist().catch((e) =>
+        this.ctx.logger?.error?.('[moyu-scheduled-tasks] recover persist failed', e),
+      )
     }
   }
 
@@ -96,15 +125,17 @@ export class ScheduledTasksService extends Service {
       null,
       2,
     )
-    this.writeChain = this.writeChain
-      .then(async () => {
-        await mkdir(resolveDataDir(), { recursive: true })
-        const tmp = `${this.storeFile}.${randomUUID()}.tmp`
-        await writeFile(tmp, snapshot, 'utf8')
-        await rename(tmp, this.storeFile)
-      })
-      .catch((e) => this.ctx.logger?.error?.('[moyu-scheduled-tasks] persist failed', e))
-    return this.writeChain
+    const write = (async () => {
+      await this.writeChain.catch(() => {})
+      await mkdir(resolveDataDir(), { recursive: true })
+      const tmp = `${this.storeFile}.${randomUUID()}.tmp`
+      await writeFile(tmp, snapshot, 'utf8')
+      await rename(tmp, this.storeFile)
+    })()
+    // Keep the internal chain from rejecting so future writes still proceed,
+    // but return the raw promise so callers observe real failures.
+    this.writeChain = write.catch(() => {})
+    return write
   }
 
   listTasks(): ScheduledTask[] {
@@ -228,8 +259,7 @@ export class ScheduledTasksService extends Service {
     await this.ready
     const task = this.tasks.get(taskId)
     if (!task) throw new Error(`scheduled task not found: ${taskId}`)
-    await this.validateCwd(task.cwd)
-    await this.ensureWorkspace(task)
+    if (this.activeRuns.has(taskId)) throw new Error(`task already running: ${taskId}`)
 
     const runId = randomUUID()
     const run: ScheduledRun = {
@@ -245,6 +275,12 @@ export class ScheduledTasksService extends Service {
     const arr = this.runs.get(taskId) ?? []
     arr.push(run)
     this.runs.set(taskId, arr)
+    // Reserve synchronously (before any await) so a concurrent invocation of the
+    // same task sees the guard and cannot start a second run.
+    this.activeRuns.set(taskId, runId)
+
+    await this.validateCwd(task.cwd)
+    await this.ensureWorkspace(task)
 
     task.lastRunAt = Date.now()
     task.nextRunAt = null
@@ -262,6 +298,7 @@ export class ScheduledTasksService extends Service {
       run.errorCode = 'agent_create_failed'
       run.errorMessage = String((e as Error).message)
       run.finishedAt = Date.now()
+      this.activeRuns.delete(taskId)
       await this.persist()
       throw e
     }
@@ -299,6 +336,7 @@ export class ScheduledTasksService extends Service {
       errorInfo = errorInfo ?? e
     } finally {
       if (typeof offError === 'function') offError()
+      this.activeRuns.delete(taskId)
     }
 
     if (failed) {
@@ -324,15 +362,29 @@ export class ScheduledTasksService extends Service {
   }
 
   async dispose(): Promise<void> {
+    // Mark every in-flight run as interrupted. Iterate `this.runs` (not just
+    // `activeRuns`) so a run started on another microtask tick is still caught.
+    for (const runs of this.runs.values()) {
+      for (const run of runs) {
+        if (run.status === 'running') {
+          run.status = 'failed'
+          run.errorCode = 'interrupted'
+          run.errorMessage = 'run interrupted by plugin unload'
+          run.finishedAt = Date.now()
+        }
+      }
+    }
+    this.activeRuns.clear()
     this.clearAllTimers()
     for (const h of this.handles) await h.dispose().catch(() => {})
     this.handles.clear()
+    await this.persist().catch(() => {})
   }
 }
 
 export function apply(ctx: Context): Promise<void> {
   const svc = new ScheduledTasksService(ctx)
-  ctx.effect(() => () => void svc.dispose())
+  ctx.effect(() => () => svc.dispose())
 
   return svc.ready.then(() => {
     ctx.tools.register(

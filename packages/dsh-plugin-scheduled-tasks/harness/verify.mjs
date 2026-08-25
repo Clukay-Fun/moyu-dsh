@@ -1,5 +1,5 @@
 process.env.MOYU_DSH_HOME = '/tmp/moyu-schedule-verify'
-import { rm, readFile } from 'node:fs/promises'
+import { rm, readFile, mkdir, writeFile } from 'node:fs/promises'
 import assert from 'node:assert/strict'
 
 const PLUGIN = new URL('../lib/index.mjs', import.meta.url).pathname
@@ -7,6 +7,9 @@ const PLUGIN = new URL('../lib/index.mjs', import.meta.url).pathname
 const captured = []
 const calls = { create: [], followup: [], dispose: [] }
 let shouldFailNext = false
+let blockIdle = false
+let resolveIdle = null
+let effectDisposer = null
 
 function mockAgent(sessionId) {
   const listeners = {}
@@ -27,32 +30,38 @@ function mockAgent(sessionId) {
       }
     },
     whenIdle() {
+      if (blockIdle) return new Promise((r) => { resolveIdle = r })
       return Promise.resolve()
     },
   }
 }
 
-const mockCtx = {
-  reflect: { provide() {} },
-  effect() {
-    return () => {}
-  },
-  agents: {
-    create(options) {
-      calls.create.push(options)
-      return Promise.resolve({
-        agent: mockAgent(options.sessionId),
-        dispose() {
-          calls.dispose.push(options.sessionId)
-          return Promise.resolve()
-        },
-      })
+function makeCtx() {
+  return {
+    reflect: { provide() {} },
+    effect(fn) {
+      effectDisposer = fn()
+      return effectDisposer
     },
-  },
-  sessions: { create() {}, list() { return [] }, get() { return null }, fork() {} },
-  tools: { register(tool) { captured.push(tool) } },
-  logger: { info() {}, warn() {}, error() {}, debug() {} },
+    agents: {
+      create(options) {
+        calls.create.push(options)
+        return Promise.resolve({
+          agent: mockAgent(options.sessionId),
+          dispose() {
+            calls.dispose.push(options.sessionId)
+            return Promise.resolve()
+          },
+        })
+      },
+    },
+    sessions: { create() {}, list() { return [] }, get() { return null }, fork() {} },
+    tools: { register(tool) { captured.push(tool) } },
+    logger: { info() {}, warn() {}, error() {}, debug() {} },
+  }
 }
+
+const mockCtx = makeCtx()
 
 function reset() {
   return rm('/tmp/moyu-schedule-verify', { recursive: true, force: true }).then(() => {
@@ -61,6 +70,8 @@ function reset() {
     calls.followup.length = 0
     calls.dispose.length = 0
     shouldFailNext = false
+    blockIdle = false
+    resolveIdle = null
   })
 }
 
@@ -73,7 +84,6 @@ const createTool = captured.find((t) => t.name === 'moyu_schedule_create')
 assert.ok(runNow && createTool, 'both tools registered after load')
 console.log('PASS: tools registered after load (race fixed)')
 
-// real AgentRegistry.create contract: options object -> Promise<AgentHandle>
 const r1 = await runNow.execute({ title: 't1', prompt: 'hi', cwd: '/tmp' })
 assert.equal(calls.create.length, 1)
 const createArg = calls.create[0]
@@ -90,7 +100,6 @@ assert.equal(store1.runs[r1.taskId][0].sessionId, r1.sessionId, 'run.sessionId p
 assert.equal(store1.runs[r1.taskId][0].status, 'succeeded')
 console.log('PASS: run_now -> create(options)->handle, followup, dispose, status=succeeded, runs persisted')
 
-// failure via agent/error (real event on agent.ctx)
 shouldFailNext = true
 calls.create.length = 0
 calls.followup.length = 0
@@ -102,7 +111,6 @@ const store2 = JSON.parse(await readFile('/tmp/moyu-schedule-verify/scheduled-ta
 assert.equal(store2.runs[r2.taskId][0].status, 'failed', 'failure persisted')
 console.log('PASS: agent/error -> status=failed, persisted (success/failure semantics fixed)')
 
-// invalid cwd rejected
 await assert.rejects(
   () => runNow.execute({ title: 'bad', prompt: 'x', cwd: '/no/such/dir/xyz' }),
   /cwd is not accessible/,
@@ -110,7 +118,6 @@ await assert.rejects(
 )
 console.log('PASS: invalid cwd rejected (validateCwd)')
 
-// segmented timer: far-future must NOT fire immediately
 calls.create.length = 0
 calls.followup.length = 0
 const farFuture = Date.now() + 2_200_000_000
@@ -121,25 +128,22 @@ const store3 = JSON.parse(await readFile('/tmp/moyu-schedule-verify/scheduled-ta
 assert.ok(store3.tasks.find((t) => t.id === r3.taskId && t.nextRunAt === farFuture), 'task kept with future nextRunAt')
 console.log('PASS: far-future timer segmented (no premature execution)')
 
-// near-future timer fires
 const near = Date.now() + 40
 const r4 = await createTool.execute({ title: 'soon', prompt: 'soon', cwd: '/tmp', runAt: near })
 await new Promise((res) => setTimeout(res, 250))
 assert.equal(calls.create.length, 1, 'near-future timer fired')
 console.log('PASS: near-future timer fired -> session created')
 
-// restart survivability
 calls.create.length = 0
 const mod2 = await import(PLUGIN + '?reload=1')
 const svc2captured = []
-const mockCtx2 = { ...mockCtx, effect() { return () => {} }, tools: { register(t) { svc2captured.push(t) } } }
+const mockCtx2 = makeCtx()
 await mod2.apply(mockCtx2)
 const store4 = JSON.parse(await readFile('/tmp/moyu-schedule-verify/scheduled-tasks/store.json', 'utf8'))
 assert.ok(store4.runs[r1.taskId] && store4.runs[r2.taskId], 'runs survive restart (persisted in store.json)')
 assert.equal(Object.keys(store4.runs).length, 3, 'all runs (success+fail+later) present after restart')
 console.log('PASS: tasks + runs survive restart (persistence fixed)')
 
-// runAt must be future
 await assert.rejects(
   () => createTool.execute({ title: 'past', prompt: 'x', cwd: '/tmp', runAt: Date.now() - 1000 }),
   /future timestamp/,
@@ -147,5 +151,56 @@ await assert.rejects(
 )
 console.log('PASS: runAt must be future')
 
-console.log('\nALL SCHEDULE-01 FIX HARNESS CHECKS PASSED (real DSH API contract mocked)')
+// ---- SCHEDULE-02 ----
+const { ScheduledTasksService } = mod
+
+// (1) idempotency: same task cannot run twice concurrently
+const svc = new ScheduledTasksService(mockCtx)
+await svc.ready
+const tIdem = await svc.createTask({ title: 'idem', prompt: 'p', cwd: '/tmp' })
+blockIdle = true
+const a = svc.runTaskNow(tIdem.id)
+await assert.rejects(svc.runTaskNow(tIdem.id), /already running/, 'concurrent same-task run rejected')
+blockIdle = false
+resolveIdle && resolveIdle()
+await a
+console.log('PASS: SCHEDULE-02 idempotency - same task cannot run twice concurrently')
+
+// (2) recovery: stale running run reconciled to interrupted after reload
+await mkdir('/tmp/moyu-schedule-verify2/scheduled-tasks', { recursive: true })
+await writeFile(
+  '/tmp/moyu-schedule-verify2/scheduled-tasks/store.json',
+  JSON.stringify({
+    tasks: [{ id: 't-rec', title: 'r', prompt: 'p', cwd: '/tmp', enabled: false, nextRunAt: null, lastRunAt: null, createdAt: 1, updatedAt: 1 }],
+    runs: { 't-rec': [{ id: 'r-rec', taskId: 't-rec', scheduledFor: 1, startedAt: 1, finishedAt: null, status: 'running', sessionId: null, unread: true }] },
+  }),
+)
+process.env.MOYU_DSH_HOME = '/tmp/moyu-schedule-verify2'
+const modR = await import(PLUGIN + '?rec=1')
+const svcR = new modR.ScheduledTasksService(makeCtx())
+await svcR.ready
+const storeR = JSON.parse(await readFile('/tmp/moyu-schedule-verify2/scheduled-tasks/store.json', 'utf8'))
+assert.equal(storeR.runs['t-rec'][0].status, 'failed', 'running run reconciled to failed')
+assert.equal(storeR.runs['t-rec'][0].errorCode, 'interrupted', 'interrupted errorCode set')
+process.env.MOYU_DSH_HOME = '/tmp/moyu-schedule-verify'
+console.log('PASS: SCHEDULE-02 recovery - stale running run marked interrupted')
+
+// (3) dispose interruption: in-flight run marked interrupted on unload
+const svcD = new ScheduledTasksService(mockCtx)
+await svcD.ready
+const tD = await svcD.createTask({ title: 'disp', prompt: 'p', cwd: '/tmp' })
+blockIdle = true
+const d = svcD.runTaskNow(tD.id)
+// let runTaskNow register the run (it yields at `await this.ready` first)
+await new Promise((r) => setTimeout(r, 20))
+await svcD.dispose()
+const storeD = JSON.parse(await readFile('/tmp/moyu-schedule-verify/scheduled-tasks/store.json', 'utf8'))
+assert.equal(storeD.runs[tD.id][0].status, 'failed', 'dispose marks active run interrupted')
+assert.equal(storeD.runs[tD.id][0].errorCode, 'interrupted')
+blockIdle = false
+resolveIdle && resolveIdle()
+await d.catch(() => {})
+console.log('PASS: SCHEDULE-02 dispose - in-flight run marked interrupted')
+
+console.log('\nALL CHECKS PASSED (SCHEDULE-01 + SCHEDULE-02)')
 process.exit(0)
