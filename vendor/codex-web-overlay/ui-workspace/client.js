@@ -470,7 +470,7 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region \0dsh-css:/Users/clukay/Program/deepseek-harness/packages/client/ui-workspace/src/client/rows/Rows.module.css.mjs
-		const css$3 = ".W1OuRW_projectRow,.W1OuRW_sessionRow{position:relative;cursor:pointer;user-select:none;color:var(--dsw-alias-label-primary);border-radius:8px;align-items:center;gap:6px;padding:0 8px;display:flex;transition:background 120ms ease}.W1OuRW_projectRow:hover,.W1OuRW_sessionRow:hover,.W1OuRW_sessionRow.W1OuRW_selected{background:var(--dsw-alias-interactive-bg-hover)}.W1OuRW_searchResultRow{box-sizing:border-box;cursor:pointer;text-align:left;width:100%;min-height:48px;color:var(--dsw-alias-label-primary);background:0 0;border:none;border-radius:8px;flex-direction:column;align-items:stretch;padding:4px 8px;display:flex}.W1OuRW_searchResultRow:hover,.W1OuRW_searchResultRow.W1OuRW_selected{background:var(--dsw-alias-interactive-bg-hover)}.W1OuRW_searchResultHeading{align-items:center;min-width:0;display:flex}.W1OuRW_searchResultTitle{text-overflow:ellipsis;white-space:nowrap;min-width:0;margin-left:4px;font-size:14px;line-height:20px;overflow:hidden}.W1OuRW_searchResultMeta{align-items:center;gap:6px;min-width:0;margin-left:20px;display:flex}.W1OuRW_searchResultWorkspace,.W1OuRW_searchResultSnippet{text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:17px;overflow:hidden}.W1OuRW_searchResultWorkspace{max-width:40%;color:var(--dsw-alias-label-tertiary);flex:none}.W1OuRW_searchResultSnippet{min-width:0;color:var(--dsw-alias-label-secondary);flex:1}.W1OuRW_projectRow{box-sizing:border-box;align-items:center;height:34px}.W1OuRW_projectRow .W1OuRW_rowActions{height:20px}.W1OuRW_sessionRow{height:32px;animation:W1OuRW_row-in .15s var(--ds-ease-in-out);gap:0}.W1OuRW_sessionRow .W1OuRW_title{margin:0 6px 0 4px}.W1OuRW_flatSessionRowWithoutStatus .W1OuRW_title{margin-left:0}@keyframes W1OuRW_row-in{0%{opacity:0}}.W1OuRW_slot{width:16px;height:20px;color:var(--dsw-alias-label-tertiary);flex:none;justify-content:center;align-items:center;display:inline-flex}.W1OuRW_visuallyHidden{clip:rect(0 0 0 0);white-space:nowrap;width:1px;height:1px;position:absolute;overflow:hidden}.W1OuRW_folderActive{color:var(--dsw-alias-state-business-primary)}.W1OuRW_projectRow .W1OuRW_chevron{display:none}.W1OuRW_projectRow:hover .W1OuRW_chevron{display:inline-flex}.W1OuRW_projectRow:hover .W1OuRW_folder{display:none}.W1OuRW_arrow{transition:transform .15s var(--ds-ease-in-out)}.W1OuRW_arrowOpen{transform:rotate(90deg)}.W1OuRW_projectText{flex-direction:column;flex:1;gap:2px;min-width:0;display:flex}.W1OuRW_title{text-overflow:ellipsis;white-space:nowrap;min-width:0;font-size:14px;line-height:20px;font-weight:400;overflow:hidden}.W1OuRW_titlePinned{font-weight:500}.W1OuRW_titleUnread{font-weight:600}.W1OuRW_pinIndicator{position:absolute;left:2px;top:50%;transform:translateY(-50%);width:2px;height:12px;border-radius:1px;background:var(--dsw-alias-state-business-primary);pointer-events:none}.W1OuRW_renameInput{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-button-elevated-fill);min-width:0;color:inherit;border-radius:4px;outline:none;padding:0 2px;font-size:14px;line-height:20px}.W1OuRW_sessionRow .W1OuRW_title{flex:1}.W1OuRW_meta{text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:20px;overflow:hidden}.W1OuRW_time{color:var(--dsw-alias-label-tertiary);flex:none;font-size:12px;line-height:20px}.W1OuRW_dot{flex:none}.W1OuRW_rowActions{flex:none;align-items:center;gap:4px;display:none}.W1OuRW_projectRow:hover .W1OuRW_rowActions,.W1OuRW_sessionRow:hover .W1OuRW_rowActions,.W1OuRW_projectRow.W1OuRW_menuOpen .W1OuRW_rowActions,.W1OuRW_sessionRow.W1OuRW_menuOpen .W1OuRW_rowActions,.W1OuRW_rowActionsPinned{display:inline-flex}.W1OuRW_sessionRow:hover .W1OuRW_time,.W1OuRW_sessionRow.W1OuRW_menuOpen .W1OuRW_time{display:none}.W1OuRW_projectRow.W1OuRW_menuOpen,.W1OuRW_sessionRow.W1OuRW_menuOpen{background:var(--dsw-alias-interactive-bg-hover)}.W1OuRW_sessionRow.W1OuRW_dropBefore,.W1OuRW_sessionRow.W1OuRW_dropAfter{position:relative}.W1OuRW_sessionRow.W1OuRW_dropBefore:before,.W1OuRW_sessionRow.W1OuRW_dropAfter:after{content:\"\";z-index:1;background:linear-gradient(55deg, transparent calc(50% - 1px), var(--dsw-alias-state-business-primary) calc(50% - 1px) calc(50% + 1px), transparent calc(50% + 1px)) 0 0 / 5px 7px no-repeat, linear-gradient(125deg, transparent calc(50% - 1px), var(--dsw-alias-state-business-primary) calc(50% - 1px) calc(50% + 1px), transparent calc(50% + 1px)) 0 5px / 5px 7px no-repeat, linear-gradient(var(--dsw-alias-state-business-primary) 0 0) 4px 5px / calc(100% - 4px) 2px no-repeat;pointer-events:none;height:12px;position:absolute;left:0;right:4px}.W1OuRW_sessionRow.W1OuRW_dropBefore:before{top:-7px}.W1OuRW_sessionRow.W1OuRW_dropAfter:after{bottom:-7px}.W1OuRW_hoverContent{flex-direction:column;gap:8px;display:flex}.W1OuRW_hoverTitle{color:#fff;overflow-wrap:break-word;font-size:14px;line-height:20px}.W1OuRW_hoverPath{color:#cfd3d6;word-break:break-all;font-size:12px;line-height:16px}.W1OuRW_hoverTime{color:#cfd3d6;font-size:12px;line-height:16px}.W1OuRW_hoverStatus{color:#adb2b8;align-items:center;gap:8px;font-size:12px;line-height:20px;display:flex}.W1OuRW_iconButton{cursor:pointer;width:16px;height:16px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex;transition:color 120ms ease, opacity 120ms ease, transform 120ms ease}.W1OuRW_iconButton:hover{color:var(--dsw-alias-label-primary)}.W1OuRW_iconButton:active{transform:scale(.97)}.W1OuRW_iconButtonActive{color:var(--dsw-alias-state-business-primary)}.W1OuRW_archiveButtonPinned{opacity:0;pointer-events:none;transition:opacity 120ms ease}.W1OuRW_sessionRow:hover .W1OuRW_archiveButtonPinned,.W1OuRW_sessionRow.W1OuRW_menuOpen .W1OuRW_archiveButtonPinned{opacity:1;pointer-events:auto}.W1OuRW_pinButtonPinned{color:var(--dsw-alias-state-business-primary);opacity:0.85}.W1OuRW_pinButtonPinned:hover{color:var(--dsw-alias-state-business-primary);opacity:1}.W1OuRW_unreadDot{background:var(--dsw-alias-state-business-primary);vertical-align:middle;border-radius:50%;flex:none;width:6px;height:6px;margin-left:6px;display:inline-block}.W1OuRW_chevron{color:var(--dsw-alias-label-caption)}@media (prefers-reduced-motion:reduce){.W1OuRW_sessionRow,.W1OuRW_arrow,.W1OuRW_iconButton,.W1OuRW_archiveButtonPinned{transition:none!important;animation:none!important}}";
+		const css$3 = ".W1OuRW_projectRow,.W1OuRW_sessionRow{position:relative;cursor:pointer;user-select:none;color:var(--dsw-alias-label-primary);border-radius:8px;align-items:center;gap:6px;padding:0 0 0 8px;display:flex;transition:background 120ms ease}.W1OuRW_projectRow:hover,.W1OuRW_sessionRow:hover,.W1OuRW_sessionRow.W1OuRW_selected{background:var(--dsw-alias-interactive-bg-hover)}.W1OuRW_searchResultRow{box-sizing:border-box;cursor:pointer;text-align:left;width:100%;min-height:48px;color:var(--dsw-alias-label-primary);background:0 0;border:none;border-radius:8px;flex-direction:column;align-items:stretch;padding:4px 8px;display:flex}.W1OuRW_searchResultRow:hover,.W1OuRW_searchResultRow.W1OuRW_selected{background:var(--dsw-alias-interactive-bg-hover)}.W1OuRW_searchResultHeading{align-items:center;min-width:0;display:flex}.W1OuRW_searchResultTitle{text-overflow:ellipsis;white-space:nowrap;min-width:0;margin-left:4px;font-size:14px;line-height:20px;overflow:hidden}.W1OuRW_searchResultMeta{align-items:center;gap:6px;min-width:0;margin-left:20px;display:flex}.W1OuRW_searchResultWorkspace,.W1OuRW_searchResultSnippet{text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:17px;overflow:hidden}.W1OuRW_searchResultWorkspace{max-width:40%;color:var(--dsw-alias-label-tertiary);flex:none}.W1OuRW_searchResultSnippet{min-width:0;color:var(--dsw-alias-label-secondary);flex:1}.W1OuRW_projectRow{box-sizing:border-box;align-items:center;height:34px}.W1OuRW_projectRow .W1OuRW_rowActions{height:20px}.W1OuRW_sessionRow{height:32px;animation:W1OuRW_row-in .15s var(--ds-ease-in-out);gap:0}.W1OuRW_sessionRow .W1OuRW_title{margin:0 6px 0 4px}.W1OuRW_flatSessionRowWithoutStatus .W1OuRW_title{margin-left:0}@keyframes W1OuRW_row-in{0%{opacity:0}}.W1OuRW_slot{width:16px;height:20px;color:var(--dsw-alias-label-tertiary);flex:none;justify-content:center;align-items:center;display:inline-flex}.W1OuRW_visuallyHidden{clip:rect(0 0 0 0);white-space:nowrap;width:1px;height:1px;position:absolute;overflow:hidden}.W1OuRW_folderActive{color:var(--dsw-alias-state-business-primary)}.W1OuRW_projectRow .W1OuRW_chevron{display:none}.W1OuRW_projectRow:hover .W1OuRW_chevron{display:inline-flex}.W1OuRW_projectRow:hover .W1OuRW_folder{display:none}.W1OuRW_arrow{transition:transform .15s var(--ds-ease-in-out)}.W1OuRW_arrowOpen{transform:rotate(90deg)}.W1OuRW_projectText{flex-direction:column;flex:1;gap:2px;min-width:0;display:flex}.W1OuRW_title{text-overflow:ellipsis;white-space:nowrap;min-width:0;font-size:14px;line-height:20px;font-weight:400;overflow:hidden}.W1OuRW_titlePinned{font-weight:500}.W1OuRW_titleUnread{font-weight:600}.W1OuRW_pinIndicator{position:absolute;left:2px;top:50%;transform:translateY(-50%);width:2px;height:12px;border-radius:1px;background:var(--dsw-alias-state-business-primary);pointer-events:none}.W1OuRW_renameInput{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-button-elevated-fill);min-width:0;color:inherit;border-radius:4px;outline:none;padding:0 2px;font-size:14px;line-height:20px}.W1OuRW_sessionRow .W1OuRW_title{flex:1}.W1OuRW_meta{text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:20px;overflow:hidden}.W1OuRW_time{color:var(--dsw-alias-label-tertiary);flex:none;font-size:12px;line-height:20px}.W1OuRW_dot{flex:none}.W1OuRW_rowActions{flex:none;align-items:center;gap:12px;display:none}.W1OuRW_projectRow:hover .W1OuRW_rowActions,.W1OuRW_sessionRow:hover .W1OuRW_rowActions,.W1OuRW_projectRow.W1OuRW_menuOpen .W1OuRW_rowActions,.W1OuRW_sessionRow.W1OuRW_menuOpen .W1OuRW_rowActions,.W1OuRW_rowActionsPinned{display:inline-flex}.W1OuRW_sessionRow:hover .W1OuRW_time,.W1OuRW_sessionRow.W1OuRW_menuOpen .W1OuRW_time{display:none}.W1OuRW_projectRow.W1OuRW_menuOpen,.W1OuRW_sessionRow.W1OuRW_menuOpen{background:var(--dsw-alias-interactive-bg-hover)}.W1OuRW_sessionRow.W1OuRW_dropBefore,.W1OuRW_sessionRow.W1OuRW_dropAfter{position:relative}.W1OuRW_sessionRow.W1OuRW_dropBefore:before,.W1OuRW_sessionRow.W1OuRW_dropAfter:after{content:\"\";z-index:1;background:linear-gradient(55deg, transparent calc(50% - 1px), var(--dsw-alias-state-business-primary) calc(50% - 1px) calc(50% + 1px), transparent calc(50% + 1px)) 0 0 / 5px 7px no-repeat, linear-gradient(125deg, transparent calc(50% - 1px), var(--dsw-alias-state-business-primary) calc(50% - 1px) calc(50% + 1px), transparent calc(50% + 1px)) 0 5px / 5px 7px no-repeat, linear-gradient(var(--dsw-alias-state-business-primary) 0 0) 4px 5px / calc(100% - 4px) 2px no-repeat;pointer-events:none;height:12px;position:absolute;left:0;right:4px}.W1OuRW_sessionRow.W1OuRW_dropBefore:before{top:-7px}.W1OuRW_sessionRow.W1OuRW_dropAfter:after{bottom:-7px}.W1OuRW_hoverContent{flex-direction:column;gap:8px;display:flex}.W1OuRW_hoverTitle{color:#fff;overflow-wrap:break-word;font-size:14px;line-height:20px}.W1OuRW_hoverPath{color:#cfd3d6;word-break:break-all;font-size:12px;line-height:16px}.W1OuRW_hoverTime{color:#cfd3d6;font-size:12px;line-height:16px}.W1OuRW_hoverStatus{color:#adb2b8;align-items:center;gap:8px;font-size:12px;line-height:20px;display:flex}.W1OuRW_iconButton{cursor:pointer;width:16px;height:16px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex;transition:color 120ms ease, opacity 120ms ease, transform 120ms ease}.W1OuRW_iconButton:hover{color:var(--dsw-alias-label-primary)}.W1OuRW_iconButton:active{transform:scale(.97)}.W1OuRW_iconButtonActive{color:var(--dsw-alias-state-business-primary)}.W1OuRW_pinButtonPinned{color:var(--dsw-alias-state-business-primary);opacity:0.85}.W1OuRW_pinButtonPinned:hover{color:var(--dsw-alias-state-business-primary);opacity:1}.W1OuRW_unreadDot{background:var(--dsw-alias-state-business-primary);vertical-align:middle;border-radius:50%;flex:none;width:6px;height:6px;margin-left:6px;display:inline-block}.W1OuRW_chevron{color:var(--dsw-alias-label-caption)}@media (prefers-reduced-motion:reduce){.W1OuRW_sessionRow,.W1OuRW_arrow,.W1OuRW_iconButton{transition:none!important;animation:none!important}}";
 		const tagId$3 = "@deepseek-ai/dsh-client-ui-workspace/Rows.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$3) + "]") === null) {
 			const tag = document.createElement("style");
@@ -481,7 +481,6 @@ window.__ModuleLoader__.load({
 		}
 		var Rows_module_css_default = {
 			"archiveButton": "W1OuRW_archiveButton",
-			"archiveButtonPinned": "W1OuRW_archiveButtonPinned",
 			"arrow": "W1OuRW_arrow",
 			"arrowOpen": "W1OuRW_arrowOpen",
 			"chevron": "W1OuRW_chevron",
@@ -965,35 +964,46 @@ window.__ModuleLoader__.load({
 								"aria-label": t("unread.label")
 							})]
 						}),
-						!row.blank && !pinned && (0, react_jsx_runtime.jsx)("span", {
-							className: Rows_module_css_default.time,
-							children: timeLabel(row.updatedAt, now, t)
-						}),
 						!row.blank && (0, react_jsx_runtime.jsxs)("span", {
 							className: clsx(Rows_module_css_default.rowActions, pinned && Rows_module_css_default.rowActionsPinned),
 							children: [
-								(0, react_jsx_runtime.jsx)("button", {
+								pinned ? (0, react_jsx_runtime.jsx)("button", {
 									type: "button",
-									className: clsx(Rows_module_css_default.iconButton, Rows_module_css_default.archiveButton, pinned && Rows_module_css_default.archiveButtonPinned),
-									"aria-label": t("menu.archiveSession.aria", { name: title }),
-									title: t("menu.archiveSession"),
-									onClick: (e) => {
-										e.stopPropagation();
-										onArchive(node.id);
-									},
-									children: (0, react_jsx_runtime.jsx)(moyuArchive, { size: 16 })
-								}),
-								(0, react_jsx_runtime.jsx)("button", {
-									type: "button",
-									className: clsx(Rows_module_css_default.iconButton, Rows_module_css_default.pinButton, pinned && Rows_module_css_default.pinButtonPinned),
-									"aria-label": pinned ? t("pin.remove.aria", { name: title }) : t("pin.add.aria", { name: title }),
-									"aria-pressed": pinned,
-									title: pinned ? t("pin.remove") : t("pin.add"),
+									className: clsx(Rows_module_css_default.iconButton, Rows_module_css_default.pinButton, Rows_module_css_default.pinButtonPinned),
+									"aria-label": t("pin.remove.aria", { name: title }),
+									"aria-pressed": true,
+									title: t("pin.remove"),
 									onClick: (e) => {
 										e.stopPropagation();
 										onTogglePin?.(node.id);
 									},
 									children: (0, react_jsx_runtime.jsx)(PinIcon, { off: false })
+								}) : (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, {
+									children: [
+										(0, react_jsx_runtime.jsx)("button", {
+											type: "button",
+											className: clsx(Rows_module_css_default.iconButton, Rows_module_css_default.pinButton),
+											"aria-label": t("pin.add.aria", { name: title }),
+											"aria-pressed": false,
+											title: t("pin.add"),
+											onClick: (e) => {
+												e.stopPropagation();
+												onTogglePin?.(node.id);
+											},
+											children: (0, react_jsx_runtime.jsx)(PinIcon, { off: false })
+										}),
+										(0, react_jsx_runtime.jsx)("button", {
+											type: "button",
+											className: clsx(Rows_module_css_default.iconButton, Rows_module_css_default.archiveButton),
+											"aria-label": t("menu.archiveSession.aria", { name: title }),
+											title: t("menu.archiveSession"),
+											onClick: (e) => {
+												e.stopPropagation();
+												onArchive(node.id);
+											},
+											children: (0, react_jsx_runtime.jsx)(moyuArchive, { size: 16 })
+										})
+									]
 								}),
 								(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Menu, {
 									open: menuOpen,
