@@ -1,5 +1,6 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { Service } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-host-webserver'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
@@ -8,11 +9,81 @@ import { randomUUID } from 'node:crypto'
 import { isAbsolute } from 'node:path'
 import { realpathSync, statSync } from 'node:fs'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { homedir } from 'node:os'
 
 export const name = 'moyu-scheduled-tasks'
-export const inject = ['agents', 'sessions', 'tools']
+export const inject = ['agents', 'sessions', 'tools', 'webServer']
+
+const MAX_BODY_BYTES = 16 * 1024
+const SUPPORTED_OPERATIONS = new Set(['list', 'runs'])
+
+/** Folder name only — a non-sensitive display label, never a full path. */
+function workspaceLabel(cwd: string): string {
+  try {
+    return basename(cwd)
+  } catch {
+    return 'workspace'
+  }
+}
+
+function sanitizeError(error: unknown): string {
+  const message = String((error as { message?: string })?.message || error || 'request failed')
+    .replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/i, '')
+    .replace(/\/Users\/[^ "'\n]+/g, '[path]')
+    .replace(/[A-Z]:\\[^ "'\n]+/g, '[path]')
+    .slice(0, 240)
+  return message
+}
+
+function sendJson(res: { writeHead(status: number, headers: Record<string, string>): void; end(body: string): void }, status: number, value: unknown): void {
+  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
+  res.end(JSON.stringify(value))
+}
+
+function readBody(req: NodeJS.ReadableStream & Partial<{ method: string }>, limit = MAX_BODY_BYTES): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = []
+    let size = 0
+    const onData = (chunk: Buffer | string) => {
+      const data = Buffer.from(chunk)
+      size += data.length
+      if (size > limit) {
+        reject(new Error('request body too large'))
+        return
+      }
+      chunks.push(data)
+    }
+    const onEnd = () => {
+      try {
+        const raw = Buffer.concat(chunks).toString('utf8')
+        resolve(raw.length ? JSON.parse(raw) : {})
+      } catch (e) {
+        reject(e)
+      }
+    }
+    const stream = req as unknown as {
+      on?: (ev: string, cb: (chunk?: unknown) => void) => void
+      [Symbol.asyncIterator]?: () => AsyncIterableIterator<Buffer>
+    }
+    if (stream.on) {
+      stream.on('data', onData as (chunk: unknown) => void)
+      stream.on('end', onEnd)
+      stream.on('error', reject)
+    } else if (stream[Symbol.asyncIterator]) {
+      void (async () => {
+        try {
+          for await (const chunk of stream[Symbol.asyncIterator]!()) onData(chunk)
+          onEnd()
+        } catch (e) {
+          reject(e)
+        }
+      })()
+    } else {
+      resolve({})
+    }
+  })
+}
 
 const PLUGIN_ID = 'moyu-scheduled-tasks'
 const PLUGIN_NAME = '@moyu/dsh-plugin-scheduled-tasks'
@@ -34,6 +105,32 @@ export interface ScheduledTask {
 export type RunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'missed' | 'cancelled'
 
 export interface ScheduledRun {
+  id: string
+  taskId: string
+  scheduledFor: number
+  startedAt: number | null
+  finishedAt: number | null
+  status: RunStatus
+  sessionId: string | null
+  unread: boolean
+  errorCode?: string
+  errorMessage?: string
+}
+
+// Safe DTOs returned to the Client. Never include cwd, the full prompt,
+// internal file paths, AgentHandle or Host objects.
+export interface TaskSummary {
+  id: string
+  title: string
+  workspaceId: string
+  enabled: boolean
+  nextRunAt: number | null
+  lastRunAt: number | null
+  lastRunStatus: RunStatus | null
+  unreadCount: number
+}
+
+export interface RunSummary {
   id: string
   taskId: string
   scheduledFor: number
@@ -156,6 +253,41 @@ export class ScheduledTasksService extends Service {
 
   listRuns(taskId: string): ScheduledRun[] {
     return this.runs.get(taskId) ?? []
+  }
+
+  /** Client-safe projection of all tasks (no cwd / prompt / handles). */
+  listTaskSummaries(): TaskSummary[] {
+    return [...this.tasks.values()].map((t) => {
+      const runs = this.runs.get(t.id) ?? []
+      const last = runs.length ? runs[runs.length - 1] : undefined
+      return {
+        id: t.id,
+        title: t.title,
+        workspaceId: t.workspaceId ?? workspaceLabel(t.cwd),
+        enabled: t.enabled,
+        nextRunAt: t.nextRunAt,
+        lastRunAt: t.lastRunAt,
+        lastRunStatus: last ? last.status : null,
+        unreadCount: runs.filter((r) => r.unread).length,
+      }
+    })
+  }
+
+  /** Client-safe projection of one task's runs (no cwd / prompt / handles). */
+  getRunSummaries(taskId: string): RunSummary[] {
+    return (this.runs.get(taskId) ?? []).map((r) => ({
+      id: r.id,
+      taskId: r.taskId,
+      scheduledFor: r.scheduledFor,
+      startedAt: r.startedAt,
+      finishedAt: r.finishedAt,
+      status: r.status,
+      sessionId: r.sessionId,
+      unread: r.unread,
+      ...(r.status === 'failed' && r.errorCode
+        ? { errorCode: r.errorCode, errorMessage: r.errorMessage }
+        : {}),
+    }))
   }
 
   async createTask(input: {
@@ -413,6 +545,52 @@ export class ScheduledTasksService extends Service {
 export function apply(ctx: Context): Promise<void> {
   const svc = new ScheduledTasksService(ctx)
   ctx.effect(() => () => svc.dispose())
+
+  // Read-only query bridge (A'): same-origin fetch from the Client hits this
+  // exact route and calls the SAME ScheduledTasksService instance as the Tools.
+  ctx.effect(() =>
+    ctx.webServer.register({
+      kind: 'exact',
+      path: '/moyu/scheduled-tasks',
+      handler: async (req, res) => {
+        if (req.method !== 'POST') {
+          sendJson(res, 405, { error: 'method not allowed' })
+          return
+        }
+        let body: unknown
+        try {
+          body = await readBody(req)
+        } catch {
+          sendJson(res, 400, { error: 'request body must be valid JSON and <= 16KB' })
+          return
+        }
+        const operation = (body as { operation?: unknown }).operation
+        if (typeof operation !== 'string' || !SUPPORTED_OPERATIONS.has(operation)) {
+          sendJson(res, 400, { error: 'operation must be "list" or "runs"' })
+          return
+        }
+        try {
+          await svc.ready
+          if (operation === 'runs') {
+            const taskId = (body as { taskId?: unknown }).taskId
+            if (typeof taskId !== 'string' || taskId.length === 0 || taskId.length > 128) {
+              sendJson(res, 400, { error: 'taskId must be a non-empty string <= 128 chars' })
+              return
+            }
+            if (!svc.getTask(taskId)) {
+              sendJson(res, 404, { error: 'task not found' })
+              return
+            }
+            sendJson(res, 200, { runs: svc.getRunSummaries(taskId) })
+            return
+          }
+          sendJson(res, 200, { tasks: svc.listTaskSummaries() })
+        } catch (e) {
+          sendJson(res, 500, { error: sanitizeError(e) })
+        }
+      },
+    }),
+  )
 
   return svc.ready.then(() => {
     ctx.tools.register(

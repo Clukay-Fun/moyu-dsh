@@ -7,7 +7,14 @@
   "types": "./lib/index.d.ts",
   "exports": {
     ".": "./lib/index.mjs",
+    "./client": "./lib/client.js",
     "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "inject": ["slots"],
+      "platform": "web"
+    }
   },
   "scripts": {
     "build": "tsdown",
@@ -23,6 +30,11 @@
     "@deepseek-ai/dsh-tools": "0.1.1-rc.2"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-client-runtime": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-conversation": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-slots": "0.1.1-rc.2",
+    "@types/react": "18.2.79",
+    "react": "18.2.0",
     "tsdown": "0.22.14",
     "typescript": "5.9.2"
   }

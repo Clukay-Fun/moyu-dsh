@@ -5,6 +5,7 @@ import assert from 'node:assert/strict'
 const PLUGIN = new URL('../lib/index.mjs', import.meta.url).pathname
 
 const captured = []
+let capturedRoute = null
 const calls = { create: [], followup: [], dispose: [] }
 let shouldFailNext = false
 let blockIdle = false
@@ -57,6 +58,7 @@ function makeCtx() {
     },
     sessions: { create() {}, list() { return [] }, get() { return null }, fork() {} },
     tools: { register(tool) { captured.push(tool) } },
+    webServer: { register(route) { capturedRoute = route; return () => {} } },
     logger: { info() {}, warn() {}, error() {}, debug() {} },
   }
 }
@@ -239,4 +241,68 @@ await assert.rejects(
 console.log('PASS: SCHEDULE-02 validation failure converges (no stuck running)')
 
 console.log('\nALL CHECKS PASSED (SCHEDULE-01 + SCHEDULE-02)')
+
+// ---- SCHEDULE-03: Host query route (A' pattern) ----
+const verifyRoute = '/tmp/moyu-schedule-verify-route'
+await mkdir(verifyRoute + '/scheduled-tasks', { recursive: true })
+await writeFile(
+  verifyRoute + '/scheduled-tasks/store.json',
+  JSON.stringify({
+    tasks: [{ id: 't1', title: 'route-task', prompt: 'secret-prompt', cwd: '/Users/clukay/secret', enabled: true, nextRunAt: null, lastRunAt: 7, createdAt: 1, updatedAt: 1 }],
+    runs: { t1: [{ id: 'r1', taskId: 't1', scheduledFor: 1, startedAt: 1, finishedAt: 2, status: 'succeeded', sessionId: 'sess-1', unread: false }] },
+  }),
+)
+process.env.MOYU_DSH_HOME = verifyRoute
+capturedRoute = null
+await mod.apply(makeCtx())
+assert.ok(capturedRoute, 'route registered via ctx.webServer.register')
+assert.equal(capturedRoute.path, '/moyu/scheduled-tasks')
+assert.equal(capturedRoute.kind, 'exact')
+
+const handler = capturedRoute.handler
+function makeReq(body, method = 'POST') {
+  const buf = Buffer.from(typeof body === 'string' ? body : JSON.stringify(body))
+  return { method, on(ev, cb) { if (ev === 'data') cb(buf); else if (ev === 'end') cb() } }
+}
+function makeRes() {
+  const r = { statusCode: 0, headers: null, body: '' }
+  r.writeHead = (s, h) => { r.statusCode = s; r.headers = h; return r }
+  r.end = (b) => { r.body = b; return r }
+  return r
+}
+
+let res = makeRes()
+await handler(makeReq({ operation: 'list' }, 'GET'), res)
+assert.equal(res.statusCode, 405, 'non-POST rejected with 405')
+res = makeRes()
+await handler(makeReq({ operation: 'delete' }), res)
+assert.equal(res.statusCode, 400, 'invalid operation rejected with 400')
+res = makeRes()
+await handler(makeReq('x'.repeat(20000)), res)
+assert.equal(res.statusCode, 400, 'oversized body rejected')
+res = makeRes()
+await handler(makeReq({ operation: 'runs', taskId: 'nope' }), res)
+assert.equal(res.statusCode, 404, 'unknown taskId rejected with 404')
+res = makeRes()
+await handler(makeReq({ operation: 'runs', taskId: '' }), res)
+assert.equal(res.statusCode, 400, 'empty taskId rejected with 400')
+res = makeRes()
+await handler(makeReq({ operation: 'list' }), res)
+assert.equal(res.statusCode, 200, 'list ok')
+const list = JSON.parse(res.body)
+assert.equal(list.tasks.length, 1, 'list returns one task')
+assert.equal(list.tasks[0].workspaceId, 'secret', 'workspaceId projected as basename(cwd), not cwd')
+assert.equal('cwd' in list.tasks[0], false, 'cwd not leaked in DTO')
+assert.equal('prompt' in list.tasks[0], false, 'prompt not leaked in DTO')
+assert.equal(list.tasks[0].lastRunStatus, 'succeeded', 'lastRunStatus present')
+res = makeRes()
+await handler(makeReq({ operation: 'runs', taskId: 't1' }), res)
+assert.equal(res.statusCode, 200, 'runs ok')
+const runsBody = JSON.parse(res.body)
+assert.equal(runsBody.runs.length, 1, 'runs returns one run')
+assert.equal(runsBody.runs[0].sessionId, 'sess-1', 'sessionId present for click-to-open')
+assert.equal('errorCode' in runsBody.runs[0], false, 'no errorCode on succeeded run')
+console.log('PASS: SCHEDULE-03 Host query route (A\' pattern) - list/runs + rejection + safe DTO')
+
+console.log('\nALL CHECKS PASSED (SCHEDULE-01 + SCHEDULE-02 + SCHEDULE-03 route)')
 process.exit(0)
