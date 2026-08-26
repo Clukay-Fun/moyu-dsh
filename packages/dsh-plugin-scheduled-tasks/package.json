@@ -12,7 +12,7 @@
   },
   "dsh": {
     "client": {
-      "inject": ["slots"],
+      "inject": ["slots", "sessions"],
       "platform": "web"
     }
   },
@@ -20,7 +20,7 @@
     "build": "tsdown",
     "bundle": "tsdown",
     "typecheck": "tsc --noEmit",
-    "verify": "tsc --noEmit && node harness/verify.mjs"
+    "verify": "tsc --noEmit && node harness/verify.mjs && node harness/verify-client.mjs"
   },
   "dependencies": {
     "@deepseek-ai/cordis": "4.0.1",

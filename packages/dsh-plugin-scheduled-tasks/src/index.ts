@@ -686,4 +686,4 @@ export function apply(ctx: Context): Promise<void> {
   })
 }
 
-export default { name: PLUGIN_ID, inject: ['agents', 'sessions', 'tools'], apply }
+export default { name: PLUGIN_ID, inject: ['agents', 'sessions', 'tools', 'webServer'], apply }

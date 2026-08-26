@@ -1,4 +1,4 @@
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation'
 import React from 'react'
@@ -78,6 +78,15 @@ function ScheduledTasksPanel(props: { openSession: (sessionId: string) => void }
   const [selected, setSelected] = React.useState<string | null>(null)
   const [runs, setRuns] = React.useState<RunSummary[] | null>(null)
   const [runsError, setRunsError] = React.useState<string | null>(null)
+  const [sessionError, setSessionError] = React.useState<string | null>(null)
+  const onOpen = (sessionId: string): void => {
+    try {
+      props.openSession(sessionId)
+      setSessionError(null)
+    } catch (e) {
+      setSessionError(e instanceof Error ? e.message : String(e))
+    }
+  }
 
   React.useEffect(() => {
     let alive = true
@@ -207,7 +216,7 @@ function ScheduledTasksPanel(props: { openSession: (sessionId: string) => void }
                   'button',
                   {
                     type: 'button',
-                    onClick: () => props.openSession(r.sessionId as string),
+                    onClick: () => onOpen(r.sessionId as string),
                     style: {
                       border: '1px solid rgba(127,127,127,0.4)',
                       borderRadius: 8,
@@ -232,7 +241,16 @@ function ScheduledTasksPanel(props: { openSession: (sessionId: string) => void }
     )
   }
 
-  return React.createElement('section', { style: wrapStyle }, React.createElement('h3', { style: hStyle }, '安排任务'), body, runsBlock)
+  return React.createElement(
+    'section',
+    { style: wrapStyle },
+    React.createElement('h3', { style: hStyle }, '安排任务'),
+    sessionError
+      ? React.createElement('div', { style: { color: '#c62828', padding: '8px 0' } }, `打开会话失败：${sessionError}`)
+      : null,
+    body,
+    runsBlock,
+  )
 }
 
 export const name = 'moyu-scheduled-tasks-client'
@@ -240,11 +258,7 @@ export const inject = ['slots', 'sessions']
 
 export function apply(ctx: ClientContext): void {
   const openSession = (sessionId: string): void => {
-    try {
-      ;(ctx as unknown as { sessions?: { open(id: string): void } }).sessions?.open(sessionId)
-    } catch {
-      /* session may already be gone; ignore */
-    }
+    ctx.sessions.open(sessionId as SessionId)
   }
   ctx.slots.inject('conversation.view' as never, () =>
     ctx.slots.register(
