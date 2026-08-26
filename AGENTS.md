@@ -21,6 +21,11 @@ DSH Web UI 是唯一主界面，运行在本地 DSH origin 上。DSH Host 使用
 技术与范围以本机 `scope/README.md`、`scope/plans/README.md` 及当前活动子计划为准。
 `scope/` 是本地开发依据，不纳入 Git。
 
+上述范围定稿（图片转换、PDF、截图三项）约束的是 `dev`/`main` 与正式发布路径。实验分支
+（如 `experiment/*`）允许探索范围外的功能，但探索期间也要在本机
+`scope/plans/active/` 留一份对应计划文档；合并回 `dev` 前必须先补一次范围决策，
+不得直接把范围外功能带入主线。
+
 ## 工作规则
 
 1. 修改前运行 `git status --short --branch`，保留已有改动。
