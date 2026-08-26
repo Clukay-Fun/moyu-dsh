@@ -39,13 +39,15 @@ changed += patchFile("dsh-web-frontend/dist/manifest.webmanifest", (t) =>
    .replace(/"short_name":\s*"DeepSeek Harness"/g, '"short_name": "MOYU"')
 );
 
-// 2. Welcome-notice copy (first-launch internal-testing notice) -> blanked
+// 2. Welcome-notice (first-launch internal-testing notice): blank copy AND
+//    deregister the onboarding step so the modal never mounts in MOYU.
 changed += patchFile("dsh-client-ui-settings-models/lib/client.js", (t) =>
   t
     .replace(/title:\s*"内测声明"/g, 'title: ""')
     .replace(/title:\s*"Internal Testing Notice"/g, 'title: ""')
     .replace(/body:\s*"DeepSeek Harness 目前的 0\.1 版本[^"]*"/g, 'body: ""')
     .replace(/body:\s*"DeepSeek Harness 0\.1 remains[^"]*"/g, 'body: ""')
+    .replace(/ctx\.slots\.inject\("settings\.onboarding",\s*\(\s*\)\s*=>\s*ctx\.slots\.register\(\{\s*name:\s*"settings\.onboarding",\s*id:\s*"welcome-notice"[\s\S]*?WelcomeNotice\)\);/g, "/* MOYU: 内测声明弹窗已移除 */")
 );
 
 // 3. Tool/env description referencing the DSH Web GUI
