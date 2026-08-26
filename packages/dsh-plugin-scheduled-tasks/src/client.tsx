@@ -115,6 +115,30 @@ const WEEKDAY_OPTIONS = [
   { value: 6, label: '周六' },
 ]
 
+// Scoped CSS so button sizing / hover / focus / danger states are consistent
+// without touching the host page's global styles.
+const STYLE = `
+.moyu-st-btn { font: inherit; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border, #ccd); background: var(--bg, #fff); color: var(--fg, #111); cursor: pointer; }
+.moyu-st-btn:hover:not(:disabled) { background: var(--hover, #f0f0f0); }
+.moyu-st-btn:focus-visible { outline: 2px solid var(--accent, #3b82f6); outline-offset: 1px; }
+.moyu-st-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.moyu-st-btn.moyu-st-danger { color: var(--danger, #c0392b); border-color: var(--danger, #c0392b); }
+.moyu-st-btn.moyu-st-danger:hover:not(:disabled) { background: var(--danger-weak, #fdecea); }
+.moyu-st-title { word-break: break-word; overflow-wrap: anywhere; }
+.moyu-st-err { color: var(--danger, #c0392b); word-break: break-word; overflow-wrap: anywhere; white-space: pre-wrap; }
+`
+function btn(
+  label: string,
+  onClick: () => void,
+  opts: { danger?: boolean; disabled?: boolean } = {},
+): React.ReactElement {
+  const cls = 'moyu-st-btn' + (opts.danger ? ' moyu-st-danger' : '')
+  return React.createElement('button', { className: cls, disabled: Boolean(opts.disabled), onClick }, label)
+}
+function tzOf(spec: ScheduleSpec): string {
+  return spec.kind === 'recurring' ? spec.timeZone : detectTimeZone()
+}
+
 function field(label: string, control: React.ReactNode): React.ReactNode {
   return React.createElement(
     'label',
@@ -290,7 +314,7 @@ function EditorModal(props: {
         ? React.createElement(
             'div',
             { style: { fontSize: 12, opacity: 0.7, margin: '4px 0 8px' } },
-            `下次运行：${nextRun ? fmtTime(nextRun) : '时间无效'}`,
+            `下次运行：${nextRun ? fmtTime(nextRun) : '时间无效'}${nextRun && previewSpec ? `（${tzOf(previewSpec)}）` : ''}`,
           )
         : null,
       React.createElement(
@@ -306,9 +330,9 @@ function EditorModal(props: {
       React.createElement(
         'div',
         { style: { marginTop: 12, display: 'flex', gap: 8 } },
-        React.createElement('button', { onClick: () => props.onSave(draft) }, '保存'),
-        React.createElement('button', { onClick: () => props.onRunNow(draft) }, '保存并立即运行'),
-        React.createElement('button', { onClick: props.onCancel }, '取消'),
+        btn('保存', () => props.onSave(draft)),
+        btn('保存并立即运行', () => props.onRunNow(draft)),
+        btn('取消', () => props.onCancel()),
       ),
     ),
   )
@@ -560,19 +584,11 @@ function ScheduledTasksPanel(props: {
 
   const rows = (tasks || []).map((t) => {
     const actions: React.ReactNode[] = [
-      React.createElement('button', { key: 'run', onClick: () => void runTask(t.id) }, '立即运行'),
-      React.createElement('button', { key: 'edit', onClick: () => void openEditor(t.id) }, '编辑'),
-      React.createElement(
-        'button',
-        { key: 'pause', onClick: () => void togglePause(t.id, t.enabled) },
-        t.enabled && t.nextRunAt ? '暂停' : '恢复',
-      ),
-      React.createElement('button', { key: 'del', onClick: () => setConfirmDelete(t.id) }, '删除'),
-      React.createElement(
-        'button',
-        { key: 'expand', onClick: () => setSelected(selected === t.id ? null : t.id) },
-        selected === t.id ? '收起运行' : '运行历史',
-      ),
+      btn('立即运行', () => void runTask(t.id), { disabled: t.running }),
+      btn('编辑', () => void openEditor(t.id)),
+      btn(t.enabled && t.nextRunAt ? '暂停' : '恢复', () => void togglePause(t.id, t.enabled)),
+      btn('删除', () => setConfirmDelete(t.id), { danger: true }),
+      btn(selected === t.id ? '收起运行' : '运行历史', () => setSelected(selected === t.id ? null : t.id)),
     ]
     return React.createElement(
       'li',
@@ -580,13 +596,13 @@ function ScheduledTasksPanel(props: {
       React.createElement(
         'div',
         { style: { display: 'flex', justifyContent: 'space-between', gap: 8 } },
-        React.createElement('strong', null, t.title),
-        React.createElement('span', { style: { fontSize: 12, opacity: 0.7 } }, taskStateLabel(t)),
+        React.createElement('strong', { className: 'moyu-st-title' }, t.title),
+        React.createElement('span', { style: { fontSize: 12, opacity: 0.7, whiteSpace: 'nowrap' } }, taskStateLabel(t)),
       ),
       React.createElement(
         'div',
         { style: { fontSize: 12, opacity: 0.7, marginTop: 2 } },
-        `计划：${describeSchedule(t.schedule)}　下次：${fmtTime(t.nextRunAt)}　上次：${fmtTime(t.lastRunAt)}` +
+        `计划：${describeSchedule(t.schedule)}　下次：${fmtTime(t.nextRunAt)}（${tzOf(t.schedule)}）　上次：${fmtTime(t.lastRunAt)}` +
           (t.lastRunStatus ? `（${t.lastRunStatus}）` : '') +
           (t.unreadCount > 0 ? `　未读：${t.unreadCount}` : ''),
       ),
@@ -596,7 +612,7 @@ function ScheduledTasksPanel(props: {
             'div',
             { style: { marginTop: 8 } },
             runsError
-              ? React.createElement('div', { style: { color: 'var(--danger, #c00)' } }, runsError)
+              ? React.createElement('div', { className: 'moyu-st-err' }, runsError)
               : runs == null
                 ? React.createElement('div', { style: { fontSize: 12, opacity: 0.6 } }, '加载运行记录…')
                 : runs.length === 0
@@ -611,21 +627,15 @@ function ScheduledTasksPanel(props: {
                           `${fmtTime(r.startedAt)} · ${r.status}　`,
                           r.unread ? '（未读）' : '',
                           ' ',
-                          React.createElement(
-                            'button',
-                            { onClick: () => openRun(r.sessionId), disabled: !r.sessionId },
-                            '打开对话',
-                          ),
+                          btn('打开对话', () => openRun(r.sessionId), { disabled: !r.sessionId }),
                           r.unread
                             ? ' '
                             : '',
                           r.unread
-                            ? React.createElement(
-                                'button',
-                                {
-                                  onClick: () => void props.request({ operation: 'mark-run-read', runId: r.runId }).then(() => loadRuns(t.id)),
-                                },
-                                '标记已读',
+                            ? btn('标记已读', () =>
+                                void props
+                                  .request({ operation: 'mark-run-read', runId: r.runId })
+                                  .then(() => loadRuns(t.id)),
                               )
                             : '',
                         ),
@@ -639,15 +649,16 @@ function ScheduledTasksPanel(props: {
   return React.createElement(
     'div',
     { style: { padding: 12, maxWidth: 560 } },
+    React.createElement('style', null, STYLE),
     React.createElement(
       'div',
       { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
       React.createElement('h3', { style: { margin: 0 } }, '安排任务'),
-      React.createElement('button', { onClick: () => void openEditor() }, '新建任务'),
+      btn('新建任务', () => void openEditor()),
     ),
-    error ? React.createElement('div', { style: { color: 'var(--danger, #c00)', marginTop: 8 } }, error) : null,
+    error ? React.createElement('div', { className: 'moyu-st-err', style: { marginTop: 8 } }, error) : null,
     sessionError
-      ? React.createElement('div', { style: { color: 'var(--danger, #c00)', marginTop: 8 } }, `打开对话失败：${sessionError}`)
+      ? React.createElement('div', { className: 'moyu-st-err', style: { marginTop: 8 } }, `打开对话失败：${sessionError}`)
       : null,
     tasks == null
       ? React.createElement('div', { style: { marginTop: 12, opacity: 0.6 } }, '加载中…')
@@ -665,8 +676,8 @@ function ScheduledTasksPanel(props: {
             React.createElement(
               'div',
               { style: { display: 'flex', gap: 8, marginTop: 12 } },
-              React.createElement('button', { onClick: () => void doDelete(confirmDelete) }, '删除'),
-              React.createElement('button', { onClick: () => setConfirmDelete(null) }, '取消'),
+              btn('删除', () => void doDelete(confirmDelete), { danger: true }),
+              btn('取消', () => setConfirmDelete(null)),
             ),
           ),
         )
