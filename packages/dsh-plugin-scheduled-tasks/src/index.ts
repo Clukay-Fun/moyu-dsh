@@ -13,7 +13,7 @@ import { basename, join } from 'node:path'
 import { homedir } from 'node:os'
 
 export const name = 'moyu-scheduled-tasks'
-export const inject = ['agents', 'sessions', 'tools', 'webServer']
+export const inject = ['agents', 'sessions', 'tools', 'webServer', 'workspaceRegistry']
 
 const SUPPORTED_OPERATIONS = new Set([
   'list',
@@ -1026,4 +1026,4 @@ export function apply(ctx: Context): Promise<void> {
   })
 }
 
-export default { name: PLUGIN_ID, inject: ['agents', 'sessions', 'tools', 'webServer'], apply }
+export default { name: PLUGIN_ID, inject, apply }
