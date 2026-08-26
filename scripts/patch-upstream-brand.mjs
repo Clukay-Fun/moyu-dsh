@@ -42,4 +42,9 @@ changed += patchFile("dsh-web-app/lib/index.js", (t) =>
    .replace(/Serve the DeepSeek Harness browser UI\./g, "Serve the MOYU desktop app.")
 );
 
+// 4. Renderer product title (window title + about fallback)
+changed += patchFile("dsh-client-ui-renderer/lib/client.js", (t) =>
+  t.replace(/const productTitle = "DeepSeek Harness";/, 'const productTitle = "MOYU";')
+);
+
 console.log(changed > 0 ? `upstream brand patch applied (${changed} file(s) changed)` : "upstream brand already clean");
