@@ -2,12 +2,15 @@ import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConvViewProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import React from 'react'
+import { computeNextRun, describeSchedule } from './schedule'
+import type { ScheduleSpec, RecurrencePattern } from './schedule'
 
 // ---- Shared DTOs (mirror the Host side, no cwd/prompt leakage) ----
 export interface TaskSummary {
   id: string
   title: string
   enabled: boolean
+  schedule: ScheduleSpec
   nextRunAt: number | null
   lastRunAt: number | null
   lastRunStatus: 'succeeded' | 'failed' | 'interrupted' | null
@@ -30,12 +33,19 @@ export interface WorkspaceSummary {
   title: string
 }
 
+type RecurrenceMode = 'once' | RecurrencePattern
+
 interface Draft {
   taskId?: string
   title: string
   prompt: string
   workspaceId: string
+  recurrence: RecurrenceMode
   runAtLocal: string
+  timeOfDay: string
+  weekday: number
+  dayOfMonth: number
+  timeZone: string
   enabled: boolean
 }
 
@@ -67,6 +77,44 @@ function datetimeLocalToMs(value: string): number | null {
   return Number.isFinite(t) ? t : null
 }
 
+const COMMON_TIMEZONES = [
+  'Asia/Shanghai',
+  'Asia/Hong_Kong',
+  'Asia/Tokyo',
+  'Asia/Singapore',
+  'Europe/London',
+  'Europe/Paris',
+  'Europe/Berlin',
+  'America/New_York',
+  'America/Los_Angeles',
+  'UTC',
+]
+
+function detectTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+  } catch {
+    return 'UTC'
+  }
+}
+
+function msToDatetimeLocal(ms: number): string {
+  const d = new Date(ms)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+const HHMM = /^([01]\d|2[0-3]):([0-5]\d)$/
+const WEEKDAY_OPTIONS = [
+  { value: 0, label: '周日' },
+  { value: 1, label: '周一' },
+  { value: 2, label: '周二' },
+  { value: 3, label: '周三' },
+  { value: 4, label: '周四' },
+  { value: 5, label: '周五' },
+  { value: 6, label: '周六' },
+]
+
 function field(label: string, control: React.ReactNode): React.ReactNode {
   return React.createElement(
     'label',
@@ -96,6 +144,29 @@ function EditorModal(props: {
   const [draft, setDraft] = React.useState<Draft>(props.initial)
   const set = (patch: Partial<Draft>) => setDraft({ ...draft, ...patch })
   const isEdit = Boolean(props.initial.taskId)
+  const isRecurring = draft.recurrence !== 'once'
+  const previewSpec: ScheduleSpec | null = (() => {
+    if (draft.recurrence === 'once') {
+      const ms = datetimeLocalToMs(draft.runAtLocal)
+      return ms != null ? { kind: 'once', runAt: ms } : null
+    }
+    if (!HHMM.test(draft.timeOfDay)) return null
+    const spec: {
+      kind: 'recurring'
+      pattern: RecurrencePattern
+      timeOfDay: string
+      timeZone: string
+      weekday?: number
+      dayOfMonth?: number
+    } = { kind: 'recurring', pattern: draft.recurrence, timeOfDay: draft.timeOfDay, timeZone: draft.timeZone }
+    if (draft.recurrence === 'weekly') spec.weekday = draft.weekday
+    if (draft.recurrence === 'monthly') spec.dayOfMonth = draft.dayOfMonth
+    return spec
+  })()
+  const nextRun = previewSpec ? computeNextRun(previewSpec, Date.now()) : null
+  const tzOptions = COMMON_TIMEZONES.includes(draft.timeZone)
+    ? COMMON_TIMEZONES
+    : [draft.timeZone, ...COMMON_TIMEZONES]
   return React.createElement(
     'div',
     { style: overlayStyle },
@@ -135,14 +206,93 @@ function EditorModal(props: {
         ),
       ),
       field(
-        '执行时间',
-        React.createElement('input', {
-          type: 'datetime-local',
-          value: draft.runAtLocal,
-          onChange: (e: React.ChangeEvent<HTMLInputElement>) => set({ runAtLocal: e.target.value }),
-          style: inputStyle,
-        }),
+        '重复',
+        React.createElement(
+          'select',
+          {
+            value: draft.recurrence,
+            onChange: (e: React.ChangeEvent<HTMLSelectElement>) => set({ recurrence: e.target.value as RecurrenceMode }),
+            style: inputStyle,
+          },
+          React.createElement('option', { value: 'once' }, '一次性'),
+          React.createElement('option', { value: 'daily' }, '每天'),
+          React.createElement('option', { value: 'weekday' }, '工作日'),
+          React.createElement('option', { value: 'weekly' }, '每周'),
+          React.createElement('option', { value: 'monthly' }, '每月'),
+        ),
       ),
+      isRecurring
+        ? field(
+            '时间',
+            React.createElement('input', {
+              type: 'time',
+              value: draft.timeOfDay,
+              onChange: (e: React.ChangeEvent<HTMLInputElement>) => set({ timeOfDay: e.target.value }),
+              style: inputStyle,
+            }),
+          )
+        : field(
+            '执行时间',
+            React.createElement('input', {
+              type: 'datetime-local',
+              value: draft.runAtLocal,
+              onChange: (e: React.ChangeEvent<HTMLInputElement>) => set({ runAtLocal: e.target.value }),
+              style: inputStyle,
+            }),
+          ),
+      isRecurring && draft.recurrence === 'weekly'
+        ? field(
+            '星期',
+            React.createElement(
+              'select',
+              {
+                value: String(draft.weekday),
+                onChange: (e: React.ChangeEvent<HTMLSelectElement>) => set({ weekday: Number(e.target.value) }),
+                style: inputStyle,
+              },
+              ...WEEKDAY_OPTIONS.map((w) =>
+                React.createElement('option', { key: w.value, value: String(w.value) }, w.label),
+              ),
+            ),
+          )
+        : null,
+      isRecurring && draft.recurrence === 'monthly'
+        ? field(
+            '日期',
+            React.createElement(
+              'select',
+              {
+                value: String(draft.dayOfMonth),
+                onChange: (e: React.ChangeEvent<HTMLSelectElement>) => set({ dayOfMonth: Number(e.target.value) }),
+                style: inputStyle,
+              },
+              ...Array.from({ length: 31 }, (_, i) =>
+                React.createElement('option', { key: i + 1, value: String(i + 1) }, `${i + 1} 日`),
+              ),
+            ),
+          )
+        : null,
+      isRecurring
+        ? field(
+            '时区',
+            React.createElement(
+              'select',
+              {
+                value: draft.timeZone,
+                onChange: (e: React.ChangeEvent<HTMLSelectElement>) => set({ timeZone: e.target.value }),
+                style: inputStyle,
+              },
+              ...tzOptions.map((z) => React.createElement('option', { key: z, value: z }, z)),
+            ),
+          )
+        : null,
+      isRecurring
+        ? React.createElement(
+            'div',
+            { style: { fontSize: 12, opacity: 0.7, margin: '4px 0 8px' } },
+            `下次运行：${nextRun ? fmtTime(nextRun) : '时间无效'}`,
+          )
+        : null,
       React.createElement(
         'label',
         { style: { display: 'flex', alignItems: 'center', gap: 6, margin: '8px 0' } },
@@ -289,6 +439,8 @@ function ScheduledTasksPanel(props: {
         if (taskId) {
           const v = await props.request({ operation: 'detail', taskId })
           const detail = (v && v.detail) || {}
+          const s = detail.schedule
+          const isOnce = !s || s.kind === 'once'
           setEditing({
             taskId,
             draft: {
@@ -296,13 +448,22 @@ function ScheduledTasksPanel(props: {
               title: detail.title || '',
               prompt: detail.prompt || '',
               workspaceId: detail.workspaceId || '',
-              runAtLocal: '',
+              recurrence: isOnce ? 'once' : s.pattern,
+              runAtLocal: isOnce && s ? msToDatetimeLocal(s.runAt) : '',
+              timeOfDay: !isOnce ? s.timeOfDay : '09:00',
+              weekday: !isOnce && s.weekday != null ? s.weekday : 1,
+              dayOfMonth: !isOnce && s.dayOfMonth != null ? s.dayOfMonth : 1,
+              timeZone: !isOnce ? s.timeZone : detectTimeZone(),
               enabled: Boolean(detail.enabled),
             },
           })
         } else {
           setEditing({
-            draft: { title: '', prompt: '', workspaceId: '', runAtLocal: '', enabled: true },
+            draft: {
+              title: '', prompt: '', workspaceId: '',
+              recurrence: 'once', runAtLocal: '', timeOfDay: '09:00', weekday: 1, dayOfMonth: 1,
+              timeZone: detectTimeZone(), enabled: true,
+            },
           })
         }
         if (workspaces.length === 0) void loadWorkspaces()
@@ -315,7 +476,32 @@ function ScheduledTasksPanel(props: {
 
   const saveEditor = React.useCallback(
     async (d: Draft, runNow: boolean) => {
-      const runAt = datetimeLocalToMs(d.runAtLocal)
+      const isRecurring = d.recurrence !== 'once'
+      let schedule: ScheduleSpec | undefined
+      let runAt: number | null = null
+      if (d.recurrence !== 'once') {
+        if (!HHMM.test(d.timeOfDay)) {
+          setError('请填写有效的时间（HH:mm）')
+          return
+        }
+        const spec: {
+          kind: 'recurring'
+          pattern: RecurrencePattern
+          timeOfDay: string
+          timeZone: string
+          weekday?: number
+          dayOfMonth?: number
+        } = { kind: 'recurring', pattern: d.recurrence, timeOfDay: d.timeOfDay, timeZone: d.timeZone }
+        if (d.recurrence === 'weekly') spec.weekday = d.weekday
+        if (d.recurrence === 'monthly') spec.dayOfMonth = d.dayOfMonth
+        schedule = spec
+      } else {
+        runAt = datetimeLocalToMs(d.runAtLocal)
+        if (runAt != null && !Number.isFinite(runAt)) {
+          setError('执行时间无效')
+          return
+        }
+      }
       if (!d.title.trim()) {
         setError('请填写任务名称')
         return
@@ -328,11 +514,7 @@ function ScheduledTasksPanel(props: {
         setError('请选择工作区')
         return
       }
-      if (runAt != null && !Number.isFinite(runAt)) {
-        setError('执行时间无效')
-        return
-      }
-      if (!runNow && runAt == null) {
+      if (!isRecurring && !runNow && runAt == null) {
         setError('请选择执行时间，或使用“保存并立即运行”')
         return
       }
@@ -345,7 +527,8 @@ function ScheduledTasksPanel(props: {
         enabled: d.enabled,
       }
       if (taskId) body.taskId = taskId
-      if (runAt != null) body.runAt = runAt
+      if (isRecurring && schedule) body.schedule = schedule
+      else if (runAt != null) body.runAt = runAt
       try {
         const v = await props.request(body)
         if (runNow) {
@@ -403,7 +586,7 @@ function ScheduledTasksPanel(props: {
       React.createElement(
         'div',
         { style: { fontSize: 12, opacity: 0.7, marginTop: 2 } },
-        `下次：${fmtTime(t.nextRunAt)}　上次：${fmtTime(t.lastRunAt)}` +
+        `计划：${describeSchedule(t.schedule)}　下次：${fmtTime(t.nextRunAt)}　上次：${fmtTime(t.lastRunAt)}` +
           (t.lastRunStatus ? `（${t.lastRunStatus}）` : '') +
           (t.unreadCount > 0 ? `　未读：${t.unreadCount}` : ''),
       ),
