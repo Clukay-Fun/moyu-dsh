@@ -5,15 +5,27 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const root = path.resolve(__dirname, "../build/dsh-runtime/node_modules/@deepseek-ai");
+// Patch BOTH the runtime closure and the dev node_modules tree: the running
+// app (dev/launch) loads plugins from node_modules, while a packaged build
+// loads from build/dsh-runtime. Both must carry the MOYU brand.
+const roots = [
+  path.resolve(__dirname, "../node_modules/@deepseek-ai"),
+  path.resolve(__dirname, "../build/dsh-runtime/node_modules/@deepseek-ai"),
+];
 
 function patchFile(rel, fn) {
-  const f = path.join(root, rel);
-  if (!fs.existsSync(f)) return false;
-  const before = fs.readFileSync(f, "utf8");
-  const after = fn(before);
-  if (after !== before) fs.writeFileSync(f, after);
-  return after !== before;
+  let changedHere = false;
+  for (const root of roots) {
+    const f = path.join(root, rel);
+    if (!fs.existsSync(f)) continue;
+    const before = fs.readFileSync(f, "utf8");
+    const after = fn(before);
+    if (after !== before) {
+      fs.writeFileSync(f, after);
+      changedHere = true;
+    }
+  }
+  return changedHere;
 }
 
 let changed = 0;
