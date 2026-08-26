@@ -21,11 +21,13 @@ export interface TaskSummary {
 export interface RunSummary {
   runId: string
   taskId: string
-  status: 'running' | 'succeeded' | 'failed' | 'interrupted'
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'interrupted' | 'missed' | 'cancelled'
   startedAt: number
   finishedAt: number | null
   sessionId: string | null
   unread: boolean
+  errorMessage?: string
+  scheduledFor?: number
 }
 
 export interface WorkspaceSummary {
@@ -69,6 +71,29 @@ function taskStateLabel(t: TaskSummary): string {
   if (t.nextRunAt) return '等待执行'
   if (t.lastRunStatus === 'succeeded') return '已完成'
   return '已暂停'
+}
+
+function runStatusText(s: RunSummary['status']): string {
+  switch (s) {
+    case 'running':
+      return '运行中'
+    case 'succeeded':
+      return '成功'
+    case 'failed':
+      return '失败'
+    case 'interrupted':
+      return '已中断'
+    case 'missed':
+      return '错过'
+    case 'cancelled':
+      return '已取消'
+    default:
+      return '排队中'
+  }
+}
+
+function runStatusClass(s: RunSummary['status']): string {
+  return s === 'succeeded' ? 'moyu-st-ok' : s === 'failed' || s === 'interrupted' || s === 'missed' ? 'moyu-st-bad' : ''
 }
 
 function datetimeLocalToMs(value: string): number | null {
@@ -126,6 +151,10 @@ const STYLE = `
 .moyu-st-btn.moyu-st-danger:hover:not(:disabled) { background: var(--danger-weak, #fdecea); }
 .moyu-st-title { word-break: break-word; overflow-wrap: anywhere; }
 .moyu-st-err { color: var(--danger, #c0392b); word-break: break-word; overflow-wrap: anywhere; white-space: pre-wrap; }
+.moyu-st-ok { color: var(--ok, #1a7f37); }
+.moyu-st-bad { color: var(--danger, #c0392b); }
+.moyu-st-notice { border: 1px solid var(--border, #ccd); border-radius: 8px; padding: 10px 12px; margin-top: 12px; background: var(--notice-bg, #f7f9ff); }
+.moyu-st-notice-item { display: flex; justify-content: space-between; gap: 8px; align-items: center; padding: 4px 0; }
 `
 function btn(
   label: string,
@@ -333,6 +362,41 @@ function EditorModal(props: {
         btn('保存', () => props.onSave(draft)),
         btn('保存并立即运行', () => props.onRunNow(draft)),
         btn('取消', () => props.onCancel()),
+      ),
+    ),
+  )
+}
+
+function ScheduledNotifications(props: {
+  tasks: TaskSummary[]
+  onOpen: (id: string) => void
+  onMarkAll: () => void
+}): React.ReactElement | null {
+  const notices = props.tasks.filter((t) => t.unreadCount > 0)
+  if (notices.length === 0) return null
+  const total = notices.reduce((a, t) => a + t.unreadCount, 0)
+  return React.createElement(
+    'div',
+    { className: 'moyu-st-notice' },
+    React.createElement(
+      'div',
+      { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 } },
+      React.createElement('strong', null, `通知：${total} 条未读运行结果`),
+      btn('全部标已读', props.onMarkAll),
+    ),
+    ...notices.map((t) =>
+      React.createElement(
+        'div',
+        { key: t.id, className: 'moyu-st-notice-item' },
+        React.createElement(
+          'button',
+          {
+            className: 'moyu-st-btn',
+            style: { border: 'none', background: 'transparent', padding: 0, textAlign: 'left', color: 'var(--fg, #111)' },
+            onClick: () => props.onOpen(t.id),
+          },
+          `「${t.title}」${t.unreadCount} 条未读`,
+        ),
       ),
     ),
   )
@@ -582,6 +646,15 @@ function ScheduledTasksPanel(props: {
     [props.openSession],
   )
 
+  const markAllRead = React.useCallback(async () => {
+    try {
+      await props.request({ operation: 'mark-all-read' })
+      await reload()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
+  }, [props.request, reload])
+
   const rows = (tasks || []).map((t) => {
     const actions: React.ReactNode[] = [
       btn('立即运行', () => void runTask(t.id), { disabled: t.running }),
@@ -624,12 +697,12 @@ function ScheduledTasksPanel(props: {
                         React.createElement(
                           'li',
                           { key: r.runId, style: { fontSize: 12, margin: '4px 0' } },
-                          `${fmtTime(r.startedAt)} · ${r.status}　`,
+                          React.createElement('span', { className: runStatusClass(r.status) }, `${fmtTime(r.startedAt)} · ${runStatusText(r.status)}`),
                           r.unread ? '（未读）' : '',
                           ' ',
                           btn('打开对话', () => openRun(r.sessionId), { disabled: !r.sessionId }),
-                          r.unread
-                            ? ' '
+                          (r.status === 'failed' || r.status === 'interrupted' || r.status === 'missed')
+                            ? btn('重新运行', () => void runTask(t.id))
                             : '',
                           r.unread
                             ? btn('标记已读', () =>
@@ -637,6 +710,9 @@ function ScheduledTasksPanel(props: {
                                   .request({ operation: 'mark-run-read', runId: r.runId })
                                   .then(() => loadRuns(t.id)),
                               )
+                            : '',
+                          r.errorMessage
+                            ? React.createElement('div', { className: 'moyu-st-err', style: { marginTop: 2 } }, r.errorMessage)
                             : '',
                         ),
                       ),
@@ -665,6 +741,10 @@ function ScheduledTasksPanel(props: {
       : tasks.length === 0
         ? React.createElement('div', { style: { marginTop: 12, opacity: 0.6 } }, '暂无任务')
         : React.createElement('ul', { style: { listStyle: 'none', margin: '12px 0 0', padding: 0 } }, ...rows),
+    React.createElement(
+      ScheduledNotifications,
+      { tasks: tasks || [], onOpen: (id: string) => setSelected(selected === id ? null : id), onMarkAll: () => void markAllRead() },
+    ),
     confirmDelete
       ? React.createElement(
           'div',

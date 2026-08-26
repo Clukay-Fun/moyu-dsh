@@ -107,7 +107,15 @@ const MAX_BODY_BYTES = 16 * 1024
 const WRITE_BODY_BYTES = 64 * 1024
 
 const READ_OPS = new Set(['list', 'runs', 'detail', 'workspaces'])
-const WRITE_OPS = new Set(['create', 'update', 'set-enabled', 'run', 'delete', 'mark-run-read'])
+const WRITE_OPS = new Set([
+  'create',
+  'update',
+  'set-enabled',
+  'run',
+  'delete',
+  'mark-run-read',
+  'mark-all-read',
+])
 
 // Scheduling types + pure engine live in ./schedule (shared with the Client
 // bundle, which must not import Host-only code). Re-exported so the host
@@ -523,6 +531,21 @@ export class ScheduledTasksService extends Service {
     return false
   }
 
+  async markAllRead(): Promise<number> {
+    await this.ready
+    let marked = 0
+    for (const arr of this.runs.values()) {
+      for (const run of arr) {
+        if (run.unread) {
+          run.unread = false
+          marked++
+        }
+      }
+    }
+    if (marked > 0) await this.persist()
+    return marked
+  }
+
   private schedule(task: ScheduledTask): void {
     this.clearTimer(task.id)
     if (!task.enabled || !task.nextRunAt) return
@@ -536,7 +559,7 @@ export class ScheduledTasksService extends Service {
           this.recordMissed(task)
           return
         }
-        void this.runTaskNow(task.id).catch((e) =>
+        void this.runTaskNow(task.id, true).catch((e) =>
           this.ctx.logger?.error?.(`[moyu-scheduled-tasks] scheduled run failed: ${String((e as Error).message)}`),
         )
         return
@@ -669,7 +692,7 @@ export class ScheduledTasksService extends Service {
    * return it. The actual agent work is driven separately so the route can
    * return 202 immediately instead of blocking on model execution.
    */
-  private async beginRun(taskId: string): Promise<ScheduledRun> {
+  private async beginRun(taskId: string, advanceSchedule = false): Promise<ScheduledRun> {
     const task = this.requireTask(taskId)
     if (this.activeRuns.has(taskId)) throw new ServiceError('task_running', 'task is already running', 409)
 
@@ -696,10 +719,11 @@ export class ScheduledTasksService extends Service {
     this.activeRuns.set(taskId, runId)
     task.lastRunAt = Date.now()
     if (task.schedule.kind === 'recurring') {
-      // Continue the series: arm the next occurrence immediately so the timer
-      // chain is never broken even while this run is in flight.
-      task.nextRunAt = computeNextRun(task.schedule, task.lastRunAt)
+      // Only advance the series when this run IS the scheduled occurrence.
+      // Manual runs (立即运行 / 重新运行) must NOT skip an occurrence.
+      if (advanceSchedule) task.nextRunAt = computeNextRun(task.schedule, task.lastRunAt)
     } else {
+      // One-time task: any run consumes the single schedule.
       task.nextRunAt = null
     }
     await this.persist()
@@ -800,10 +824,10 @@ export class ScheduledTasksService extends Service {
   }
 
   /** Non-blocking run for the UI route: returns the running record (202). */
-  async startTaskRun(taskId: string): Promise<ScheduledRun> {
+  async startTaskRun(taskId: string, advanceSchedule = false): Promise<ScheduledRun> {
     await this.ready
     const task = this.requireTask(taskId)
-    const run = await this.beginRun(taskId)
+    const run = await this.beginRun(taskId, advanceSchedule)
     void this.driveTaskRun(task, run).catch((e) =>
       this.ctx.logger?.error?.(`[moyu-scheduled-tasks] scheduled run failed: ${String((e as Error)?.message)}`),
     )
@@ -811,10 +835,10 @@ export class ScheduledTasksService extends Service {
   }
 
   /** Blocking run used by the Tool (waits for the final status). */
-  async runTaskNow(taskId: string): Promise<ScheduledRun> {
+  async runTaskNow(taskId: string, advanceSchedule = false): Promise<ScheduledRun> {
     await this.ready
     const task = this.requireTask(taskId)
-    const run = await this.beginRun(taskId)
+    const run = await this.beginRun(taskId, advanceSchedule)
     await this.driveTaskRun(task, run)
     return run
   }
@@ -1070,6 +1094,11 @@ export function apply(ctx: Context): Promise<void> {
             }
             const ok = await svc.markRunRead(runId)
             sendJson(res, ok ? 200 : 404, { runId, ok })
+            return
+          }
+          if (operation === 'mark-all-read') {
+            const marked = await svc.markAllRead()
+            sendJson(res, 200, { ok: true, marked })
             return
           }
           sendJson(res, 400, { error: 'unknown operation' })
