@@ -109,6 +109,26 @@ const WRITE_BODY_BYTES = 64 * 1024
 const READ_OPS = new Set(['list', 'runs', 'detail', 'workspaces'])
 const WRITE_OPS = new Set(['create', 'update', 'set-enabled', 'run', 'delete', 'mark-run-read'])
 
+export type RecurrencePattern = 'daily' | 'weekday' | 'weekly' | 'monthly'
+
+/**
+ * `once` carries a single absolute run time. `recurring` carries a fixed-pattern
+ * rule (daily / weekday / weekly / monthly) anchored to a wall-clock time in an
+ * IANA timezone. There is intentionally NO free-form RRULE expression surface;
+ * the four patterns cover the supported cases and keep DST/timezone handling
+ * bounded and testable.
+ */
+export type ScheduleSpec =
+  | { kind: 'once'; runAt: number }
+  | {
+      kind: 'recurring'
+      pattern: RecurrencePattern
+      timeOfDay: string
+      weekday?: number
+      dayOfMonth?: number
+      timeZone: string
+    }
+
 export interface ScheduledTask {
   id: string
   title: string
@@ -116,6 +136,7 @@ export interface ScheduledTask {
   workspaceId?: string
   cwd: string
   enabled: boolean
+  schedule: ScheduleSpec
   nextRunAt: number | null
   lastRunAt: number | null
   createdAt: number
@@ -144,6 +165,7 @@ export interface TaskSummary {
   title: string
   workspaceId: string
   enabled: boolean
+  schedule: ScheduleSpec
   nextRunAt: number | null
   lastRunAt: number | null
   lastRunStatus: RunStatus | null
@@ -158,6 +180,7 @@ export interface TaskDetail {
   prompt: string
   workspaceId: string
   enabled: boolean
+  schedule: ScheduleSpec
   nextRunAt: number | null
   lastRunAt: number | null
   createdAt: number
@@ -207,6 +230,157 @@ export interface RunSummary {
   errorMessage?: string
 }
 
+const STORE_VERSION = 2
+const MAX_BACKFILL_GAP_MS = 24 * 60 * 60 * 1000
+
+function daysInMonth(year: number, month0: number): number {
+  return new Date(Date.UTC(year, month0 + 1, 0)).getUTCDate()
+}
+
+/** Add `n` days to a wall (year/month0/day) triple, rolling month/year. */
+function addDays(year: number, month0: number, day: number, n: number): { year: number; month0: number; day: number } {
+  const d = new Date(Date.UTC(year, month0, day + n))
+  return { year: d.getUTCFullYear(), month0: d.getUTCMonth(), day: d.getUTCDate() }
+}
+
+/** Local wall-clock parts of a UTC instant in a given IANA timezone. */
+function localParts(utcMs: number, timeZone: string): {
+  year: number
+  month0: number
+  day: number
+  weekday: number
+  hour: number
+  minute: number
+  second: number
+} {
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  })
+  const parts = dtf.formatToParts(new Date(utcMs))
+  const map: Record<string, string> = {}
+  for (const p of parts) if (p.type !== 'literal') map[p.type] = p.value
+  const year = Number(map.year)
+  const month0 = Number(map.month) - 1
+  const day = Number(map.day)
+  const hour = map.hour === '24' ? 0 : Number(map.hour)
+  const weekdayByName: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }
+  return {
+    year,
+    month0,
+    day,
+    weekday: weekdayByName[map.weekday] ?? 0,
+    hour,
+    minute: Number(map.minute),
+    second: Number(map.second),
+  }
+}
+
+/** Offset (local - utc, in ms) for a UTC instant in a timezone. */
+function tzOffsetMs(utcMs: number, timeZone: string): number {
+  const lp = localParts(utcMs, timeZone)
+  const asLocal = Date.UTC(lp.year, lp.month0, lp.day, lp.hour, lp.minute, lp.second)
+  return asLocal - utcMs
+}
+
+/**
+ * Convert a local wall-clock datetime (in tz) to a UTC instant.
+ *
+ * A single offset lookup is wrong across DST transitions: a wall time in the
+ * new offset's frame yields a UTC instant whose offset differs, shifting the
+ * result by an hour. Iterate the fixed-point `U = wallAsUTC - offset(U)` until
+ * it stabilises (2-3 passes).
+ *
+ * Edge cases (documented policy):
+ * - Non-existent wall time (spring-forward gap, e.g. 02:30 on the US DST day):
+ *   resolves to the post-transition local time (mapped forward).
+ * - Ambiguous wall time (fall-back overlap, e.g. 01:30 occurs twice): resolves
+ *   to the first (pre-transition) occurrence.
+ */
+function zonedWallToUtc(year: number, month0: number, day: number, hour: number, minute: number, timeZone: string): number {
+  const wallAsUTC = Date.UTC(year, month0, day, hour, minute, 0)
+  let utc = wallAsUTC
+  for (let i = 0; i < 4; i++) {
+    const cand = wallAsUTC - tzOffsetMs(utc, timeZone)
+    if (cand === utc) break
+    utc = cand
+  }
+  return utc
+}
+
+function parseHHmm(value: string): { h: number; m: number } | null {
+  const m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(value)
+  if (!m) return null
+  return { h: Number(m[1]), m: Number(m[2]) }
+}
+
+/** Next future occurrence (strictly after `after`) for a schedule, or null. */
+export function computeNextRun(spec: ScheduleSpec, after: number): number | null {
+  if (spec.kind === 'once') return spec.runAt > after ? spec.runAt : null
+  const parsed = parseHHmm(spec.timeOfDay)
+  if (!parsed) return null
+  const tz = spec.timeZone
+  const start = localParts(after, tz)
+  let { year, month0, day } = start
+  for (let i = 0; i < 800; i++) {
+    const weekday = new Date(Date.UTC(year, month0, day)).getUTCDay()
+    let matches = false
+    if (spec.pattern === 'daily') matches = true
+    else if (spec.pattern === 'weekday') matches = weekday >= 1 && weekday <= 5
+    else if (spec.pattern === 'weekly') matches = weekday === (spec.weekday ?? weekday)
+    else if (spec.pattern === 'monthly') {
+      const target = Math.min(spec.dayOfMonth ?? day, daysInMonth(year, month0))
+      matches = day === target
+    }
+    if (matches) {
+      const cand = zonedWallToUtc(year, month0, day, parsed.h, parsed.m, tz)
+      if (cand > after) return cand
+    }
+    const next = addDays(year, month0, day, 1)
+    year = next.year
+    month0 = next.month0
+    day = next.day
+  }
+  return null
+}
+
+/** Validate a schedule spec; throws ServiceError on malformed input. */
+export function validateSchedule(spec: ScheduleSpec): void {
+  if (spec.kind === 'once') {
+    if (!Number.isFinite(spec.runAt)) {
+      throw new ServiceError('invalid_schedule', 'once.runAt must be a finite number', 400)
+    }
+    return
+  }
+  if (!['daily', 'weekday', 'weekly', 'monthly'].includes(spec.pattern)) {
+    throw new ServiceError('invalid_schedule', 'recurring.pattern must be daily|weekday|weekly|monthly', 400)
+  }
+  if (!parseHHmm(spec.timeOfDay)) {
+    throw new ServiceError('invalid_schedule', 'recurring.timeOfDay must be HH:mm (24h)', 400)
+  }
+  if (spec.pattern === 'weekly' && !(spec.weekday! >= 0 && spec.weekday! <= 6)) {
+    throw new ServiceError('invalid_schedule', 'recurring.weekday must be 0-6 for weekly', 400)
+  }
+  if (spec.pattern === 'monthly' && !(spec.dayOfMonth! >= 1 && spec.dayOfMonth! <= 31)) {
+    throw new ServiceError('invalid_schedule', 'recurring.dayOfMonth must be 1-31 for monthly', 400)
+  }
+  if (typeof spec.timeZone !== 'string' || spec.timeZone.length === 0) {
+    throw new ServiceError('invalid_schedule', 'recurring.timeZone is required', 400)
+  }
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: spec.timeZone })
+  } catch {
+    throw new ServiceError('invalid_schedule', `invalid IANA timezone: ${spec.timeZone}`, 400)
+  }
+}
+
 function resolveDataDir(): string {
   const base =
     process.env.MOYU_DSH_HOME ||
@@ -236,11 +410,23 @@ export class ScheduledTasksService extends Service {
     try {
       const raw = await readFile(this.storeFile, 'utf8')
       const parsed = JSON.parse(raw) as {
-        tasks?: ScheduledTask[]
+        version?: number
+        tasks?: (ScheduledTask & { schedule?: ScheduleSpec })[]
         runs?: Record<string, ScheduledRun[]>
       }
-      for (const t of parsed.tasks ?? []) this.tasks.set(t.id, t)
+      let migrated = false
+      for (const t of parsed.tasks ?? []) {
+        if (t.schedule) {
+          this.tasks.set(t.id, t as ScheduledTask)
+        } else {
+          this.tasks.set(t.id, this.migrateV1Task(t))
+          migrated = true
+        }
+      }
       for (const [taskId, list] of Object.entries(parsed.runs ?? {})) this.runs.set(taskId, list)
+      // Write the migrated store back so subsequent loads don't re-migrate and the
+      // on-disk version/shape matches memory.
+      if (migrated) await this.persist()
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
         this.ctx.logger?.error?.('[moyu-scheduled-tasks] load failed', e)
@@ -250,6 +436,12 @@ export class ScheduledTasksService extends Service {
     // plugin enters an unavailable state rather than silently serving stale state.
     await this.recover()
     this.rescheduleAll()
+  }
+
+  /** v1 tasks had no `schedule`; infer an `once` spec from runAt/createdAt. */
+  private migrateV1Task(t: ScheduledTask & { schedule?: ScheduleSpec }): ScheduledTask {
+    const runAt = t.nextRunAt && t.nextRunAt > Date.now() ? t.nextRunAt : t.createdAt
+    return { ...t, schedule: { kind: 'once', runAt } }
   }
 
   /**
@@ -288,6 +480,7 @@ export class ScheduledTasksService extends Service {
   private persist(): Promise<void> {
     const snapshot = JSON.stringify(
       {
+        version: STORE_VERSION,
         tasks: [...this.tasks.values()],
         runs: Object.fromEntries([...this.runs.entries()]),
       },
@@ -329,6 +522,7 @@ export class ScheduledTasksService extends Service {
         title: t.title,
         workspaceId: t.workspaceId ?? workspaceLabel(t.cwd),
         enabled: t.enabled,
+        schedule: t.schedule,
         nextRunAt: t.nextRunAt,
         lastRunAt: t.lastRunAt,
         lastRunStatus: last ? last.status : null,
@@ -348,6 +542,7 @@ export class ScheduledTasksService extends Service {
       prompt: t.prompt,
       workspaceId: t.workspaceId ?? workspaceLabel(t.cwd),
       enabled: t.enabled,
+      schedule: t.schedule,
       nextRunAt: t.nextRunAt,
       lastRunAt: t.lastRunAt,
       createdAt: t.createdAt,
@@ -385,13 +580,16 @@ export class ScheduledTasksService extends Service {
     cwd: string
     workspaceId?: string
     enabled?: boolean
+    schedule?: ScheduleSpec
     runAt?: number
   }): Promise<ScheduledTask> {
     await this.ready
     this.validateInput(input.title, input.prompt)
-    if (input.runAt != null && (!Number.isFinite(input.runAt) || input.runAt <= Date.now())) {
-      throw new ServiceError('invalid_run_at', 'runAt must be a finite future timestamp in milliseconds', 400)
-    }
+    const schedule: ScheduleSpec = input.schedule
+      ? input.schedule
+      : { kind: 'once', runAt: input.runAt ?? 0 }
+    validateSchedule(schedule)
+    const enabled = input.enabled ?? true
     await this.validateCwd(input.cwd)
     const now = Date.now()
     const task: ScheduledTask = {
@@ -400,8 +598,9 @@ export class ScheduledTasksService extends Service {
       prompt: input.prompt,
       workspaceId: input.workspaceId,
       cwd: input.cwd,
-      enabled: input.enabled ?? true,
-      nextRunAt: input.runAt ?? null,
+      enabled,
+      schedule,
+      nextRunAt: enabled ? computeNextRun(schedule, now) : null,
       lastRunAt: null,
       createdAt: now,
       updatedAt: now,
@@ -419,6 +618,7 @@ export class ScheduledTasksService extends Service {
       title?: string
       prompt?: string
       workspaceId?: string
+      schedule?: ScheduleSpec
       runAt?: number
       enabled?: boolean
     },
@@ -437,12 +637,14 @@ export class ScheduledTasksService extends Service {
       t.cwd = await this.resolveWorkspaceCwd(patch.workspaceId)
       t.workspaceId = patch.workspaceId
     }
-    if (patch.runAt !== undefined) {
-      if (!Number.isFinite(patch.runAt) || patch.runAt <= Date.now()) {
-        throw new ServiceError('invalid_run_at', 'runAt must be a finite future timestamp in milliseconds', 400)
-      }
-      t.nextRunAt = patch.runAt
-      if (patch.enabled === undefined) t.enabled = true
+    let schedule = t.schedule
+    if (patch.schedule) schedule = patch.schedule
+    else if (patch.runAt !== undefined) schedule = { kind: 'once', runAt: patch.runAt }
+    if (patch.schedule || patch.runAt !== undefined) {
+      validateSchedule(schedule)
+      const enabled = patch.enabled ?? t.enabled
+      t.schedule = schedule
+      t.nextRunAt = enabled ? computeNextRun(schedule, Date.now()) : null
     }
     if (patch.enabled !== undefined) {
       if (patch.enabled) this.assertResumable(t)
@@ -494,6 +696,13 @@ export class ScheduledTasksService extends Service {
     const tick = () => {
       const delay = task.nextRunAt! - Date.now()
       if (delay <= 0) {
+        // Same task still in flight when its next fire arrives: record a
+        // `missed` occurrence and continue the series rather than starting a
+        // second concurrent run.
+        if (this.activeRuns.has(task.id)) {
+          this.recordMissed(task)
+          return
+        }
         void this.runTaskNow(task.id).catch((e) =>
           this.ctx.logger?.error?.(`[moyu-scheduled-tasks] scheduled run failed: ${String((e as Error).message)}`),
         )
@@ -503,6 +712,32 @@ export class ScheduledTasksService extends Service {
       this.timers.set(task.id, setTimeout(tick, wait))
     }
     tick()
+  }
+
+  /** Record a skipped occurrence (concurrency) and continue the series. */
+  private recordMissed(task: ScheduledTask): void {
+    const run: ScheduledRun = {
+      id: randomUUID(),
+      taskId: task.id,
+      scheduledFor: task.nextRunAt ?? Date.now(),
+      startedAt: null,
+      finishedAt: Date.now(),
+      status: 'missed',
+      sessionId: null,
+      unread: true,
+    }
+    const arr = this.runs.get(task.id) ?? []
+    arr.push(run)
+    this.runs.set(task.id, arr)
+    if (task.schedule.kind === 'recurring') {
+      task.nextRunAt = computeNextRun(task.schedule, Date.now())
+    } else {
+      task.nextRunAt = null
+    }
+    void this.persist().catch((e) =>
+      this.ctx.logger?.error?.(`[moyu-scheduled-tasks] persist failed: ${String((e as Error).message)}`),
+    )
+    this.schedule(task)
   }
 
   private clearTimer(taskId: string): void {
@@ -609,7 +844,11 @@ export class ScheduledTasksService extends Service {
     const run: ScheduledRun = {
       id: runId,
       taskId,
-      scheduledFor: Date.now(),
+      // The planned (or overdue, for a backfilled run) due time. Captured before
+      // `nextRunAt` is advanced so the run history distinguishes "scheduled for"
+      // from "actually started". Manual/immediate runs (no pending schedule)
+      // fall back to the wall-clock now.
+      scheduledFor: task.nextRunAt ?? Date.now(),
       startedAt: null,
       finishedAt: null,
       status: 'running',
@@ -623,8 +862,15 @@ export class ScheduledTasksService extends Service {
     // same task sees the guard and cannot start a second run.
     this.activeRuns.set(taskId, runId)
     task.lastRunAt = Date.now()
-    task.nextRunAt = null
+    if (task.schedule.kind === 'recurring') {
+      // Continue the series: arm the next occurrence immediately so the timer
+      // chain is never broken even while this run is in flight.
+      task.nextRunAt = computeNextRun(task.schedule, task.lastRunAt)
+    } else {
+      task.nextRunAt = null
+    }
     await this.persist()
+    this.schedule(task)
     return run
   }
 
@@ -741,7 +987,53 @@ export class ScheduledTasksService extends Service {
   }
 
   private rescheduleAll(): void {
-    for (const t of this.tasks.values()) this.schedule(t)
+    for (const t of this.tasks.values()) this.reconcileMissed(t)
+  }
+
+  /**
+   * On startup/reload, re-arm future schedules and reconcile occurrences that
+   * were missed while the host was down:
+   * - `once` missed ≤24h: backfill immediately. >24h: record `missed`, drop.
+   * - `recurring` missed ≤24h: backfill only the most recent occurrence, then
+   *   continue the series. >24h: skip missed occurrences, jump to next future.
+   */
+  private reconcileMissed(task: ScheduledTask): void {
+    if (!task.enabled || !task.nextRunAt || task.nextRunAt > Date.now()) {
+      this.schedule(task)
+      return
+    }
+    const now = Date.now()
+    const gap = now - task.nextRunAt
+    if (task.schedule.kind === 'once') {
+      if (gap <= MAX_BACKFILL_GAP_MS) {
+        this.schedule(task)
+        return
+      }
+      const run: ScheduledRun = {
+        id: randomUUID(),
+        taskId: task.id,
+        scheduledFor: task.nextRunAt,
+        startedAt: null,
+        finishedAt: now,
+        status: 'missed',
+        sessionId: null,
+        unread: true,
+      }
+      const arr = this.runs.get(task.id) ?? []
+      arr.push(run)
+      this.runs.set(task.id, arr)
+      task.nextRunAt = null
+      void this.persist().catch((e) =>
+        this.ctx.logger?.error?.(`[moyu-scheduled-tasks] persist failed: ${String((e as Error).message)}`),
+      )
+      return
+    }
+    if (gap <= MAX_BACKFILL_GAP_MS) {
+      this.schedule(task)
+    } else {
+      task.nextRunAt = computeNextRun(task.schedule, now)
+      this.schedule(task)
+    }
   }
 
   async dispose(): Promise<void> {
@@ -835,9 +1127,21 @@ export function apply(ctx: Context): Promise<void> {
             return
           }
           if (operation === 'create') {
-            const b = body as { title?: unknown; prompt?: unknown; workspaceId?: unknown; runAt?: unknown; enabled?: unknown }
+            const b = body as {
+              title?: unknown
+              prompt?: unknown
+              workspaceId?: unknown
+              runAt?: unknown
+              enabled?: unknown
+              schedule?: unknown
+            }
             if (typeof b.workspaceId !== 'string' || !isId(b.workspaceId)) {
               sendJson(res, 400, { error: 'workspaceId must be a non-empty string' })
+              return
+            }
+            const incoming = (b.schedule && typeof b.schedule === 'object' ? b.schedule : { kind: 'once', runAt: b.runAt }) as ScheduleSpec
+            if (incoming.kind === 'once' && typeof incoming.runAt === 'number' && incoming.runAt <= Date.now()) {
+              sendJson(res, 400, { error: 'runAt must be a finite future timestamp in milliseconds' })
               return
             }
             const cwd = await svc.resolveWorkspaceCwd(b.workspaceId)
@@ -847,21 +1151,36 @@ export function apply(ctx: Context): Promise<void> {
               cwd,
               workspaceId: b.workspaceId,
               enabled: b.enabled === undefined ? true : Boolean(b.enabled),
+              schedule: b.schedule && typeof b.schedule === 'object' ? (b.schedule as ScheduleSpec) : undefined,
               runAt: typeof b.runAt === 'number' ? b.runAt : undefined,
             })
             sendJson(res, 200, { taskId: task.id, nextRunAt: task.nextRunAt ?? 0 })
             return
           }
           if (operation === 'update') {
-            const b = body as { taskId?: unknown; title?: unknown; prompt?: unknown; workspaceId?: unknown; runAt?: unknown; enabled?: unknown }
+            const b = body as {
+              taskId?: unknown
+              title?: unknown
+              prompt?: unknown
+              workspaceId?: unknown
+              runAt?: unknown
+              enabled?: unknown
+              schedule?: unknown
+            }
             if (!isId(b.taskId)) {
               sendJson(res, 400, { error: 'taskId must be a non-empty string <= 128 chars' })
+              return
+            }
+            const incoming = (b.schedule && typeof b.schedule === 'object' ? b.schedule : b.runAt !== undefined ? { kind: 'once', runAt: b.runAt } : null) as ScheduleSpec | null
+            if (incoming && incoming.kind === 'once' && typeof incoming.runAt === 'number' && incoming.runAt <= Date.now()) {
+              sendJson(res, 400, { error: 'runAt must be a finite future timestamp in milliseconds' })
               return
             }
             const task = await svc.updateTask(b.taskId, {
               title: typeof b.title === 'string' ? b.title : undefined,
               prompt: typeof b.prompt === 'string' ? b.prompt : undefined,
               workspaceId: typeof b.workspaceId === 'string' ? b.workspaceId : undefined,
+              schedule: b.schedule && typeof b.schedule === 'object' ? (b.schedule as ScheduleSpec) : undefined,
               runAt: typeof b.runAt === 'number' ? b.runAt : undefined,
               enabled: typeof b.enabled === 'boolean' ? b.enabled : undefined,
             })
