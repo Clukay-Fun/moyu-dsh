@@ -1,7 +1,7 @@
 {
-  "name": "moyu-tools",
-  "version": "2.1.0",
-  "description": "MOYU 是一款基于 DeepSeek Harness 开发的智能桌面工作台。",
+  "name": "moyu-dsh",
+  "version": "0.1.0",
+  "description": "MOYU 是一款基于 DeepSeek Harness 的原生桌面应用。",
   "author": "Clukay",
   "private": true,
   "type": "module",
@@ -11,7 +11,7 @@
     "packages/dsh-plugin-session-export",
     "packages/dsh-host-directory-picker-native",
     "packages/dsh-plugin-image",
-    "packages/dsh-plugin-legacy-tools",
+
     "packages/dsh-plugin-pdf",
     "packages/dsh-plugin-screenshot",
     "packages/dsh-plugin-scheduled-tasks",
@@ -26,8 +26,8 @@
     "build": "electron-vite build",
     "build:icon": "node scripts/generate-icon.mjs",
     "build:native:mac": "node scripts/build-macos-native.mjs",
-    "build:tools:win": "powershell -ExecutionPolicy Bypass -File scripts/download-ffmpeg-win.ps1",
-    "build:win": "npm run build:icon && npm run build:tools:win && npm run build && electron-builder --win portable --x64",
+
+
     "build:mac": "npm run build:dsh-runtime && npm run apply-codex-web-overlay && npm run patch-upstream-brand && npm run verify-overlay-applied && npm run build:native:mac && npm run build && electron-builder --mac dmg --arm64",
     "verify:dsh-fence": "node scripts/verify-dsh-fence.mjs",
     "verify:dsh-bridge": "electron scripts/verify-dsh-bridge.mjs",
@@ -44,7 +44,7 @@
     "asarUnpack": [
       "node_modules/sharp/**/*",
       "node_modules/@img/**/*",
-      "node_modules/winax/**/*"
+
     ],
     "directories": {
       "output": "release"
@@ -67,10 +67,7 @@
         "from": "THIRD_PARTY_NOTICES.md",
         "to": "THIRD_PARTY_NOTICES.md"
       },
-      {
-        "from": "resources/com-worker.cjs",
-        "to": "workers/com-worker.cjs"
-      },
+
       {
         "from": "resources/dsh-host-worker.mjs",
         "to": "workers/dsh-host-worker.mjs"
@@ -80,32 +77,7 @@
         "to": "workers/dsh-auth-fence.mjs"
       }
     ],
-    "win": {
-      "extraResources": [
-        {
-          "from": "build/ffmpeg",
-          "to": "tools/ffmpeg"
-        },
-        {
-          "from": "build/icon.ico",
-          "to": "icon.ico"
-        },
-        {
-          "from": "assets/app-icon.png",
-          "to": "app-icon.png"
-        }
-      ],
-      "target": [
-        {
-          "target": "portable",
-          "arch": [
-            "x64"
-          ]
-        }
-      ],
-      "artifactName": "Moyu-Tools-v${version}-Windows-${arch}.${ext}",
-      "icon": "build/icon.ico"
-    },
+
     "mac": {
       "target": [
         {
@@ -115,11 +87,11 @@
           ]
         }
       ],
-      "artifactName": "Moyu-Tools-v${version}-macOS-${arch}.${ext}",
+      "artifactName": "MOYU-v${version}-macOS-${arch}.${ext}",
       "icon": "build/macos/app-icon.png",
       "category": "public.app-category.productivity",
       "extendInfo": {
-        "NSScreenCaptureUsageDescription": "摸鱼工具箱需要读取屏幕以完成区域截图。"
+        "NSScreenCaptureUsageDescription": "MOYU 需要读取屏幕以完成区域截图。"
       },
       "extraResources": [
         {
@@ -143,19 +115,9 @@
     "vite": "^7.3.6"
   },
   "dependencies": {
-    "@tesseract.js-data/chi_sim": "1.0.0",
-    "@tesseract.js-data/eng": "1.0.0",
-    "fabric": "5.5.2-browser",
-    "gs1encoder": "1.4.1",
-    "jsbarcode": "3.12.3",
-    "opentype.js": "2.0.0",
     "pdf-lib": "1.17.1",
     "pdfjs-dist": "5.4.624",
     "qpdf-run": "0.2.1",
-    "sharp": "0.35.3",
-    "tesseract.js": "7.0.0"
-  },
-  "optionalDependencies": {
-    "winax": "3.6.9"
+    "sharp": "0.35.3"
   }
 }

@@ -6,6 +6,5 @@
 
 - `*-MIT.txt`、`*-Apache-2.0.txt`：许可证文本。
 - `*-NOTICE.md`：来源、版本、哈希或再分发说明。
-- `OCRB-USER-PROVIDED-NOTICE.txt`：用户提供字体的专项声明。
 
 不要为了统一大小写或目录外观随意重命名现有文件；构建检查、`THIRD_PARTY_NOTICES.md` 和发布验收可能依赖其准确名称。

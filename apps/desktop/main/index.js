@@ -223,7 +223,7 @@ async function ensureScreenCaptureKitBinary() {
     ]
     const source = sourceCandidates.find((candidate) => existsSync(candidate))
     if (!source) throw new Error('缺少 macOS ScreenCaptureKit 侧车源码')
-    const directory = join(app.getPath('temp'), 'moyu-tools-native')
+    const directory = join(app.getPath('temp'), 'moyu-native')
     const binary = join(directory, 'screen-capture')
     await mkdir(directory, { recursive: true })
     const sourceStat = await stat(source)
@@ -248,7 +248,7 @@ async function ensureScreenCaptureKitBinary() {
 /** macOS 原生抓屏：保留屏幕上的全部应用。 */
 async function captureDisplayScreenCaptureKit(display, physicalWidth, physicalHeight) {
   const binary = await ensureScreenCaptureKitBinary()
-  const directory = join(app.getPath('temp'), 'moyu-tools-native')
+  const directory = join(app.getPath('temp'), 'moyu-native')
   const output = join(directory, `capture-${randomUUID()}.png`)
   try {
     await runHelperProcess(binary, [

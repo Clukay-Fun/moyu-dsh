@@ -1,20 +1,6 @@
 # Third-party notices
 
-摸鱼工具箱包含以下第三方组件。对应许可证全文随应用一起发布在 `licenses/` 目录。
-
-## OCRB 字体组（用户提供）
-
-- 用途：条码人眼可读数字的可选字体；随渲染层一起交付，不依赖用户系统安装字体。
-- 来源：用户本地提供的 `~/Downloads/ocra-ocrb-fonts/`，包含 OCRB、OCRB I、OCRB III、OCRB IV。
-- 许可证：字体元数据未提供版权、许可证名称或许可证 URL；仅限用户声明的个人学习用途，确认授权前不得分发。
-- 说明文件：`licenses/OCRB-USER-PROVIDED-NOTICE.txt`。
-
-## opentype.js
-
-- 用途：将随包 OCR-B 字体的人眼可读字符转换为 SVG 路径，避免 Adobe 联动时发生字体替换。
-- 版本：2.0.0。
-- 许可证：MIT。
-- 许可证文件：`licenses/opentype.js-MIT.txt`。
+MOYU DSH 包含以下第三方组件。对应许可证全文随应用一起发布在 `licenses/` 目录。
 
 ## qpdf-run 0.2.1
 
@@ -34,38 +20,13 @@
 - 许可证文件：`licenses/QPDF-Apache-2.0.txt`
 - 上游 NOTICE：`licenses/QPDF-NOTICE.md`
 
-## FFmpeg / ffprobe 6.1.1
-
-- 用途：格式工厂通过独立、隐藏窗口的子进程执行音频与视频探测、转换和压缩。
-- 来源：`eugeneware/ffmpeg-static` release `b6.1.1`，实际 Windows 构建来自 gyan.dev essentials。
-- 实际许可证：GPL-3.0-or-later；构建启用了 `--enable-gpl --enable-version3 --enable-static`。
-- 版本、二进制哈希、源码获取与发布义务：`licenses/FFMPEG-NOTICE.md`
-- 上游许可证与完整构建配置随二进制放在发布包 `resources/tools/ffmpeg/`。
-
 ## sharp 0.35.3 / libvips
 
-- 用途：格式工厂读取图片元数据并执行批量格式转换、缩放和压缩。
+- 用途：图片格式转换、缩放和压缩。
 - sharp 许可证：Apache License 2.0。
-- Windows 原生包与 libvips 许可证：Apache-2.0 AND LGPL-3.0-or-later。
+- macOS 原生包与 libvips 许可证：Apache-2.0 AND LGPL-3.0-or-later。
 - 固定版本、npm integrity、动态链接边界和源码获取方式：`licenses/SHARP-NOTICE.md`
 - Apache License 2.0 全文：`licenses/QPDF-Apache-2.0.txt`
-
-## winax 3.6.9
-
-- 用途：在独立 Electron utility process 中调用 Windows COM，联动 Microsoft Office、Adobe Illustrator 与 Adobe Photoshop。
-- 许可证：MIT
-- Copyright (c) 2023 Yuri Dursin
-- npm integrity：`sha512-R+6yTIk8pnIf50P4z8unG3yfRP0DCYzq7v8J04tool1OR4UkoXKEGfAj+cq6IPPhnVQHz7+m7isg+yU38T727w==`
-- 许可证文件：`licenses/winax-MIT.txt`
-
-## gs1encoder (GS1 Barcode Syntax Engine)
-
-- 版本：1.4.1（精确固定，非 `^` 范围）
-- 许可证：Apache-2.0（见 `licenses/GS1-SYNTAX-ENGINE-Apache-2.0.txt`）
-- 项目：https://github.com/gs1/gs1-syntax-engine
-- npm integrity：`sha512-wiLHo41Jg5o3gPFOoNgv0zy6DVzMeTLq2x/9ue+0PRt6GoDqgfbSIMFpxzq8GcfVOyGRU9b7czhGK2GP4V58vQ==`
-- 用途：GS1-128 的 AI 语法校验与 HRI 生成。使用包内嵌固定 AI 表，
-  **不在运行时下载 Syntax Dictionary**，WASM 随构建本地打包。
 
 ## lucide-static 1.30.0
 

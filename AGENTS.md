@@ -40,9 +40,8 @@ DSH Web UI 是唯一主界面，运行在本地 DSH origin 上。DSH Host 使用
    大二进制不过桥，不向模型暴露绝对路径。
 6. 原生运行时与资产必须先做目标平台打包 Spike，且按性质区分：`.node` 原生模块
    （sharp、`@napi-rs/canvas` 的 skia）验证 Electron ABI 与 `asarUnpack`；WASM/Worker/数据资产
-   （tesseract.js 及其语言包、gs1encoder）验证打包后的解析路径；独立可执行文件
-   （FFmpeg）单独规划获取、校验与签名。macOS 交付须验证签名、hardened runtime、
-   公证和干净机器启动。不使用外挂 Node runtime。
+   验证打包后的解析路径；独立可执行文件单独规划获取、校验与签名。macOS 交付须验证
+   签名、hardened runtime、公证和干净机器启动。不使用外挂 Node runtime。
 7. 不保留未实现的可点击控件；未实现能力须明确禁用或标为预览。
 8. 不使用 CDN 作为核心运行依赖；运行资源经 npm 或 `assets/` 本地交付。
 9. 不提交缓存、构建产物、用户私有素材、凭证、本地计划文档或测试代码。

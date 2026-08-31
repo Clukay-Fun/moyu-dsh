@@ -29,7 +29,7 @@ function assertRuntimeComplete(root) {
 }
 
 function workerPath() {
-  // 与 com-worker 相同的交付方式：随 extraResources 落到 resources/workers。
+
   return app.isPackaged
     ? join(process.resourcesPath, 'workers', 'dsh-host-worker.mjs')
     : join(app.getAppPath(), 'resources', 'dsh-host-worker.mjs')

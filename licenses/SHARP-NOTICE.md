@@ -1,6 +1,6 @@
 # sharp / libvips notice
 
-摸鱼工具箱使用以下固定版本的图片处理组件：
+MOYU DSH 使用以下固定版本的图片处理组件：
 
 ## sharp 0.35.3
 
@@ -10,15 +10,13 @@
 - npm integrity：`sha512-ej0zVHuZGHCiABXcNxeYhpRnPNPAcvbG8RMdBAhDAxLKkCRVSpK3Iyu7qbqw3JMzoj0REeM6f3tJLtVwl0023Q==`
 - 许可证全文：`QPDF-Apache-2.0.txt`（同一份 Apache License 2.0 通用文本）
 
-## Windows x64 原生包
+## macOS arm64 原生包
 
-- npm 包：`@img/sharp-win32-x64@0.35.3`
+- npm 包：`@img/sharp-darwin-arm64@0.35.3`
 - 许可证：Apache-2.0 AND LGPL-3.0-or-later
-- npm integrity：`sha512-D4y1vNeZrIIJCN+uHaWVtH86B+aCrdMYYjicy9pXHvbGZeGYLLSd3wdVuC37FxVXlU1ARsk84eKWfWMXGYEqvA==`
 
-该包提供 sharp 的 Windows x64 原生模块及其所需的 libvips 动态库。摸鱼工具箱不修改
-sharp 或 libvips，只通过公开 API 动态调用，并通过 electron-builder 的 `asarUnpack`
-将原生文件原样随应用分发。
+MOYU DSH 不修改 sharp 或 libvips，只通过公开 API 动态调用，并通过 electron-builder 的
+`asarUnpack` 将原生文件原样随应用分发。
 
 libvips 采用 LGPL-3.0-or-later：
 
