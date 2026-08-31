@@ -1,9 +1,17 @@
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
-import type { ConvViewProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import React from 'react'
 import { computeNextRun, describeSchedule } from './schedule'
 import type { ScheduleSpec, RecurrencePattern } from './schedule'
+
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface SlotMap {
+    'surface.scheduled': {
+      kind: 'single'
+      scope: 'root'
+    }
+  }
+}
 
 // ---- Shared DTOs (mirror the Host side, no cwd/prompt leakage) ----
 export interface TaskSummary {
@@ -50,8 +58,6 @@ interface Draft {
   timeZone: string
   enabled: boolean
 }
-
-const PLUGIN_ID = 'scheduled-tasks' as const
 
 function fmtTime(ts: number | null): string {
   if (!ts) return '—'
@@ -143,6 +149,15 @@ const WEEKDAY_OPTIONS = [
 // Scoped CSS so button sizing / hover / focus / danger states are consistent
 // without touching the host page's global styles.
 const STYLE = `
+.moyu-st-page { box-sizing: border-box; width: 100%; min-height: 100%; color: var(--dsw-alias-label-primary, var(--fg, #111)); background: var(--dsw-alias-bg-base, var(--bg, #fff)); overflow: auto; }
+.moyu-st-shell { box-sizing: border-box; width: min(100%, 1040px); margin: 0 auto; padding: 56px 40px 72px; }
+.moyu-st-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
+.moyu-st-heading { margin: 0; font-size: 30px; font-weight: 560; line-height: 1.25; letter-spacing: -0.02em; }
+.moyu-st-subtitle { margin: 8px 0 0; color: var(--dsw-alias-label-secondary, #6b7280); font-size: 14px; line-height: 22px; }
+.moyu-st-search { box-sizing: border-box; width: 100%; height: 40px; margin-top: 28px; padding: 0 14px; color: inherit; background: transparent; border: 1px solid var(--dsw-alias-border-l2, var(--border, #ccd)); border-radius: 20px; font: inherit; outline: none; }
+.moyu-st-search:focus { border-color: var(--dsw-alias-state-business-primary, var(--accent, #3b82f6)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--dsw-alias-state-business-primary, #3b82f6) 18%, transparent); }
+.moyu-st-list { list-style: none; margin: 28px 0 0; padding: 0; }
+.moyu-st-empty { margin-top: 28px; color: var(--dsw-alias-label-secondary, #6b7280); }
 .moyu-st-btn { font: inherit; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border, #ccd); background: var(--bg, #fff); color: var(--fg, #111); cursor: pointer; }
 .moyu-st-btn:hover:not(:disabled) { background: var(--hover, #f0f0f0); }
 .moyu-st-btn:focus-visible { outline: 2px solid var(--accent, #3b82f6); outline-offset: 1px; }
@@ -155,6 +170,7 @@ const STYLE = `
 .moyu-st-bad { color: var(--danger, #c0392b); }
 .moyu-st-notice { border: 1px solid var(--border, #ccd); border-radius: 8px; padding: 10px 12px; margin-top: 12px; background: var(--notice-bg, #f7f9ff); }
 .moyu-st-notice-item { display: flex; justify-content: space-between; gap: 8px; align-items: center; padding: 4px 0; }
+@media (max-width: 720px) { .moyu-st-shell { padding: 32px 20px 48px; } .moyu-st-heading { font-size: 26px; } .moyu-st-header { gap: 16px; } }
 `
 function btn(
   label: string,
@@ -415,6 +431,7 @@ function ScheduledTasksPanel(props: {
   const [selected, setSelected] = React.useState<string | null>(null)
   const [runs, setRuns] = React.useState<RunSummary[] | null>(null)
   const [runsError, setRunsError] = React.useState<string | null>(null)
+  const [query, setQuery] = React.useState('')
   const pollRef = React.useRef<{ cancel: () => void } | null>(null)
 
   const reload = React.useCallback(async () => {
@@ -655,7 +672,11 @@ function ScheduledTasksPanel(props: {
     }
   }, [props.request, reload])
 
-  const rows = (tasks || []).map((t) => {
+  const normalizedQuery = query.trim().toLocaleLowerCase()
+  const visibleTasks = (tasks || []).filter((t) =>
+    normalizedQuery === '' || t.title.toLocaleLowerCase().includes(normalizedQuery),
+  )
+  const rows = visibleTasks.map((t) => {
     const actions: React.ReactNode[] = [
       btn('立即运行', () => void runTask(t.id), { disabled: t.running }),
       btn('编辑', () => void openEditor(t.id)),
@@ -723,27 +744,46 @@ function ScheduledTasksPanel(props: {
   })
 
   return React.createElement(
-    'div',
-    { style: { padding: 12, maxWidth: 560 } },
+    'main',
+    { className: 'moyu-st-page', 'data-surface': 'scheduled' },
     React.createElement('style', null, STYLE),
     React.createElement(
       'div',
-      { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
-      React.createElement('h3', { style: { margin: 0 } }, '安排任务'),
-      btn('新建任务', () => void openEditor()),
-    ),
-    error ? React.createElement('div', { className: 'moyu-st-err', style: { marginTop: 8 } }, error) : null,
-    sessionError
-      ? React.createElement('div', { className: 'moyu-st-err', style: { marginTop: 8 } }, `打开对话失败：${sessionError}`)
-      : null,
-    tasks == null
-      ? React.createElement('div', { style: { marginTop: 12, opacity: 0.6 } }, '加载中…')
-      : tasks.length === 0
-        ? React.createElement('div', { style: { marginTop: 12, opacity: 0.6 } }, '暂无任务')
-        : React.createElement('ul', { style: { listStyle: 'none', margin: '12px 0 0', padding: 0 } }, ...rows),
-    React.createElement(
-      ScheduledNotifications,
-      { tasks: tasks || [], onOpen: (id: string) => setSelected(selected === id ? null : id), onMarkAll: () => void markAllRead() },
+      { className: 'moyu-st-shell' },
+      React.createElement(
+        'div',
+        { className: 'moyu-st-header' },
+        React.createElement(
+          'div',
+          null,
+          React.createElement('h1', { className: 'moyu-st-heading' }, '已安排的任务'),
+          React.createElement('p', { className: 'moyu-st-subtitle' }, '让 MOYU 定时执行任务、生成会话并汇报运行结果'),
+        ),
+        btn('创建', () => void openEditor()),
+      ),
+      React.createElement('input', {
+        className: 'moyu-st-search',
+        type: 'search',
+        value: query,
+        placeholder: '搜索已安排任务',
+        'aria-label': '搜索已安排任务',
+        onChange: (event: React.ChangeEvent<HTMLInputElement>) => setQuery(event.target.value),
+      }),
+      error ? React.createElement('div', { className: 'moyu-st-err', style: { marginTop: 16 } }, error) : null,
+      sessionError
+        ? React.createElement('div', { className: 'moyu-st-err', style: { marginTop: 16 } }, `打开对话失败：${sessionError}`)
+        : null,
+      React.createElement(
+        ScheduledNotifications,
+        { tasks: tasks || [], onOpen: (id: string) => setSelected(selected === id ? null : id), onMarkAll: () => void markAllRead() },
+      ),
+      tasks == null
+        ? React.createElement('div', { className: 'moyu-st-empty' }, '加载中…')
+        : tasks.length === 0
+          ? React.createElement('div', { className: 'moyu-st-empty' }, '暂无已安排任务')
+          : rows.length === 0
+            ? React.createElement('div', { className: 'moyu-st-empty' }, '没有匹配的任务')
+            : React.createElement('ul', { className: 'moyu-st-list' }, ...rows),
     ),
     confirmDelete
       ? React.createElement(
@@ -793,16 +833,13 @@ export function apply(ctx: ClientContext): void {
   const openSession = (id: string) => {
     ctx.sessions.open(id as SessionId)
   }
-  ctx.slots.inject('conversation.view', () =>
+  ctx.slots.inject('surface.scheduled', () =>
     ctx.slots.register(
       {
-        name: 'conversation.view',
-        id: PLUGIN_ID,
-        order: 50,
-        label: () => '安排任务',
+        name: 'surface.scheduled',
         inject: () => ({}),
       },
-      (props: ConvViewProps) => React.createElement(ScheduledTasksPanel, { request, openSession }),
+      () => React.createElement(ScheduledTasksPanel, { request, openSession }),
     ),
   )
 }

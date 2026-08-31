@@ -1,18 +1,13 @@
-# 摸鱼工具箱 — Electron 开发约定
+# MOYU DSH — Electron 开发约定
 
 ## 项目定位
 
 这是一个 **DSH 原生桌面应用**：DeepSeek Harness 是内核与唯一界面，Electron 是桌面宿主
-与安全边界，Moyu 只贡献三项内置能力。当前只做 macOS arm64。
+与安全边界，MOYU 通过原生插件提供产品能力。当前只做 macOS arm64。
 
-**功能范围（v3.0.0 定稿，见本机计划决策 20）**：只有 **图片转换、PDF、截图** 三项。
-图片与 PDF 是**纯内置工具**（Tool），没有任何界面与设置项；截图是 Tool 加 composer
-输入框内的一个小按钮（`conversation.input.left`），结果直接进对话附件。
-
-**已移出范围，不要重新引入**：条码、格式工厂（FFmpeg）、OCR、Illustrator/Office COM
-联动、Fabric 画布、PDF organizer、钉图（pin）。摸鱼工具箱（legacy renderer）已整体
-删除，与本应用**不再有任何连接**；其实现存档在 `dev` 分支历史与
-独立维护在 `~/Program/moyu-tools/`；`~/Program/moyu-tools-legacy-ref/` 仅保留为迁移时的只读快照。
+**功能范围（v3.0.0 定稿）**：DSH 会话与工作区、安排任务，以及图片转换、PDF、截图三项
+内置能力。图片与 PDF 作为 Tool 使用；截图同时提供 composer 输入框按钮
+（`conversation.input.left`），结果直接进入对话附件。
 
 DSH Web UI 是唯一主界面，运行在本地 DSH origin 上。DSH Host 使用 Electron 自带运行时以
 `ELECTRON_RUN_AS_NODE=1` 启动独立 Node 子进程，只能通过有类型的进程 IPC 窄桥调用白名单
@@ -21,7 +16,7 @@ DSH Web UI 是唯一主界面，运行在本地 DSH origin 上。DSH Host 使用
 技术与范围以本机 `scope/README.md`、`scope/plans/README.md` 及当前活动子计划为准。
 `scope/` 是本地开发依据，不纳入 Git。
 
-上述范围定稿（图片转换、PDF、截图三项）约束的是 `dev`/`main` 与正式发布路径。实验分支
+上述范围约束的是 `dev`/`main` 与正式发布路径。实验分支
 （如 `experiment/*`）允许探索范围外的功能，但探索期间也要在本机
 `scope/plans/active/` 留一份对应计划文档；合并回 `dev` 前必须先补一次范围决策，
 不得直接把范围外功能带入主线。

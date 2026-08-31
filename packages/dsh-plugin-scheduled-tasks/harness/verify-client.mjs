@@ -29,10 +29,12 @@ const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url),
 assert.deepEqual(pkg.dsh.client.inject, ['slots', 'sessions'], 'manifest dsh.client.inject must match source (no split contract)')
 
 let compFactory = null
+let injectedSlot = null
 const openSpy = []
 const mockCtx = {
   slots: {
     inject: (key, cb) => {
+      injectedSlot = key
       cb()
     },
     register: (spec, comp) => {
@@ -43,7 +45,8 @@ const mockCtx = {
   sessions: { open: (id) => { openSpy.push(id) } },
 }
 mod.apply(mockCtx)
-assert.ok(typeof compFactory === 'function', 'conversation.view component registered')
+assert.equal(injectedSlot, 'surface.scheduled', 'scheduled page registered in the sidebar surface')
+assert.ok(typeof compFactory === 'function', 'surface.scheduled component registered')
 
 const element = compFactory()
 const openSession = element.props.openSession
@@ -77,7 +80,7 @@ const TestRenderer = (await import('react-test-renderer')).default
 
 let calls = []
 let listTasks = [
-  { id: 't1', title: 'Task One', enabled: true, nextRunAt: 123, lastRunAt: null, lastRunStatus: null, unreadCount: 0, running: false },
+  { id: 't1', title: 'Task One', enabled: true, schedule: { kind: 'daily', pattern: 'daily', timeOfDay: '09:00', timeZone: 'Asia/Shanghai' }, nextRunAt: 123, lastRunAt: null, lastRunStatus: null, unreadCount: 0, running: false },
 ]
 let failList = false
 globalThis.fetch = async (url, init) => {
@@ -144,7 +147,7 @@ assert.ok(calls.some((c) => c.operation === 'delete' && c.taskId === 't1'), 'del
 
 calls.length = 0
 await TestRenderer.act(async () => {
-  buttonByLabel(root, '新建任务').props.onClick()
+  buttonByLabel(root, '创建').props.onClick()
   await flush()
 })
 assert.ok(findByText(renderer.toJSON(), '新建任务'), 'editor modal opened')
@@ -176,9 +179,41 @@ assert.equal(createCall.workspaceId, 'ws-1', 'create DTO workspaceId (no cwd)')
 assert.equal(createCall.enabled, true, 'create DTO enabled')
 assert.ok(typeof createCall.runAt === 'number' && createCall.runAt > Date.now(), 'create DTO runAt is future ms')
 
+// SCHEDULE-04b: recurrence UI posts a `schedule` object (not runAt)
 calls.length = 0
 await TestRenderer.act(async () => {
-  buttonByLabel(root, '新建任务').props.onClick()
+  buttonByLabel(root, '创建').props.onClick()
+  await flush()
+})
+const setRecurrence = (v) => root.findAll((n) => n.type === 'select')[1].props.onChange({ target: { value: v } })
+const setTime = (v) => root.findAll((n) => n.type === 'input').find((i) => i.props.type === 'time').props.onChange({ target: { value: v } })
+await TestRenderer.act(async () => {
+  setTitle('Recurring Task')
+  await flush()
+  setPrompt('p')
+  await flush()
+  setWorkspace('ws-1')
+  await flush()
+  setRecurrence('daily')
+  await flush()
+  setTime('08:30')
+  await flush()
+})
+await TestRenderer.act(async () => {
+  buttonByLabel(root, '保存').props.onClick()
+  await flush()
+})
+const recCall = calls.find((c) => c.operation === 'create' && c.title === 'Recurring Task')
+assert.ok(recCall, 'recurring create posts create op')
+assert.ok(recCall.schedule && recCall.schedule.kind === 'recurring', 'recurring create posts schedule object')
+assert.equal(recCall.schedule.pattern, 'daily', 'recurring pattern daily')
+assert.equal(recCall.schedule.timeOfDay, '08:30', 'recurring timeOfDay posted')
+assert.ok(typeof recCall.schedule.timeZone === 'string' && recCall.schedule.timeZone.length > 0, 'recurring timeZone posted')
+assert.ok(!('runAt' in recCall), 'recurring create does NOT post runAt')
+
+calls.length = 0
+await TestRenderer.act(async () => {
+  buttonByLabel(root, '创建').props.onClick()
   await flush()
 })
 await TestRenderer.act(async () => {
@@ -208,7 +243,8 @@ if (openBtn) {
 }
 
 const allText = JSON.stringify(renderer.toJSON())
-assert.ok(!allText.includes('周期') && !allText.includes('重复') && !allText.includes('RRULE') && !allText.includes('cron'), 'no unimplemented recurrence controls')
+assert.ok(allText.includes('重复'), 'recurrence control (重复) present (SCHEDULE-04b implemented)')
+assert.ok(allText.includes('每天 09:00'), 'recurring schedule described in list row (SCHEDULE-04b)')
 
 renderer.unmount()
 failList = true

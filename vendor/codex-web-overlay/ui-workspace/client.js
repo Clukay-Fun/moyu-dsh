@@ -2601,7 +2601,11 @@ window.__ModuleLoader__.load({
 			return (0, react_jsx_runtime.jsx)(moyuBlocks, { size: 20 });
 		}
 		/** Render a truthful empty or handoff state for an unconfigured surface. */
-		function SurfaceView({ surface, openSettings, t }) {
+		function SurfaceView({ surface, openSettings, renderSlot, t }) {
+			if (surface === "scheduled") {
+				const scheduled = renderSlot("surface.scheduled", {});
+				if (scheduled !== null && scheduled !== void 0) return scheduled;
+			}
 			const plugins = surface === "plugins";
 			const title = surface === "pull-requests" ? t("surface.pullRequests") : surface === "browser" ? t("surface.browser") : surface === "scheduled" ? t("surface.scheduled") : t("surface.plugins.title");
 			const description = surface === "pull-requests" ? t("surface.pullRequests.description") : surface === "browser" ? t("surface.browser.description") : surface === "scheduled" ? t("surface.scheduled.description") : t("surface.plugins.description");
@@ -2956,6 +2960,10 @@ window.__ModuleLoader__.load({
 			ctx.slots.inject("surface", () => ctx.slots.register({
 				name: "surface",
 				locale: NS,
+				children: { "surface.scheduled": {
+					kind: "single",
+					scope: "root"
+				} },
 				inject: surfaceInjected
 			}, SurfaceView));
 		}

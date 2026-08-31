@@ -399,4 +399,210 @@ assert.deepEqual([ra.statusCode, rb2.statusCode].sort(), [202, 409], 'concurrent
 console.log('PASS: SCHEDULE-03b write operations (CRUD, workspace, 202 run, 409, validation)')
 
 console.log('\nALL CHECKS PASSED (SCHEDULE-01 + SCHEDULE-02 + SCHEDULE-03 route + SCHEDULE-03b writes)')
+
+// ---- SCHEDULE-04a: recurring kernel (Host) ----
+shouldFailNext = false
+const { computeNextRun, validateSchedule } = mod
+
+// (1) computeNextRun — pure engine, fixed patterns + IANA tz
+const tz0 = 'Asia/Shanghai'
+const afterNow = Date.now()
+const daily = { kind: 'recurring', pattern: 'daily', timeOfDay: '09:00', timeZone: tz0 }
+const nDaily = computeNextRun(daily, afterNow)
+assert.ok(nDaily && nDaily > afterNow, 'daily: next occurrence in future')
+assert.ok(computeNextRun({ kind: 'once', runAt: afterNow - 1 }, afterNow) === null, 'once past -> null')
+assert.ok(computeNextRun({ kind: 'once', runAt: afterNow + 5000 }, afterNow) === afterNow + 5000, 'once future -> runAt')
+
+// weekday skips weekends
+const sat = Date.UTC(2026, 0, 10, 0, 0, 0) // 2026-01-10 is a Saturday (UTC)
+const nWeekday = computeNextRun({ kind: 'recurring', pattern: 'weekday', timeOfDay: '09:00', timeZone: 'UTC' }, sat + 1000)
+const wdParts = new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', weekday: 'short' }).formatToParts(new Date(nWeekday))
+assert.equal(wdParts.find((p) => p.type === 'weekday').value, 'Mon', 'weekday pattern lands on Monday (skips Sat/Sun)')
+
+// weekly on a specific weekday (Wed=3)
+const nWeekly = computeNextRun({ kind: 'recurring', pattern: 'weekly', timeOfDay: '09:00', weekday: 3, timeZone: 'UTC' }, sat + 1000)
+assert.equal(new Date(nWeekly).getUTCDay(), 3, 'weekly: next occurrence on chosen weekday')
+
+// monthly on day 15
+const nMonthly = computeNextRun({ kind: 'recurring', pattern: 'monthly', timeOfDay: '09:00', dayOfMonth: 15, timeZone: 'UTC' }, Date.UTC(2026, 0, 20, 0, 0, 0))
+assert.equal(new Date(nMonthly).getUTCDate(), 15, 'monthly: day-of-month respected')
+
+// monthly day 31 clamps on short months (after Jan 31 -> Feb 28)
+const n31 = computeNextRun({ kind: 'recurring', pattern: 'monthly', timeOfDay: '09:00', dayOfMonth: 31, timeZone: 'UTC' }, Date.UTC(2026, 1, 1, 0, 0, 0))
+assert.equal(new Date(n31).getUTCDate(), 28, 'monthly 31 clamps to Feb 28')
+
+// timezone: scheduled wall-clock preserved across DST (America/New_York)
+// Spring-forward 2025-03-09 02:00 -> 03:00. A 09:00 daily event stays 09:00 local
+// before and after; the gap between the two Sundays is 23h.
+const estTz = 'America/New_York'
+const beforeDST = Date.UTC(2025, 2, 8, 12, 0, 0) // 2025-03-08 07:00 ET (UTC-5)
+const occBefore = computeNextRun({ kind: 'recurring', pattern: 'daily', timeOfDay: '09:00', timeZone: estTz }, beforeDST)
+const lpBefore = new Intl.DateTimeFormat('en-US', { timeZone: estTz, hour: '2-digit', minute: '2-digit' }).formatToParts(new Date(occBefore))
+assert.equal(lpBefore.find((p) => p.type === 'hour').value, '09', 'EST: occurrence at 09:00 local')
+const afterDST = occBefore + 1 // already past first occurrence
+const occAfter = computeNextRun({ kind: 'recurring', pattern: 'daily', timeOfDay: '09:00', timeZone: estTz }, afterDST)
+const gapHours = (occAfter - occBefore) / 3_600_000
+assert.ok(gapHours > 22 && gapHours < 24, `EST spring-forward gap ~23h (got ${gapHours.toFixed(1)})`)
+console.log('PASS: SCHEDULE-04a computeNextRun — daily/weekday/weekly/monthly/DST')
+
+// (1b) DST gap: a wall time that lands inside the missing hour must resolve to
+// the CORRECT local time, not slip by an hour. Daily 03:30 America/New_York on
+// the US spring-forward Sunday 2025-03-09 (02:00 -> 03:00) must stay 03:30 local.
+const springAfter = Date.UTC(2025, 2, 8, 12, 0, 0)
+const occGap = computeNextRun({ kind: 'recurring', pattern: 'daily', timeOfDay: '03:30', timeZone: 'America/New_York' }, springAfter)
+const lpGap = new Intl.DateTimeFormat('en-GB', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit' }).format(new Date(occGap))
+assert.match(lpGap, /^03:30/, `DST gap: 03:30 stays 03:30 local (got ${lpGap}, must not slip to 04:30)`)
+console.log('PASS: SCHEDULE-04a DST gap — wall time inside missing hour stays correct local time')
+
+// (2) validateSchedule
+assert.throws(() => validateSchedule({ kind: 'recurring', pattern: 'hourly', timeOfDay: '09:00', timeZone: 'UTC' }), (e) => e.code === 'invalid_schedule', 'rejects unknown pattern')
+assert.throws(() => validateSchedule({ kind: 'recurring', pattern: 'daily', timeOfDay: '25:00', timeZone: 'UTC' }), (e) => e.code === 'invalid_schedule', 'rejects bad HH:mm')
+assert.throws(() => validateSchedule({ kind: 'recurring', pattern: 'weekly', timeOfDay: '09:00', timeZone: 'UTC' }), (e) => e.code === 'invalid_schedule', 'weekly requires weekday')
+assert.throws(() => validateSchedule({ kind: 'recurring', pattern: 'daily', timeOfDay: '09:00', timeZone: 'Mars/Phobos' }), (e) => e.code === 'invalid_schedule', 'rejects bad timezone')
+console.log('PASS: SCHEDULE-04a validateSchedule')
+
+// (3) recurring task continues after a run (nextRunAt advances to next occurrence)
+const svc04 = new ScheduledTasksService(mockCtx)
+await svc04.ready
+const tRec = await svc04.createTask({ title: 'rec', prompt: 'p', cwd: '/tmp', schedule: { kind: 'recurring', pattern: 'daily', timeOfDay: '09:00', timeZone: 'Asia/Shanghai' } })
+assert.ok(tRec.nextRunAt && tRec.nextRunAt > Date.now(), 'recurring created with future nextRunAt')
+const firedAt = Date.now()
+svc04.getTask(tRec.id).nextRunAt = firedAt
+svc04.schedule(svc04.getTask(tRec.id)) // tick -> fires runTaskNow immediately
+await new Promise((r) => setTimeout(r, 200))
+const afterRun = svc04.getTask(tRec.id)
+assert.ok(afterRun.nextRunAt > firedAt, 'recurring nextRunAt advanced past the fired time')
+assert.ok(afterRun.nextRunAt - firedAt <= 24 * 3_600_000 + 60_000, 'next occurrence within ~24h (daily cadence)')
+assert.equal(svc04.listRuns(tRec.id).length, 1, 'one run recorded after fire')
+assert.equal(svc04.listRuns(tRec.id)[0].status, 'succeeded', 'recurring run succeeded')
+console.log('PASS: SCHEDULE-04a recurring continues after run')
+
+// (4) concurrency -> missed (not a second run)
+const tMiss = await svc04.createTask({ title: 'miss', prompt: 'p', cwd: '/tmp', schedule: { kind: 'recurring', pattern: 'daily', timeOfDay: '09:00', timeZone: 'Asia/Shanghai' } })
+await svc04.beginRun(tMiss.id) // simulate an in-flight run (activeRuns guard set)
+// Force the next occurrence to be "now" while still running, then re-arm.
+svc04.getTask(tMiss.id).nextRunAt = Date.now() - 1000
+svc04.schedule(svc04.getTask(tMiss.id)) // tick -> activeRuns has it -> recordMissed
+const missed = svc04.listRuns(tMiss.id).filter((r) => r.status === 'missed')
+assert.equal(missed.length, 1, 'concurrent fire recorded as missed')
+assert.ok(svc04.getTask(tMiss.id).nextRunAt > Date.now(), 'series continued past missed')
+console.log('PASS: SCHEDULE-04a concurrency -> missed, series continues')
+
+// (5) restart backfill: <=24h backfills most recent; >24h skips
+const verifyBack = '/tmp/moyu-schedule-verify-back'
+await mkdir(verifyBack + '/scheduled-tasks', { recursive: true })
+const past24 = Date.now() - 3_600_000
+await writeFile(
+  verifyBack + '/scheduled-tasks/store.json',
+  JSON.stringify({
+    version: 2,
+    tasks: [{ id: 't-back', title: 'b', prompt: 'p', cwd: '/tmp', enabled: true, schedule: { kind: 'recurring', pattern: 'daily', timeOfDay: '09:00', timeZone: 'UTC' }, nextRunAt: past24, lastRunAt: null, createdAt: 1, updatedAt: 1 }],
+    runs: {},
+  }),
+)
+process.env.MOYU_DSH_HOME = verifyBack
+const svcBack = new ScheduledTasksService(makeCtx())
+await svcBack.ready
+await new Promise((r) => setTimeout(r, 300))
+assert.ok(svcBack.listRuns('t-back').some((r) => r.status === 'succeeded'), 'missed ≤24h backfilled (ran)')
+assert.ok(svcBack.getTask('t-back').nextRunAt > Date.now(), 'backfill then continued to next occurrence')
+const backRun = svcBack.listRuns('t-back').find((r) => r.status === 'succeeded')
+assert.equal(backRun.scheduledFor, past24, 'backfilled run scheduledFor equals the original due time (not Date.now())')
+
+const verifySkip = '/tmp/moyu-schedule-verify-skip'
+await mkdir(verifySkip + '/scheduled-tasks', { recursive: true })
+const past48 = Date.now() - 48 * 3_600_000
+await writeFile(
+  verifySkip + '/scheduled-tasks/store.json',
+  JSON.stringify({
+    version: 2,
+    tasks: [{ id: 't-skip', title: 's', prompt: 'p', cwd: '/tmp', enabled: true, schedule: { kind: 'recurring', pattern: 'daily', timeOfDay: '09:00', timeZone: 'UTC' }, nextRunAt: past48, lastRunAt: null, createdAt: 1, updatedAt: 1 }],
+    runs: {},
+  }),
+)
+process.env.MOYU_DSH_HOME = verifySkip
+const svcSkip = new ScheduledTasksService(makeCtx())
+await svcSkip.ready
+await new Promise((r) => setTimeout(r, 300))
+assert.equal(svcSkip.listRuns('t-skip').length, 0, 'missed >24h NOT backfilled')
+assert.ok(svcSkip.getTask('t-skip').nextRunAt > Date.now(), '>24h skipped to next future occurrence')
+process.env.MOYU_DSH_HOME = '/tmp/moyu-schedule-verify'
+console.log('PASS: SCHEDULE-04a restart backfill (≤24h backfills, >24h skips)')
+
+// (6) v1 -> v2 migration (no schedule field, future runAt -> once)
+const verifyMig = '/tmp/moyu-schedule-verify-mig'
+await mkdir(verifyMig + '/scheduled-tasks', { recursive: true })
+const v1RunAt = Date.now() + 60_000
+await writeFile(
+  verifyMig + '/scheduled-tasks/store.json',
+  JSON.stringify({
+    tasks: [{ id: 't-mig', title: 'm', prompt: 'p', cwd: '/tmp', enabled: true, nextRunAt: v1RunAt, lastRunAt: null, createdAt: 1, updatedAt: 1 }],
+    runs: {},
+  }),
+)
+process.env.MOYU_DSH_HOME = verifyMig
+const svcMig = new ScheduledTasksService(makeCtx())
+await svcMig.ready
+const mig = svcMig.getTask('t-mig')
+assert.equal(mig.schedule.kind, 'once', 'v1 task migrated to once schedule')
+assert.equal(mig.schedule.runAt, v1RunAt, 'v1 runAt preserved as schedule.runAt')
+assert.equal(mig.nextRunAt, v1RunAt, 'v1 nextRunAt preserved')
+const migStore = JSON.parse(await readFile('/tmp/moyu-schedule-verify-mig/scheduled-tasks/store.json', 'utf8'))
+assert.equal(migStore.version, 2, 'migration persisted: on-disk store upgraded to version 2')
+assert.ok(
+  migStore.tasks.find((t) => t.id === 't-mig' && t.schedule && t.schedule.kind === 'once'),
+  'migration persisted: task has schedule on disk (no re-migration on next start)',
+)
+process.env.MOYU_DSH_HOME = '/tmp/moyu-schedule-verify'
+console.log('PASS: SCHEDULE-04a v1->v2 migration')
+
+// (7) async persist failure is logged, not silently swallowed as an unhandled
+// rejection. Private `recordMissed` now uses `void this.persist().catch(log)`.
+let unhandled = false
+const onUnhandled = () => { unhandled = true }
+process.on('unhandledRejection', onUnhandled)
+const relCtx = makeCtx()
+const logged = []
+relCtx.logger.error = (...a) => logged.push(a.join(' '))
+const svcRel = new ScheduledTasksService(relCtx)
+await svcRel.ready
+const tRel = await svcRel.createTask({ title: 'rel', prompt: 'p', cwd: '/tmp', schedule: { kind: 'recurring', pattern: 'daily', timeOfDay: '09:00', timeZone: 'UTC' } })
+await svcRel.beginRun(tRel.id) // mark in-flight so the next tick records a miss
+svcRel.persist = async () => { throw new Error('disk full') } // override only now, so createTask/beginRun persist for real
+svcRel.getTask(tRel.id).nextRunAt = Date.now() - 1000
+svcRel.schedule(svcRel.getTask(tRel.id)) // tick -> activeRuns set -> recordMissed -> persist() rejects
+await new Promise((r) => setImmediate(r))
+assert.ok(logged.some((l) => /persist failed/.test(l)), 'persist failure is logged')
+assert.equal(unhandled, false, 'no unhandled rejection from async persist')
+process.off('unhandledRejection', onUnhandled)
+console.log('PASS: SCHEDULE-04a async persist failure is logged, not an unhandled rejection')
+
+// ---- SCHEDULE-05 notifications + manual re-run (no auto-retry) ----
+const svc05 = new ScheduledTasksService(mockCtx)
+await svc05.ready
+const t05 = await svc05.createTask({ title: 'ntfy', prompt: 'p', cwd: '/tmp' })
+await svc05.runTaskNow(t05.id) // success run, unread by default
+let sum05 = svc05.listTaskSummaries().find((t) => t.id === t05.id)
+assert.ok(sum05.unreadCount >= 1, 'completed run is unread (notification pending)')
+const marked = await svc05.markAllRead()
+assert.ok(marked >= 1, 'markAllRead returned number of cleared runs')
+sum05 = svc05.listTaskSummaries().find((t) => t.id === t05.id)
+assert.equal(sum05.unreadCount, 0, 'unread cleared after markAllRead')
+// manual re-run must be allowed once (no auto-retry / backoff)
+await svc05.runTaskNow(t05.id)
+assert.equal(svc05.listRuns(t05.id).length, 2, 'manual re-run adds exactly one more run')
+// manual re-run must NOT advance a recurring schedule (would skip an occurrence)
+const t05r = await svc05.createTask({
+  title: 'rec-manual',
+  prompt: 'p',
+  cwd: '/tmp',
+  schedule: { kind: 'recurring', pattern: 'daily', timeOfDay: '09:00', timeZone: 'UTC' },
+})
+const beforeNext = svc05.getTask(t05r.id).nextRunAt
+await svc05.startTaskRun(t05r.id) // manual run (立即运行 / 重新运行 path)
+const afterNext = svc05.getTask(t05r.id).nextRunAt
+assert.ok(beforeNext && afterNext && Math.abs(afterNext - beforeNext) < 1000, 'manual re-run does NOT advance recurring nextRunAt (no skipped occurrence)')
+console.log('PASS: SCHEDULE-05 unread notification + mark-all-read + manual re-run (no auto-retry, no schedule skip)')
+
+console.log('\nALL CHECKS PASSED (SCHEDULE-01 + 02 + 03 route + 03b writes + 04a recurring kernel + 05 notifications)')
 process.exit(0)
