@@ -12,11 +12,13 @@ import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 
 import type {
+  DirectoryView,
   MediaRun,
   RunEvent,
   ServerRequest,
   MediaArtifact,
   SessionCapabilities,
+  VideoListItem,
 } from './types.js'
 
 import {
@@ -259,7 +261,7 @@ function MediaSpikePanel({ sessions }: { sessions: ClientContext['sessions'] }):
   const showApproval = hasCapability(capabilities ?? undefined, 'approval', 'confirm_publish')
 
   return React.createElement('div', { style: { padding: 16 } },
-    React.createElement('h3', null, 'Media Workspace (M1)'),
+    React.createElement('h3', null, 'Media Workspace'),
 
     // Preset 切换器
     React.createElement(PresetSwitcher, { sessions }),
@@ -359,6 +361,290 @@ function MediaSpikePanel({ sessions }: { sessions: ClientContext['sessions'] }):
 
 //#endregion
 
+//#region 设置与视频库
+
+function useCapabilities(): SessionCapabilities | null {
+  const [capabilities, setCapabilities] = useState<SessionCapabilities | null>(null)
+  useEffect(() => {
+    const fetchCaps = () => {
+      const preset = (typeof window !== 'undefined' && (window as unknown as Record<string, unknown>).__moyuActivePreset as string) || 'moyu'
+      apiRequest({ operation: 'capabilities', preset })
+        .then(result => setCapabilities((result as { capabilities: SessionCapabilities }).capabilities))
+        .catch(() => {})
+    }
+    fetchCaps()
+    const handler = () => fetchCaps()
+    window.addEventListener('moyu-preset-changed', handler)
+    return () => window.removeEventListener('moyu-preset-changed', handler)
+  }, [])
+  return capabilities
+}
+
+async function captureThumbnail(fileId: string): Promise<boolean> {
+  const video = document.createElement('video')
+  video.muted = true
+  video.playsInline = true
+  video.preload = 'auto'
+  video.src = `/moyu/media/${fileId}`
+  try {
+    await new Promise<void>((resolve, reject) => {
+      video.onloadeddata = () => resolve()
+      video.onerror = () => reject(new Error('video load failed'))
+    })
+    const duration = Number.isFinite(video.duration) ? video.duration : 0
+    video.currentTime = duration > 0 ? duration * 0.1 : 0
+    await new Promise<void>((resolve, reject) => {
+      video.onseeked = () => resolve()
+      video.onerror = () => reject(new Error('video seek failed'))
+    })
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.max(1, video.videoWidth)
+    canvas.height = Math.max(1, video.videoHeight)
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return false
+    ctx.drawImage(video, 0, 0)
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.8))
+    if (!blob) return false
+    const response = await fetch(`/moyu/media/${fileId}/thumbnail`, {
+      method: 'POST',
+      headers: { 'content-type': 'image/jpeg' },
+      body: blob,
+    })
+    return response.ok || response.status === 204
+  } catch {
+    return false
+  } finally {
+    video.src = ''
+    video.load()
+  }
+}
+
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
+}
+
+function formatDuration(ms: number | null): string {
+  if (ms == null || !Number.isFinite(ms) || ms < 0) return '—'
+  const total = Math.round(ms / 1000)
+  const m = Math.floor(total / 60)
+  const s = total % 60
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+
+function MediaSettingsPanel(): React.ReactElement | null {
+  const capabilities = useCapabilities()
+  const showLibrary = hasCapability(capabilities ?? undefined, 'tool', 'video_scan')
+  const [directories, setDirectories] = useState<DirectoryView[]>([])
+  const [suffixes, setSuffixes] = useState('.srt, .txt')
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const refresh = useCallback(async () => {
+    const result = await apiRequest({ operation: 'settings-get' }) as {
+      directories: DirectoryView[]
+      subtitleSuffixes: string[]
+    }
+    setDirectories(result.directories)
+    setSuffixes(result.subtitleSuffixes.join(', '))
+  }, [])
+
+  useEffect(() => {
+    if (!showLibrary) return
+    refresh().catch((e) => setError(String((e as Error).message ?? e)))
+  }, [showLibrary, refresh])
+
+  if (!showLibrary) return null
+
+  const addDirectory = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      const result = await apiRequest({ operation: 'settings-pick-directory' }) as { canceled?: boolean; directories?: DirectoryView[] }
+      if (!result.canceled && result.directories) setDirectories(result.directories)
+    } catch (e) {
+      setError(String((e as Error).message ?? e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const removeDirectory = async (id: string) => {
+    setBusy(true)
+    setError(null)
+    try {
+      const result = await apiRequest({ operation: 'settings-remove-directory', id }) as { directories: DirectoryView[] }
+      setDirectories(result.directories)
+    } catch (e) {
+      setError(String((e as Error).message ?? e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const saveSuffixes = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      const list = suffixes.split(/[,\s]+/).filter(Boolean)
+      const result = await apiRequest({ operation: 'settings-set-suffixes', subtitleSuffixes: list }) as { subtitleSuffixes: string[] }
+      setSuffixes(result.subtitleSuffixes.join(', '))
+    } catch (e) {
+      setError(String((e as Error).message ?? e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return React.createElement('div', { style: { marginTop: 16, paddingTop: 16, borderTop: '1px solid #eee' } },
+    React.createElement('h4', null, '视频库设置'),
+    error && React.createElement('div', { style: { color: 'red', marginBottom: 8 } }, error),
+    React.createElement('div', { style: { fontSize: 12, color: '#666', marginBottom: 8 } }, '视频目录（只显示名称，路径留在 Host）'),
+    ...directories.map((dir) =>
+      React.createElement('div', {
+        key: dir.id,
+        style: { display: 'flex', gap: 8, alignItems: 'center', marginBottom: 4 },
+      },
+        React.createElement('span', null, dir.label),
+        React.createElement('button', { disabled: busy, onClick: () => void removeDirectory(dir.id) }, '移除'),
+      ),
+    ),
+    React.createElement('button', { disabled: busy, onClick: () => void addDirectory() }, '添加目录'),
+    React.createElement('div', { style: { marginTop: 12, fontSize: 12, color: '#666' } }, '字幕后缀'),
+    React.createElement('input', {
+      value: suffixes,
+      onChange: (e: React.ChangeEvent<HTMLInputElement>) => setSuffixes(e.target.value),
+      style: { width: '100%', margin: '4px 0' },
+    }),
+    React.createElement('button', { disabled: busy, onClick: () => void saveSuffixes() }, '保存后缀'),
+  )
+}
+
+function VideoLibraryView(): React.ReactElement {
+  const capabilities = useCapabilities()
+  const showLibrary = hasCapability(capabilities ?? undefined, 'tool', 'video_scan')
+  const [videos, setVideos] = useState<VideoListItem[]>([])
+  const [error, setError] = useState<string | null>(null)
+  const [selected, setSelected] = useState<string | null>(null)
+  const [subtitlePreview, setSubtitlePreview] = useState<string>('')
+  const [thumbs, setThumbs] = useState<Record<string, string>>({})
+
+  const loadList = useCallback(async (rescan: boolean) => {
+    const result = await apiRequest({ operation: rescan ? 'scan' : 'list' }) as { videos: VideoListItem[] }
+    setVideos(result.videos)
+    return result.videos
+  }, [])
+
+  useEffect(() => {
+    if (!showLibrary) return
+    loadList(true).catch((e) => setError(String((e as Error).message ?? e)))
+  }, [showLibrary, loadList])
+
+  useEffect(() => {
+    if (!showLibrary) return
+    let cancelled = false
+    const run = async () => {
+      for (const video of videos) {
+        if (cancelled) return
+        const url = `/moyu/media/${video.fileId}/thumbnail`
+        if (video.hasThumbnail) {
+          setThumbs((prev) => (prev[video.fileId] ? prev : { ...prev, [video.fileId]: url }))
+          continue
+        }
+        const ok = await captureThumbnail(video.fileId)
+        if (cancelled) return
+        if (ok) setThumbs((prev) => ({ ...prev, [video.fileId]: `${url}?t=${Date.now()}` }))
+      }
+    }
+    void run()
+    return () => { cancelled = true }
+  }, [videos, showLibrary])
+
+  if (!showLibrary) {
+    return React.createElement('div', {
+      'data-moyu-media-library': 'hidden',
+      style: { padding: 24, color: '#888' },
+    }, '当前工作台无视频库能力')
+  }
+
+  const openDetails = async (video: VideoListItem) => {
+    setSelected(video.fileId)
+    setSubtitlePreview('')
+    try {
+      const result = await apiRequest({ operation: 'subtitle-text', fileId: video.fileId }) as { files: Array<{ fileName: string; text: string }> }
+      setSubtitlePreview(result.files.map((f) => `--- ${f.fileName} ---\n${f.text}`).join('\n\n') || '（无字幕）')
+    } catch (e) {
+      setError(String((e as Error).message ?? e))
+    }
+  }
+
+  return React.createElement('div', {
+    'data-moyu-media-library': 'visible',
+    style: { padding: 24, height: '100%', overflow: 'auto' },
+  },
+    React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 16 } },
+      React.createElement('h3', { style: { margin: 0 } }, '视频库'),
+      React.createElement('div', { style: { display: 'flex', gap: 8 } },
+        React.createElement('button', { onClick: () => void loadList(true).catch((e) => setError(String((e as Error).message ?? e))) }, '刷新索引'),
+        React.createElement('button', {
+          onClick: () => window.dispatchEvent(new CustomEvent('moyu-open-media-settings')),
+        }, '打开设置'),
+      ),
+    ),
+    error && React.createElement('div', { style: { color: 'red', marginBottom: 8 } }, error),
+    videos.length === 0 && React.createElement('div', { style: { color: '#888' } }, '还没有视频。在设置里添加目录后刷新。'),
+    React.createElement('div', {
+      style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12 },
+    },
+      ...videos.map((video) =>
+        React.createElement('button', {
+          key: video.fileId,
+          onClick: () => void openDetails(video),
+          style: {
+            textAlign: 'left',
+            border: selected === video.fileId ? '2px solid #4a90d9' : '1px solid #ddd',
+            borderRadius: 8,
+            padding: 8,
+            background: '#fff',
+            cursor: 'pointer',
+          },
+        },
+          thumbs[video.fileId]
+            ? React.createElement('img', {
+              src: thumbs[video.fileId],
+              alt: '',
+              style: { width: '100%', height: 100, objectFit: 'cover', borderRadius: 4, background: '#111' },
+            })
+            : React.createElement('div', {
+              style: { height: 100, borderRadius: 4, background: '#eee', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: '#888' },
+            }, '生成缩略图…'),
+          React.createElement('div', { style: { fontWeight: 600, marginTop: 6, fontSize: 13 } }, video.fileName),
+          React.createElement('div', { style: { fontSize: 11, color: '#666' } },
+            `${formatDuration(video.durationMs)} · ${formatSize(video.size)}`,
+          ),
+          video.subtitles.length > 0 && React.createElement('div', { style: { fontSize: 11, color: '#4a90d9' } },
+            video.subtitles.map((s) => s.fileName).join(', '),
+          ),
+        ),
+      ),
+    ),
+    selected && React.createElement('pre', {
+      style: { marginTop: 16, fontSize: 12, maxHeight: 240, overflow: 'auto', background: '#f7f7f7', padding: 12, borderRadius: 8 },
+    }, subtitlePreview),
+  )
+}
+
+function MediaSettingsRoot({ sessions }: { sessions: ClientContext['sessions'] }): React.ReactElement {
+  return React.createElement('div', null,
+    React.createElement(MediaSpikePanel, { sessions }),
+    React.createElement(MediaSettingsPanel),
+  )
+}
+
+//#endregion
+
 //#region Plugin 注册
 
 export function apply(ctx: ClientContext): void {
@@ -375,7 +661,19 @@ export function apply(ctx: ClientContext): void {
         order: 90,
         label: () => 'Media Workspace',
       } as never,
-      (() => React.createElement(MediaSpikePanel, { sessions: ctx.sessions })) as never,
+      (() => React.createElement(MediaSettingsRoot, { sessions: ctx.sessions })) as never,
+    ),
+  )
+
+  ctx.slots.inject('conversation.view' as never, () =>
+    ctx.slots.register(
+      {
+        name: 'conversation.view',
+        id: 'moyu-media-library',
+        order: 40,
+        label: () => '视频库',
+      } as never,
+      VideoLibraryView as never,
     ),
   )
 }

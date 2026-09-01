@@ -49,8 +49,59 @@ export interface MediaRun {
   checkpoint?: unknown
 }
 
+export type FileSourceType =
+  | 'project-source'
+  | 'session-attachment'
+  | 'job-result'
+  | 'scheduled-input'
+
+export interface MediaDirectory {
+  id: string
+  path: string
+}
+
+export interface MediaSettings {
+  directories: MediaDirectory[]
+  subtitleSuffixes: string[]
+}
+
+export interface PersistedSubtitle {
+  fileName: string
+  suffix: string
+}
+
+export interface PersistedSource {
+  sourceId: string
+  path: string
+  pathFingerprint: string
+  mtimeMs: number
+  size: number
+  durationMs: number | null
+  sourceType: FileSourceType
+  subtitles: PersistedSubtitle[]
+  thumbnailMtimeMs: number | null
+}
+
 export interface MediaStore {
   version: number
   generation: number
   runs: MediaRun[]
+  settings: MediaSettings
+  sources: PersistedSource[]
+}
+
+export interface VideoListItem {
+  sourceId: string
+  fileId: string
+  fileName: string
+  size: number
+  mtimeMs: number
+  durationMs: number | null
+  subtitles: PersistedSubtitle[]
+  hasThumbnail: boolean
+}
+
+export interface DirectoryView {
+  id: string
+  label: string
 }

@@ -1,5 +1,6 @@
 process.env.MOYU_DSH_HOME = '/tmp/moyu-media-verify'
-import { rm, readFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import assert from 'node:assert/strict'
 
 const PLUGIN = new URL('../lib/index.mjs', import.meta.url).pathname
@@ -19,7 +20,7 @@ function makeCtx() {
       return disposer
     },
     tools: { register(tool) { capturedTools.push(tool) } },
-    webServer: { register(route) { capturedRoutes[route.path] = route; return () => {} } },
+    webServer: { register(route) { capturedRoutes[`${route.kind}:${route.path}`] = route; return () => {} } },
     logger: { info() {}, warn() {}, error() {}, debug() {} },
   }
 }
@@ -52,9 +53,10 @@ async function test(name, fn) {
 async function createService() {
   const ctx = makeCtx()
   await mod.apply(ctx)
-  const route = capturedRoutes['/moyu/media']
-  const sseRoute = capturedRoutes['/moyu/media/events']
-  return { ctx, route, sseRoute, tools: capturedTools }
+  const route = capturedRoutes['exact:/moyu/media']
+  const sseRoute = capturedRoutes['exact:/moyu/media/events']
+  const fileRoute = capturedRoutes['prefix:/moyu/media']
+  return { ctx, route, sseRoute, fileRoute, tools: capturedTools }
 }
 
 // Helper: send a JSON request to the route handler
@@ -313,7 +315,7 @@ await test('running without checkpoint becomes interrupted on restart', async ()
   const ctx2 = makeCtx()
   await mod.apply(ctx2)
 
-  const { json: listResult } = await routeCall(capturedRoutes['/moyu/media'], { operation: 'list-runs' })
+  const { json: listResult } = await routeCall(capturedRoutes['exact:/moyu/media'], { operation: 'list-runs' })
   const recoveredRun = listResult.runs.find(r => r.runId === runId)
   assert.ok(recoveredRun, 'run should be found after restart')
   assert.equal(recoveredRun.status, 'interrupted', 'running run should become interrupted')
@@ -462,16 +464,16 @@ await test('restart bumps generation so client can detect replayed events', asyn
   const ctx2 = makeCtx()
   await mod.apply(ctx2)
 
-  const { json: result2 } = await routeCall(capturedRoutes['/moyu/media'], { operation: 'list-runs' })
+  const { json: result2 } = await routeCall(capturedRoutes['exact:/moyu/media'], { operation: 'list-runs' })
   const gen2Run = result2.runs[0]
   // The run's generation stays the same (it was created under gen1),
   // but the service's generation should have incremented
   // This is visible when we start a new run under the new generation
-  const runPromise2 = routeCall(capturedRoutes['/moyu/media'], { operation: 'run-mock' })
+  const runPromise2 = routeCall(capturedRoutes['exact:/moyu/media'], { operation: 'run-mock' })
   let requestId2 = null
   for (let i = 0; i < 50; i++) {
     await new Promise(r => setTimeout(r, 20))
-    const { json } = await routeCall(capturedRoutes['/moyu/media'], { operation: 'list-runs' })
+    const { json } = await routeCall(capturedRoutes['exact:/moyu/media'], { operation: 'list-runs' })
     const newRun = json.runs.find(r => r.runId !== gen2Run.runId)
     if (newRun?.pendingRequest) {
       requestId2 = newRun.pendingRequest.requestId
@@ -479,11 +481,11 @@ await test('restart bumps generation so client can detect replayed events', asyn
     }
   }
   if (requestId2) {
-    await routeCall(capturedRoutes['/moyu/media'], { operation: 'respond', requestId: requestId2, approved: true })
+    await routeCall(capturedRoutes['exact:/moyu/media'], { operation: 'respond', requestId: requestId2, approved: true })
   }
   const { json: runResult2 } = await runPromise2
 
-  const { json: statusResult2 } = await routeCall(capturedRoutes['/moyu/media'], {
+  const { json: statusResult2 } = await routeCall(capturedRoutes['exact:/moyu/media'], {
     operation: 'status',
     runId: runResult2.runId,
   })
@@ -551,7 +553,7 @@ await test('store.json is written after run completes', async () => {
 
   const raw = await readFile('/tmp/moyu-media-verify/media/store.json', 'utf8')
   const store = JSON.parse(raw)
-  assert.equal(store.version, 1)
+  assert.equal(store.version, 2)
   assert.ok(store.generation >= 1)
   assert.ok(store.runs.length >= 1)
   assert.equal(store.runs[0].status, 'success')
@@ -670,6 +672,7 @@ await test('capabilities route returns media session capabilities for media pres
   assert.equal(status, 200)
   assert.ok(json.capabilities)
   assert.ok(json.capabilities.tools.includes('mock_media_task'))
+  assert.ok(json.capabilities.tools.includes('video_scan'))
   assert.ok(json.capabilities.tools.includes('image_convert'))
   assert.ok(json.capabilities.tools.includes('screenshot_capture'))
   assert.ok(!json.capabilities.tools.includes('pdf_process'))
@@ -694,11 +697,80 @@ await test('capabilities route returns standard capabilities for moyu preset', a
   assert.ok(json.capabilities.tools.includes('pdf_process'))
   assert.ok(json.capabilities.tools.includes('screenshot_capture'))
   assert.ok(!json.capabilities.tools.includes('mock_media_task'))
+  assert.ok(!json.capabilities.tools.includes('video_scan'))
   assert.deepEqual(json.capabilities.approvalRequired, [])
 })
 
 // ─── 12. M1 capabilities helpers ───────────────────────────────────
 console.log('\nM1 capabilities helpers:')
+
+function makeFileReq({ method, url, headers = {}, body }) {
+  let dataFn, endFn, fired = false
+  const deliver = () => {
+    if (body && dataFn) dataFn(body)
+    if (endFn) endFn()
+  }
+  return {
+    method,
+    url,
+    headers,
+    on(ev, cb) {
+      if (ev === 'data') dataFn = cb
+      if (ev === 'end') endFn = cb
+      if (fired && dataFn && endFn) deliver()
+      return this
+    },
+    fire() {
+      fired = true
+      if (dataFn && endFn) deliver()
+    },
+  }
+}
+
+function makeFileRes() {
+  const chunks = []
+  let status
+  let headers = {}
+  return {
+    writeHead(s, h = {}) { status = s; headers = h },
+    write(c) { chunks.push(Buffer.from(c)); return true },
+    end(c) { if (c !== undefined && c !== null && c !== '') chunks.push(Buffer.from(c)) },
+    on() { return this },
+    get status() { return status },
+    get headers() { return headers },
+    get body() { return Buffer.concat(chunks) },
+  }
+}
+
+async function fileCall(route, opts) {
+  const req = makeFileReq(opts)
+  const res = makeFileRes()
+  const pending = route.handler(req, res)
+  req.fire()
+  await pending
+  return res
+}
+
+async function seedLibrary() {
+  const dir = '/tmp/moyu-media-verify/library'
+  await mkdir(dir, { recursive: true })
+  const payload = Buffer.alloc(2048, 7)
+  await writeFile(join(dir, 'clip-01.mp4'), payload)
+  await writeFile(join(dir, 'clip-01.srt'), '1\n00:00:00,000 --> 00:00:01,000\nhello\n')
+  await writeFile(join(dir, 'clip-01.txt'), 'plain captions')
+  await mkdir('/tmp/moyu-media-verify/media', { recursive: true })
+  await writeFile('/tmp/moyu-media-verify/media/store.json', JSON.stringify({
+    version: 2,
+    generation: 0,
+    runs: [],
+    settings: {
+      directories: [{ id: 'dir-1', path: dir }],
+      subtitleSuffixes: ['.srt', '.txt'],
+    },
+    sources: [],
+  }))
+  return { size: payload.length, payload }
+}
 
 await test('hasCapability accurately detects available tools and permissions', () => {
   const { getSessionCapabilities, hasCapability } = mod
@@ -713,6 +785,171 @@ await test('hasCapability accurately detects available tools and permissions', (
   assert.equal(hasCapability(moyuCaps, 'tool', 'mock_media_task'), false)
   assert.equal(hasCapability(moyuCaps, 'tool', 'pdf_process'), true)
   assert.equal(hasCapability(moyuCaps, 'approval', 'confirm_publish'), false)
+  assert.equal(hasCapability(mediaCaps, 'tool', 'video_scan'), true)
+  assert.equal(hasCapability(moyuCaps, 'tool', 'video_scan'), false)
+})
+
+console.log('\nM2 video_scan and Range:')
+
+await test('video_scan indexes mp4 and matches same-stem subtitles', async () => {
+  const { size } = await seedLibrary()
+  const { route, tools } = await createService()
+  assert.ok(tools.some(t => t.name === 'video_scan'), 'video_scan tool registered')
+  const { status, json } = await routeCall(route, { operation: 'list' })
+  assert.equal(status, 200)
+  assert.equal(json.videos.length, 1)
+  assert.equal(json.videos[0].fileName, 'clip-01.mp4')
+  assert.equal(json.videos[0].size, size)
+  assert.equal(json.videos[0].subtitles.length, 2)
+  assert.ok(!JSON.stringify(json).includes('/tmp/'), 'list DTO must not expose absolute paths')
+  const text = await routeCall(route, { operation: 'subtitle-text', fileId: json.videos[0].fileId })
+  assert.equal(text.status, 200)
+  assert.ok(text.json.files.some(f => f.fileName === 'clip-01.srt' && f.text.includes('hello')))
+})
+
+await test('single-range forms return 206 with Content-Range', async () => {
+  await seedLibrary()
+  const { route, fileRoute } = await createService()
+  const { json } = await routeCall(route, { operation: 'list' })
+  const fileId = json.videos[0].fileId
+  const url = `/moyu/media/${fileId}`
+
+  const bounded = await fileCall(fileRoute, { method: 'GET', url, headers: { range: 'bytes=0-15' } })
+  assert.equal(bounded.status, 206)
+  assert.equal(bounded.headers['content-range'], 'bytes 0-15/2048')
+  assert.equal(bounded.headers['accept-ranges'], 'bytes')
+  assert.equal(bounded.headers['content-length'], '16')
+  assert.equal(bounded.body.length, 16)
+
+  const openEnd = await fileCall(fileRoute, { method: 'GET', url, headers: { range: 'bytes=2000-' } })
+  assert.equal(openEnd.status, 206)
+  assert.equal(openEnd.headers['content-range'], 'bytes 2000-2047/2048')
+  assert.equal(openEnd.body.length, 48)
+
+  const suffix = await fileCall(fileRoute, { method: 'GET', url, headers: { range: 'bytes=-8' } })
+  assert.equal(suffix.status, 206)
+  assert.equal(suffix.headers['content-range'], 'bytes 2040-2047/2048')
+  assert.equal(suffix.body.length, 8)
+})
+
+await test('multipart range is rejected with 400', async () => {
+  await seedLibrary()
+  const { route, fileRoute } = await createService()
+  const { json } = await routeCall(route, { operation: 'list' })
+  const res = await fileCall(fileRoute, {
+    method: 'GET',
+    url: `/moyu/media/${json.videos[0].fileId}`,
+    headers: { range: 'bytes=0-1,2-3' },
+  })
+  assert.equal(res.status, 400)
+})
+
+await test('out-of-range returns 416', async () => {
+  await seedLibrary()
+  const { route, fileRoute } = await createService()
+  const { json } = await routeCall(route, { operation: 'list' })
+  const res = await fileCall(fileRoute, {
+    method: 'GET',
+    url: `/moyu/media/${json.videos[0].fileId}`,
+    headers: { range: 'bytes=4096-8192' },
+  })
+  assert.equal(res.status, 416)
+  assert.equal(res.headers['content-range'], 'bytes */2048')
+})
+
+await test('HEAD returns size and no body', async () => {
+  await seedLibrary()
+  const { route, fileRoute } = await createService()
+  const { json } = await routeCall(route, { operation: 'list' })
+  const res = await fileCall(fileRoute, {
+    method: 'HEAD',
+    url: `/moyu/media/${json.videos[0].fileId}`,
+    headers: {},
+  })
+  assert.equal(res.status, 200)
+  assert.equal(res.headers['content-length'], '2048')
+  assert.equal(res.headers['accept-ranges'], 'bytes')
+  assert.equal(res.body.length, 0)
+})
+
+await test('Range request never degrades to 200', async () => {
+  await seedLibrary()
+  const { route, fileRoute } = await createService()
+  const { json } = await routeCall(route, { operation: 'list' })
+  const res = await fileCall(fileRoute, {
+    method: 'GET',
+    url: `/moyu/media/${json.videos[0].fileId}`,
+    headers: { range: 'bytes=0-' },
+  })
+  assert.equal(res.status, 206)
+  assert.notEqual(res.status, 200)
+  assert.ok(res.headers['content-range'])
+})
+
+await test('invalid, expired, and cross-subject tokens return 404 without paths', async () => {
+  await seedLibrary()
+  const { fileRoute } = await createService()
+  const res = await fileCall(fileRoute, {
+    method: 'GET',
+    url: '/moyu/media/00000000-0000-4000-8000-000000000000',
+    headers: { range: 'bytes=0-1' },
+  })
+  assert.equal(res.status, 404)
+  const body = res.body.toString('utf8')
+  assert.equal(body.includes('/tmp/'), false)
+  assert.equal(body.includes('不存在') || body.includes('无权限'), false)
+})
+
+await test('host restart reissues fileId and invalidates the old token', async () => {
+  await seedLibrary()
+  const first = await createService()
+  const list1 = await routeCall(first.route, { operation: 'list' })
+  const oldId = list1.json.videos[0].fileId
+  const sourceId = list1.json.videos[0].sourceId
+  const second = await createService()
+  const list2 = await routeCall(second.route, { operation: 'list' })
+  assert.equal(list2.json.videos[0].sourceId, sourceId)
+  assert.notEqual(list2.json.videos[0].fileId, oldId)
+  const stale = await fileCall(second.fileRoute, {
+    method: 'GET',
+    url: `/moyu/media/${oldId}`,
+    headers: { range: 'bytes=0-1' },
+  })
+  assert.equal(stale.status, 404)
+  const fresh = await fileCall(second.fileRoute, {
+    method: 'GET',
+    url: `/moyu/media/${list2.json.videos[0].fileId}`,
+    headers: { range: 'bytes=0-1' },
+  })
+  assert.equal(fresh.status, 206)
+})
+
+await test('settings view returns directory labels without paths', async () => {
+  await seedLibrary()
+  const { route } = await createService()
+  const { status, json } = await routeCall(route, { operation: 'settings-get' })
+  assert.equal(status, 200)
+  assert.equal(json.directories[0].label, 'library')
+  assert.ok(!JSON.stringify(json).includes('/tmp/moyu-media-verify/library'))
+})
+
+await test('thumbnail cache hits then invalidates on mtime change', async () => {
+  const { payload } = await seedLibrary()
+  const { route, fileRoute } = await createService()
+  const listed = await routeCall(route, { operation: 'list' })
+  const fileId = listed.json.videos[0].fileId
+  const url = `/moyu/media/${fileId}/thumbnail`
+  const posted = await fileCall(fileRoute, { method: 'POST', url, body: Buffer.from('jpeg-bytes') })
+  assert.ok(posted.status === 204 || posted.status === 200)
+  const hit = await fileCall(fileRoute, { method: 'GET', url, headers: {} })
+  assert.equal(hit.status, 200)
+  assert.equal(hit.body.toString(), 'jpeg-bytes')
+  await writeFile('/tmp/moyu-media-verify/library/clip-01.mp4', Buffer.concat([payload, Buffer.alloc(16, 9)]))
+  await routeCall(route, { operation: 'scan' })
+  const listed2 = await routeCall(route, { operation: 'list' })
+  const freshId = listed2.json.videos[0].fileId
+  const missed = await fileCall(fileRoute, { method: 'GET', url: `/moyu/media/${freshId}/thumbnail`, headers: {} })
+  assert.equal(missed.status, 404)
 })
 
 // ─── Summary ─────────────────────────────────────────────────────────

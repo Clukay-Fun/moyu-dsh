@@ -2,7 +2,7 @@
 描述: dsh-profile 守卫单元与集成测试 harness。
 主要功能:
     - 验证 assertMoyuToolSurface 多 preset 工具面检验
-    - 验证 media preset 必备工具集（image_convert, screenshot_capture）
+    - 验证 media preset 必备工具集（image_convert, screenshot_capture, video_scan）
     - 验证 moyu preset 必备工具集（image_convert, pdf_process, screenshot_capture）
     - 验证未知 preset fail-closed 拦截
     - 验证 shell 类工具禁用拦截
@@ -95,15 +95,14 @@ console.log('\nMoyu Preset Guard:')
 // 3. Media Preset 守卫校验
 console.log('\nMedia Preset Guard:')
 {
-  // Media preset in M1 only requires image_convert and screenshot_capture (no pdf_process)
-  const validMediaTools = ['image_convert', 'screenshot_capture', 'ask_user_question', 'mock_media_task']
+  const validMediaTools = ['image_convert', 'screenshot_capture', 'video_scan', 'ask_user_question', 'mock_media_task']
   let ok = false
   try {
     ok = assertMoyuToolSurface(createMockCtx(validMediaTools), createMockSession('media'))
   } catch (e) {
     ok = false
   }
-  assert('media preset with required M1 tools succeeds (without pdf_process)', ok === true)
+  assert('media preset with required M2 tools succeeds (without pdf_process)', ok === true)
 }
 
 {
@@ -118,7 +117,18 @@ console.log('\nMedia Preset Guard:')
 }
 
 {
-  const mediaWithShell = ['image_convert', 'screenshot_capture', 'terminal']
+  const missingScan = ['image_convert', 'screenshot_capture']
+  let rejected = false
+  try {
+    assertMoyuToolSurface(createMockCtx(missingScan), createMockSession('media'))
+  } catch (e) {
+    rejected = e.message.includes('必备工具缺失') && e.message.includes('video_scan')
+  }
+  assert('media preset missing video_scan is rejected', rejected === true)
+}
+
+{
+  const mediaWithShell = ['image_convert', 'screenshot_capture', 'video_scan', 'terminal']
   let rejected = false
   try {
     assertMoyuToolSurface(createMockCtx(mediaWithShell), createMockSession('media'))

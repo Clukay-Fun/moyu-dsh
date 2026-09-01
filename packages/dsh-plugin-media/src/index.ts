@@ -3,36 +3,68 @@ import { Service } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { randomUUID } from 'node:crypto'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { createReadStream } from 'node:fs'
+import { mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { basename, dirname, join } from 'node:path'
 import { homedir } from 'node:os'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 
 import type {
+  DirectoryView,
   MediaArtifact,
+  MediaDirectory,
   MediaRun,
+  MediaSettings,
   MediaStore,
+  PersistedSource,
   RunEvent,
   ServerRequest,
-  ServerResponse,
+  ServerResponse as MediaServerResponse,
   SessionCapabilities,
+  VideoListItem,
 } from './types.js'
 
 import {
   getSessionCapabilities,
   hasCapability,
 } from './session-filter.js'
+import { parseRangeHeader, resolveRange, MAX_MEDIA_BYTES } from './range.js'
+import { matchSubtitleFiles, scanDirectory, toPersistedSource } from './scan.js'
 
-export type { RunEvent, ServerRequest, ServerResponse, MediaArtifact, MediaRun, MediaStore, SessionCapabilities }
+export type { RunEvent, ServerRequest, ServerResponse, MediaArtifact, MediaRun, MediaStore, SessionCapabilities } from './types.js'
 export {
   getSessionCapabilities,
   hasCapability,
+  parseRangeHeader,
+  resolveRange,
 }
 
 export const name = 'moyu-media'
 export const inject = ['tools', 'webServer']
 
-const STORE_VERSION = 1
+const STORE_VERSION = 2
 const MAX_BODY_BYTES = 16 * 1024
+const MAX_THUMBNAIL_BYTES = 2 * 1024 * 1024
+const MAX_SUBTITLE_BYTES = 256 * 1024
+const FILE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const DEFAULT_SUFFIXES = ['.srt', '.txt']
+
+type FileToken = {
+  sourceId: string
+  path: string
+  sourceType: PersistedSource['sourceType']
+  generation: number
+  mtimeMs: number
+  size: number
+}
+
+function defaultSettings(): MediaSettings {
+  return { directories: [], subtitleSuffixes: [...DEFAULT_SUFFIXES] }
+}
+
+function emptyStore(generation = 0): MediaStore {
+  return { version: STORE_VERSION, generation, runs: [], settings: defaultSettings(), sources: [] }
+}
 
 function resolveDataDir(): string {
   const base =
@@ -95,6 +127,73 @@ function readBody(req: NodeJS.ReadableStream, limit = MAX_BODY_BYTES): Promise<u
   })
 }
 
+function readRawBody(req: NodeJS.ReadableStream, limit: number): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = []
+    let size = 0
+    const onData = (chunk: Buffer | string) => {
+      const data = Buffer.from(chunk)
+      size += data.length
+      if (size > limit) {
+        reject(new Error('request body too large'))
+        return
+      }
+      chunks.push(data)
+    }
+    const onEnd = () => resolve(Buffer.concat(chunks))
+    const stream = req as NodeJS.ReadableStream & {
+      on?: (ev: string, cb: (chunk?: unknown) => void) => void
+    }
+    if (stream.on) {
+      stream.on('data', onData as (chunk: unknown) => void)
+      stream.on('end', onEnd)
+      stream.on('error', reject)
+    } else {
+      resolve(Buffer.alloc(0))
+    }
+  })
+}
+
+function pipeFile(
+  filePath: string,
+  start: number,
+  end: number,
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const stream = createReadStream(filePath, { start, end })
+  return new Promise((resolve, reject) => {
+    let settled = false
+    const finish = () => {
+      if (settled) return
+      settled = true
+      resolve()
+    }
+    const fail = (error: Error) => {
+      if (settled) return
+      settled = true
+      stream.destroy()
+      reject(error)
+    }
+    stream.on('error', fail)
+    req.on?.('close', () => {
+      stream.destroy()
+      finish()
+    })
+    res.on?.('close', () => {
+      stream.destroy()
+      finish()
+    })
+    stream.on('data', (chunk: Buffer | string) => {
+      res.write(chunk)
+    })
+    stream.on('end', () => {
+      res.end()
+      finish()
+    })
+  })
+}
+
 type EventListener = (event: RunEvent) => void
 type RequestListener = (request: ServerRequest) => void
 
@@ -104,7 +203,7 @@ interface SseConnection {
 }
 
 export class MockMediaRunService extends Service {
-  private store: MediaStore = { version: STORE_VERSION, generation: 0, runs: [] }
+  private store: MediaStore = emptyStore()
   private storeFile = join(resolveDataDir(), 'store.json')
   private writeChain: Promise<void> = Promise.resolve()
   private sequence = 0
@@ -112,7 +211,8 @@ export class MockMediaRunService extends Service {
   private requestListeners = new Set<RequestListener>()
   private sseConnections = new Set<SseConnection>()
   private activeRun: string | null = null
-  private requestResolvers = new Map<string, (response: ServerResponse) => void>()
+  private requestResolvers = new Map<string, (response: MediaServerResponse) => void>()
+  private tokens = new Map<string, FileToken>()
   ready: Promise<void>
 
   constructor(ctx: Context) {
@@ -123,20 +223,34 @@ export class MockMediaRunService extends Service {
   private async load(): Promise<void> {
     try {
       const raw = await readFile(this.storeFile, 'utf8')
-      const parsed = JSON.parse(raw) as MediaStore
+      const parsed = JSON.parse(raw) as Partial<MediaStore>
       this.store = {
-        version: parsed.version ?? STORE_VERSION,
+        version: STORE_VERSION,
         generation: (parsed.generation ?? 0) + 1,
         runs: parsed.runs ?? [],
+        settings: {
+          directories: Array.isArray(parsed.settings?.directories) ? parsed.settings.directories : [],
+          subtitleSuffixes: Array.isArray(parsed.settings?.subtitleSuffixes) && parsed.settings.subtitleSuffixes.length
+            ? parsed.settings.subtitleSuffixes
+            : [...DEFAULT_SUFFIXES],
+        },
+        sources: Array.isArray(parsed.sources) ? parsed.sources : [],
       }
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
         this.ctx.logger?.error?.('[moyu-media] load failed', e)
       }
-      this.store = { version: STORE_VERSION, generation: 1, runs: [] }
+      this.store = emptyStore(1)
     }
     this.sequence = 0
+    this.tokens.clear()
     await this.recover()
+    await this.reissueTokens()
+    if (this.store.settings.directories.length > 0) {
+      await this.scan().catch((err) => {
+        this.ctx.logger?.error?.('[moyu-media] startup scan failed', err)
+      })
+    }
   }
 
   private async recover(): Promise<void> {
@@ -251,7 +365,304 @@ export class MockMediaRunService extends Service {
     return this.store.generation
   }
 
-  async respondToRequest(response: ServerResponse): Promise<boolean> {
+  private thumbnailPath(sourceId: string): string {
+    return join(resolveDataDir(), 'thumbnails', `${sourceId}.jpg`)
+  }
+
+  private issueToken(source: PersistedSource): string {
+    const fileId = randomUUID()
+    this.tokens.set(fileId, {
+      sourceId: source.sourceId,
+      path: source.path,
+      sourceType: source.sourceType,
+      generation: this.store.generation,
+      mtimeMs: source.mtimeMs,
+      size: source.size,
+    })
+    return fileId
+  }
+
+  private async reissueTokens(): Promise<void> {
+    this.tokens.clear()
+    for (const source of this.store.sources) {
+      this.issueToken(source)
+    }
+  }
+
+  private tokenFor(fileId: string): FileToken | undefined {
+    if (!FILE_ID_RE.test(fileId)) return undefined
+    const token = this.tokens.get(fileId)
+    if (!token || token.generation !== this.store.generation) return undefined
+    return token
+  }
+
+  private fileIdForSource(sourceId: string): string | undefined {
+    for (const [fileId, token] of this.tokens) {
+      if (token.sourceId === sourceId) return fileId
+    }
+    return undefined
+  }
+
+  private publicError(error: unknown): string {
+    return String((error as Error).message ?? error)
+      .replace(/\/Users\/[^ "'\n]+/g, '[path]')
+      .replace(/[A-Z]:\\[^ "'\n]+/g, '[path]')
+      .slice(0, 240)
+  }
+
+  settingsView(): { directories: DirectoryView[]; subtitleSuffixes: string[] } {
+    return {
+      directories: this.store.settings.directories.map((d) => ({
+        id: d.id,
+        label: basename(d.path) || d.id,
+      })),
+      subtitleSuffixes: this.store.settings.subtitleSuffixes,
+    }
+  }
+
+  listVideos(): VideoListItem[] {
+    return this.store.sources.map((source) => {
+      let fileId = this.fileIdForSource(source.sourceId)
+      if (!fileId) fileId = this.issueToken(source)
+      return {
+        sourceId: source.sourceId,
+        fileId,
+        fileName: basename(source.path),
+        size: source.size,
+        mtimeMs: source.mtimeMs,
+        durationMs: source.durationMs,
+        subtitles: source.subtitles,
+        hasThumbnail: source.thumbnailMtimeMs === source.mtimeMs,
+      }
+    })
+  }
+
+  async scan(): Promise<VideoListItem[]> {
+    const suffixes = this.store.settings.subtitleSuffixes
+    const found: PersistedSource[] = []
+    const seen = new Set<string>()
+    for (const directory of this.store.settings.directories) {
+      let videos
+      try {
+        videos = await scanDirectory(directory.path, suffixes)
+      } catch (e) {
+        this.ctx.logger?.warn?.('[moyu-media] scan directory skipped', this.publicError(e))
+        continue
+      }
+      for (const video of videos) {
+        const next = toPersistedSource(video, 'project-source')
+        if (seen.has(next.sourceId)) continue
+        seen.add(next.sourceId)
+        const previous = this.store.sources.find((s) => s.sourceId === next.sourceId)
+        if (previous && previous.mtimeMs === next.mtimeMs && previous.size === next.size) {
+          next.thumbnailMtimeMs = previous.thumbnailMtimeMs
+          next.durationMs = previous.durationMs ?? next.durationMs
+        } else if (previous) {
+          await rm(this.thumbnailPath(next.sourceId), { force: true }).catch(() => {})
+          next.thumbnailMtimeMs = null
+        }
+        found.push(next)
+      }
+    }
+    for (const old of this.store.sources) {
+      if (!seen.has(old.sourceId)) {
+        await rm(this.thumbnailPath(old.sourceId), { force: true }).catch(() => {})
+      }
+    }
+    this.store.sources = found
+    await this.reissueTokens()
+    await this.persist()
+    return this.listVideos()
+  }
+
+  async setSuffixes(suffixes: unknown): Promise<{ directories: DirectoryView[]; subtitleSuffixes: string[] }> {
+    if (!Array.isArray(suffixes)) throw new Error('subtitleSuffixes required')
+    const next: string[] = []
+    for (const item of suffixes) {
+      if (typeof item !== 'string') continue
+      const suffix = item.startsWith('.') ? item.toLowerCase() : `.${item.toLowerCase()}`
+      if (!/^\.[a-z0-9]{1,8}$/.test(suffix)) continue
+      if (!next.includes(suffix)) next.push(suffix)
+    }
+    this.store.settings.subtitleSuffixes = next.length ? next : [...DEFAULT_SUFFIXES]
+    await this.persist()
+    return this.settingsView()
+  }
+
+  async removeDirectory(id: string): Promise<{ directories: DirectoryView[]; subtitleSuffixes: string[] }> {
+    this.store.settings.directories = this.store.settings.directories.filter((d) => d.id !== id)
+    await this.persist()
+    await this.scan()
+    return this.settingsView()
+  }
+
+  async addDirectoryPath(path: string): Promise<{ directories: DirectoryView[]; subtitleSuffixes: string[] }> {
+    if (typeof path !== 'string' || !path) throw new Error('directory required')
+    const resolved = await realpath(path)
+    const info = await stat(resolved)
+    if (!info.isDirectory()) throw new Error('directory required')
+    if (this.store.settings.directories.some((d) => d.path === resolved)) return this.settingsView()
+    const entry: MediaDirectory = { id: randomUUID(), path: resolved }
+    this.store.settings.directories.push(entry)
+    await this.persist()
+    await this.scan()
+    return this.settingsView()
+  }
+
+  async pickDirectory(): Promise<{ directories: DirectoryView[]; subtitleSuffixes: string[] } | { canceled: true }> {
+    const desktop = (globalThis as { __moyuDesktop?: { call: (method: string, payload?: unknown) => Promise<unknown> } }).__moyuDesktop
+    if (!desktop) throw new Error('Moyu 桌面桥尚未就绪')
+    const picked = await desktop.call('desktop.pickDirectory') as { canceled?: boolean; directory?: { fileId?: string } }
+    if (picked?.canceled || !picked?.directory?.fileId) return { canceled: true }
+    const resolved = await desktop.call('desktop.resolveFile', { fileId: picked.directory.fileId }) as { path?: string }
+    if (!resolved?.path) throw new Error('directory required')
+    return this.addDirectoryPath(resolved.path)
+  }
+
+  async subtitleText(fileId: string): Promise<{ files: Array<{ fileName: string; text: string }> }> {
+    const token = this.tokenFor(fileId)
+    if (!token) return Promise.reject(Object.assign(new Error('not found'), { status: 404 }))
+    const suffixes = this.store.settings.subtitleSuffixes
+    const matched = matchSubtitleFiles(token.path, suffixes)
+    const files: Array<{ fileName: string; text: string }> = []
+    for (const item of matched) {
+      const full = join(dirname(token.path), item.fileName)
+      try {
+        const raw = await readFile(full, { encoding: 'utf8' })
+        files.push({ fileName: item.fileName, text: raw.slice(0, MAX_SUBTITLE_BYTES) })
+      } catch {
+        // skip unreadable subtitle; do not leak path
+      }
+    }
+    return { files }
+  }
+
+  logRange(req: IncomingMessage, pathname: string): void {
+    const range = req.headers.range
+    this.ctx.logger?.info?.(
+      `[moyu-media][range] method=${req.method || ''} path=${pathname} range=${JSON.stringify(range ?? null)}`,
+    )
+    console.log(`[moyu-media][range] method=${req.method || ''} path=${pathname} range=${JSON.stringify(range ?? null)}`)
+  }
+
+  async serveFile(fileId: string, req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const token = this.tokenFor(fileId)
+    if (!token) {
+      sendJson(res, 404, { error: 'not found' })
+      return
+    }
+    const pathname = `/moyu/media/${fileId}`
+    this.logRange(req, pathname)
+    const size = token.size
+    if (size > MAX_MEDIA_BYTES) {
+      sendJson(res, 404, { error: 'not found' })
+      return
+    }
+    const method = (req.method || 'GET').toUpperCase()
+    if (method === 'HEAD') {
+      res.writeHead(200, {
+        'accept-ranges': 'bytes',
+        'content-type': 'video/mp4',
+        'content-length': String(size),
+      })
+      res.end()
+      return
+    }
+    if (method !== 'GET') {
+      sendJson(res, 405, { error: 'method not allowed' })
+      return
+    }
+    const header = Array.isArray(req.headers.range) ? req.headers.range[0] : req.headers.range
+    const resolved = resolveRange(header, size)
+    if (resolved.type === 'bad-request') {
+      res.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' })
+      res.end()
+      return
+    }
+    if (resolved.type === 'unsatisfiable') {
+      res.writeHead(416, {
+        'content-range': `bytes */${size}`,
+        'accept-ranges': 'bytes',
+      })
+      res.end()
+      return
+    }
+    if (resolved.type === 'full') {
+      res.writeHead(200, {
+        'accept-ranges': 'bytes',
+        'content-type': 'video/mp4',
+        'content-length': String(size),
+      })
+      await pipeFile(token.path, 0, size - 1, req, res)
+      return
+    }
+    const length = resolved.end - resolved.start + 1
+    res.writeHead(206, {
+      'accept-ranges': 'bytes',
+      'content-type': 'video/mp4',
+      'content-range': `bytes ${resolved.start}-${resolved.end}/${size}`,
+      'content-length': String(length),
+    })
+    await pipeFile(token.path, resolved.start, resolved.end, req, res)
+  }
+
+  async serveThumbnail(fileId: string, req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const token = this.tokenFor(fileId)
+    if (!token) {
+      sendJson(res, 404, { error: 'not found' })
+      return
+    }
+    const source = this.store.sources.find((s) => s.sourceId === token.sourceId)
+    if (!source) {
+      sendJson(res, 404, { error: 'not found' })
+      return
+    }
+    const method = (req.method || 'GET').toUpperCase()
+    const thumb = this.thumbnailPath(source.sourceId)
+    if (method === 'GET' || method === 'HEAD') {
+      if (source.thumbnailMtimeMs !== source.mtimeMs) {
+        sendJson(res, 404, { error: 'not found' })
+        return
+      }
+      try {
+        const data = method === 'HEAD' ? null : await readFile(thumb)
+        res.writeHead(200, {
+          'content-type': 'image/jpeg',
+          'cache-control': 'no-store',
+        })
+        if (method === 'HEAD') res.end()
+        else res.end(data as Buffer)
+      } catch {
+        sendJson(res, 404, { error: 'not found' })
+      }
+      return
+    }
+    if (method !== 'POST') {
+      sendJson(res, 405, { error: 'method not allowed' })
+      return
+    }
+    let body: Buffer
+    try {
+      body = await readRawBody(req, MAX_THUMBNAIL_BYTES)
+    } catch {
+      sendJson(res, 400, { error: 'not found' })
+      return
+    }
+    if (!body.length) {
+      sendJson(res, 400, { error: 'not found' })
+      return
+    }
+    await mkdir(join(resolveDataDir(), 'thumbnails'), { recursive: true })
+    const tmp = `${thumb}.${randomUUID()}.tmp`
+    await writeFile(tmp, body)
+    await rename(tmp, thumb)
+    source.thumbnailMtimeMs = source.mtimeMs
+    await this.persist()
+    res.writeHead(204)
+    res.end()
+  }
+
+  async respondToRequest(response: MediaServerResponse): Promise<boolean> {
     const resolver = this.requestResolvers.get(response.requestId)
     if (resolver) {
       resolver(response)
@@ -354,7 +765,7 @@ export class MockMediaRunService extends Service {
         ttlMs: 30_000,
       }
       // Install resolver BEFORE publishing request to prevent race
-      const responsePromise = new Promise<ServerResponse>((resolve) => {
+      const responsePromise = new Promise<MediaServerResponse>((resolve) => {
         this.requestResolvers.set(requestId, resolve)
       })
       run.status = 'awaiting_user'
@@ -456,7 +867,20 @@ export class MockMediaRunService extends Service {
   }
 }
 
-const SUPPORTED_OPERATIONS = new Set(['list-runs', 'run-mock', 'respond', 'status', 'capabilities'])
+const SUPPORTED_OPERATIONS = new Set([
+  'list-runs',
+  'run-mock',
+  'respond',
+  'status',
+  'capabilities',
+  'scan',
+  'list',
+  'settings-get',
+  'settings-pick-directory',
+  'settings-remove-directory',
+  'settings-set-suffixes',
+  'subtitle-text',
+])
 
 export function apply(ctx: Context): Promise<void> {
   const svc = new MockMediaRunService(ctx)
@@ -529,10 +953,87 @@ export function apply(ctx: Context): Promise<void> {
             sendJson(res, 200, { runId })
             return
           }
+          if (operation === 'scan') {
+            sendJson(res, 200, { videos: await svc.scan() })
+            return
+          }
+          if (operation === 'list') {
+            sendJson(res, 200, { videos: svc.listVideos() })
+            return
+          }
+          if (operation === 'settings-get') {
+            sendJson(res, 200, svc.settingsView())
+            return
+          }
+          if (operation === 'settings-pick-directory') {
+            const result = await svc.pickDirectory()
+            sendJson(res, 200, result)
+            return
+          }
+          if (operation === 'settings-remove-directory') {
+            const id = (body as { id?: unknown }).id
+            if (typeof id !== 'string') {
+              sendJson(res, 400, { error: 'id required' })
+              return
+            }
+            sendJson(res, 200, await svc.removeDirectory(id))
+            return
+          }
+          if (operation === 'settings-set-suffixes') {
+            sendJson(res, 200, await svc.setSuffixes((body as { subtitleSuffixes?: unknown }).subtitleSuffixes))
+            return
+          }
+          if (operation === 'subtitle-text') {
+            const fileId = (body as { fileId?: unknown }).fileId
+            if (typeof fileId !== 'string') {
+              sendJson(res, 404, { error: 'not found' })
+              return
+            }
+            try {
+              sendJson(res, 200, await svc.subtitleText(fileId))
+            } catch (e) {
+              if ((e as { status?: number }).status === 404) sendJson(res, 404, { error: 'not found' })
+              else throw e
+            }
+            return
+          }
         } catch (e) {
           const message = String((e as Error).message ?? e).slice(0, 240)
           sendJson(res, 500, { error: message })
         }
+      },
+    }),
+  )
+
+  ctx.effect(() =>
+    ctx.webServer.register({
+      kind: 'prefix',
+      path: '/moyu/media',
+      handler: async (req, res) => {
+        const pathname = (() => {
+          try {
+            return decodeURIComponent(new URL(req.url || '/', 'http://127.0.0.1').pathname)
+          } catch {
+            return ''
+          }
+        })()
+        const parts = pathname.split('/').filter(Boolean)
+        // /moyu/media/:fileId  or  /moyu/media/:fileId/thumbnail
+        if (parts.length < 3 || parts[0] !== 'moyu' || parts[1] !== 'media') {
+          sendJson(res, 404, { error: 'not found' })
+          return
+        }
+        const fileId = parts[2]
+        await svc.ready
+        if (parts.length === 4 && parts[3] === 'thumbnail') {
+          await svc.serveThumbnail(fileId, req, res)
+          return
+        }
+        if (parts.length === 3) {
+          await svc.serveFile(fileId, req, res)
+          return
+        }
+        sendJson(res, 404, { error: 'not found' })
       },
     }),
   )
@@ -569,6 +1070,50 @@ export function apply(ctx: Context): Promise<void> {
   )
 
   return svc.ready.then(() => {
+    ctx.tools.register(
+      defineTool({
+        name: 'video_scan',
+        description: 'Scan configured video directories and return the indexed media library (file names, duration, size, subtitle association). Does not transcode.',
+        parameters: {},
+        output: {
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              videos: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  additionalProperties: false,
+                  properties: {
+                    sourceId: { type: 'string' },
+                    fileId: { type: 'string' },
+                    fileName: { type: 'string' },
+                    size: { type: 'number' },
+                    mtimeMs: { type: 'number' },
+                    durationMs: { type: 'number' },
+                    hasThumbnail: { type: 'boolean' },
+                  },
+                },
+              },
+            },
+          },
+          render: (_args: unknown, value: unknown) => [{ type: 'text' as const, text: JSON.stringify(value) }],
+        },
+        execute: async () => ({
+          videos: (await svc.scan()).map((video) => ({
+            sourceId: video.sourceId,
+            fileId: video.fileId,
+            fileName: video.fileName,
+            size: video.size,
+            mtimeMs: video.mtimeMs,
+            durationMs: video.durationMs ?? undefined,
+            hasThumbnail: video.hasThumbnail,
+          })),
+        }),
+      }),
+    )
+
     ctx.tools.register(
       defineTool({
         name: 'mock_media_task',

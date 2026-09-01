@@ -49,20 +49,18 @@ test('manifest dsh.client.inject matches source', () => {
   assert.deepEqual(pkg.dsh.client.inject, ['slots', 'sessions'])
 })
 
-test('apply registers the upstream settings.section slot', () => {
-  let injectedSlot = null
-  let registeredSpec = null
-  let compFactory = null
-  const availableSlots = new Set(['settings.section'])
+test('apply registers settings.section and conversation.view', () => {
+  const injected = []
+  const registered = []
+  const availableSlots = new Set(['settings.section', 'conversation.view'])
   const mockCtx = {
     slots: {
       inject: (key, cb) => {
-        injectedSlot = key
+        injected.push(key)
         if (availableSlots.has(key)) cb()
       },
       register: (spec, comp) => {
-        registeredSpec = spec
-        compFactory = comp
+        registered.push({ spec, comp })
         return () => {}
       },
     },
@@ -71,13 +69,14 @@ test('apply registers the upstream settings.section slot', () => {
     },
   }
   mod.apply(mockCtx)
-  assert.equal(injectedSlot, 'settings.section')
-  assert.equal(registeredSpec.name, 'settings.section')
-  assert.equal(registeredSpec.id, 'moyu-media-spike')
-  assert.ok(typeof compFactory === 'function')
-  const element = rootReact.createElement(compFactory)
-  assert.ok(element)
-  assert.equal(typeof element.type, 'function', 'settings section registers a React component')
+  assert.deepEqual(injected, ['settings.section', 'conversation.view'])
+  assert.equal(registered[0].spec.id, 'moyu-media-spike')
+  assert.equal(registered[1].spec.id, 'moyu-media-library')
+  assert.equal(registered[1].spec.name, 'conversation.view')
+  const settingsEl = rootReact.createElement(registered[0].comp)
+  const libraryEl = rootReact.createElement(registered[1].comp)
+  assert.equal(typeof settingsEl.type, 'function')
+  assert.equal(typeof libraryEl.type, 'function')
 })
 
 test('slot harness does not execute providers for unknown slots', () => {
