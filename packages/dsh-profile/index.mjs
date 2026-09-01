@@ -10,7 +10,7 @@
 
 export const PRESET_REQUIRED_TOOLS = Object.freeze({
   moyu: Object.freeze(['image_convert', 'pdf_process', 'screenshot_capture']),
-  media: Object.freeze(['image_convert', 'screenshot_capture', 'video_scan', 'video_subtitle_read', 'media_artifact_save'])
+  media: Object.freeze(['image_convert', 'screenshot_capture', 'video_scan', 'video_subtitle_read', 'media_artifact_save', 'moyu_schedule_create', 'moyu_schedule_run_now'])
 })
 
 export const MOYU_REQUIRED_TOOLS = PRESET_REQUIRED_TOOLS.moyu

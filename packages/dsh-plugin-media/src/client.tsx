@@ -439,6 +439,7 @@ function MediaSettingsPanel(): React.ReactElement | null {
   const showLibrary = hasCapability(capabilities ?? undefined, 'tool', 'video_scan')
   const [directories, setDirectories] = useState<DirectoryView[]>([])
   const [suffixes, setSuffixes] = useState('.srt, .txt')
+  const [threshold, setThreshold] = useState('3')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -446,9 +447,11 @@ function MediaSettingsPanel(): React.ReactElement | null {
     const result = await apiRequest({ operation: 'settings-get' }) as {
       directories: DirectoryView[]
       subtitleSuffixes: string[]
+      inventoryThreshold?: number
     }
     setDirectories(result.directories)
     setSuffixes(result.subtitleSuffixes.join(', '))
+    if (typeof result.inventoryThreshold === 'number') setThreshold(String(result.inventoryThreshold))
   }, [])
 
   useEffect(() => {
@@ -519,6 +522,32 @@ function MediaSettingsPanel(): React.ReactElement | null {
       style: { width: '100%', margin: '4px 0' },
     }),
     React.createElement('button', { disabled: busy, onClick: () => void saveSuffixes() }, '保存后缀'),
+    React.createElement('div', { style: { marginTop: 12, fontSize: 12, color: '#666' } }, '库存不足阈值（已完成未发布视频数低于此值时，请用独立会话任务做提醒）'),
+    React.createElement('input', {
+      type: 'number',
+      min: 1,
+      max: 99,
+      value: threshold,
+      onChange: (e: React.ChangeEvent<HTMLInputElement>) => setThreshold(e.target.value),
+      style: { width: 80, margin: '4px 8px 4px 0' },
+    }),
+    React.createElement('button', {
+      disabled: busy,
+      onClick: () => {
+        void (async () => {
+          setBusy(true)
+          setError(null)
+          try {
+            const result = await apiRequest({ operation: 'settings-set-threshold', inventoryThreshold: Number(threshold) }) as { inventoryThreshold: number }
+            setThreshold(String(result.inventoryThreshold))
+          } catch (e) {
+            setError(String((e as Error).message ?? e))
+          } finally {
+            setBusy(false)
+          }
+        })()
+      },
+    }, '保存阈值'),
   )
 }
 

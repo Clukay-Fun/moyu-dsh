@@ -23,7 +23,7 @@
     "build": "tsdown",
     "bundle": "tsdown",
     "typecheck": "tsc --noEmit",
-    "verify": "tsc --noEmit && node harness/verify.mjs && node harness/verify-client.mjs"
+    "verify": "tsc --noEmit && tsdown && node harness/verify.mjs && node harness/verify-client.mjs"
   },
   "dependencies": {
     "@deepseek-ai/cordis": "4.0.1",

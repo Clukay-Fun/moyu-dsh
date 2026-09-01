@@ -159,6 +159,19 @@ test('client exports getSessionCapabilities and hasCapability', () => {
   assert.equal(typeof mod.hasCapability, 'function')
 })
 
+test('media capabilities include schedule tools for inventory reminders', () => {
+  const caps = mod.getSessionCapabilities('media')
+  assert.ok(caps.tools.includes('moyu_schedule_create'))
+  assert.ok(caps.tools.includes('moyu_schedule_run_now'))
+})
+
+test('settings client bundle persists inventoryThreshold', () => {
+  const src = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
+  assert.ok(src.includes('settings-set-threshold'), 'settings panel posts settings-set-threshold')
+  assert.ok(src.includes('inventoryThreshold'), 'settings panel reads inventoryThreshold')
+  assert.ok(src.includes('保存阈值'), 'settings panel has threshold save control')
+})
+
 // ─── Summary ─────────────────────────────────────────────────────────
 console.log(`\n=== Client Results: ${passed} passed, ${failed} failed ===\n`)
 if (failed > 0) process.exit(1)

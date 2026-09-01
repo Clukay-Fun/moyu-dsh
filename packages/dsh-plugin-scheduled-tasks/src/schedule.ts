@@ -4,6 +4,17 @@
 
 export type RecurrencePattern = 'daily' | 'weekday' | 'weekly' | 'monthly'
 
+export type RunMode = 'continuation' | 'standalone'
+
+/** Old tasks without preset belong to the moyu workbench. Used by Host persist/run and Client list filter. */
+export function taskPresetOf(task: { preset?: string | null }): string {
+  return typeof task.preset === 'string' && task.preset.trim() ? task.preset.trim() : 'moyu'
+}
+
+export function taskRunModeOf(task: { runMode?: string | null }): RunMode {
+  return task.runMode === 'continuation' ? 'continuation' : 'standalone'
+}
+
 export type ScheduleSpec =
   | { kind: 'once'; runAt: number }
   | {

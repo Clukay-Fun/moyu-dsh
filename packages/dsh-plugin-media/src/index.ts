@@ -65,7 +65,7 @@ type FileToken = {
 }
 
 function defaultSettings(): MediaSettings {
-  return { directories: [], subtitleSuffixes: [...DEFAULT_SUFFIXES] }
+  return { directories: [], subtitleSuffixes: [...DEFAULT_SUFFIXES], inventoryThreshold: 3 }
 }
 
 function emptyStore(generation = 0): MediaStore {
@@ -239,6 +239,9 @@ export class MockMediaRunService extends Service {
           subtitleSuffixes: Array.isArray(parsed.settings?.subtitleSuffixes) && parsed.settings.subtitleSuffixes.length
             ? parsed.settings.subtitleSuffixes
             : [...DEFAULT_SUFFIXES],
+          inventoryThreshold: typeof parsed.settings?.inventoryThreshold === 'number' && parsed.settings.inventoryThreshold >= 1
+            ? Math.min(99, Math.trunc(parsed.settings.inventoryThreshold))
+            : 3,
         },
         sources: Array.isArray(parsed.sources) ? parsed.sources : [],
         artifacts: (Array.isArray(parsed.artifacts)
@@ -423,13 +426,14 @@ export class MockMediaRunService extends Service {
       .slice(0, 240)
   }
 
-  settingsView(): { directories: DirectoryView[]; subtitleSuffixes: string[] } {
+  settingsView(): { directories: DirectoryView[]; subtitleSuffixes: string[]; inventoryThreshold: number } {
     return {
       directories: this.store.settings.directories.map((d) => ({
         id: d.id,
         label: basename(d.path) || d.id,
       })),
       subtitleSuffixes: this.store.settings.subtitleSuffixes,
+      inventoryThreshold: this.store.settings.inventoryThreshold,
     }
   }
 
@@ -498,6 +502,14 @@ export class MockMediaRunService extends Service {
       if (!next.includes(suffix)) next.push(suffix)
     }
     this.store.settings.subtitleSuffixes = next.length ? next : [...DEFAULT_SUFFIXES]
+    await this.persist()
+    return this.settingsView()
+  }
+
+  async setInventoryThreshold(value: unknown): Promise<{ directories: DirectoryView[]; subtitleSuffixes: string[]; inventoryThreshold: number }> {
+    const n = typeof value === 'number' ? value : Number(value)
+    if (!Number.isFinite(n) || n < 1 || n > 99) throw new Error('inventoryThreshold must be 1-99')
+    this.store.settings.inventoryThreshold = Math.trunc(n)
     await this.persist()
     return this.settingsView()
   }
@@ -977,6 +989,7 @@ const SUPPORTED_OPERATIONS = new Set([
   'settings-pick-directory',
   'settings-remove-directory',
   'settings-set-suffixes',
+  'settings-set-threshold',
   'subtitle-text',
   'list-artifacts',
   'artifact-save',
@@ -1083,6 +1096,10 @@ export function apply(ctx: Context): Promise<void> {
           }
           if (operation === 'settings-set-suffixes') {
             sendJson(res, 200, await svc.setSuffixes((body as { subtitleSuffixes?: unknown }).subtitleSuffixes))
+            return
+          }
+          if (operation === 'settings-set-threshold') {
+            sendJson(res, 200, await svc.setInventoryThreshold((body as { inventoryThreshold?: unknown }).inventoryThreshold))
             return
           }
           if (operation === 'subtitle-text') {

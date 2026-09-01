@@ -6,7 +6,7 @@ const PLUGIN = new URL('../lib/index.mjs', import.meta.url).pathname
 
 const captured = []
 let capturedRoute = null
-const calls = { create: [], followup: [], dispose: [] }
+const calls = { create: [], resume: [], followup: [], dispose: [] }
 let shouldFailNext = false
 let blockIdle = false
 let resolveIdle = null
@@ -55,6 +55,16 @@ function makeCtx() {
           },
         })
       },
+      resume(options) {
+        calls.resume.push(options)
+        return Promise.resolve({
+          agent: mockAgent(options.resumeSessionId),
+          dispose() {
+            calls.dispose.push(options.resumeSessionId)
+            return Promise.resolve()
+          },
+        })
+      },
     },
     sessions: { create() {}, list() { return [] }, get() { return null }, fork() {} },
     tools: { register(tool) { captured.push(tool) } },
@@ -69,6 +79,7 @@ function reset() {
   return rm('/tmp/moyu-schedule-verify', { recursive: true, force: true }).then(() => {
     captured.length = 0
     calls.create.length = 0
+    calls.resume.length = 0
     calls.followup.length = 0
     calls.dispose.length = 0
     shouldFailNext = false
@@ -604,5 +615,89 @@ const afterNext = svc05.getTask(t05r.id).nextRunAt
 assert.ok(beforeNext && afterNext && Math.abs(afterNext - beforeNext) < 1000, 'manual re-run does NOT advance recurring nextRunAt (no skipped occurrence)')
 console.log('PASS: SCHEDULE-05 unread notification + mark-all-read + manual re-run (no auto-retry, no schedule skip)')
 
-console.log('\nALL CHECKS PASSED (SCHEDULE-01 + 02 + 03 route + 03b writes + 04a recurring kernel + 05 notifications)')
+const tMedia = await svc05.createTask({ title: 'media-job', prompt: 'p', cwd: '/tmp', preset: 'media' })
+assert.equal(tMedia.preset, 'media', 'create records agentPreset')
+assert.equal(tMedia.runMode, 'standalone', 'default runMode is standalone')
+calls.create.length = 0
+calls.resume.length = 0
+await svc05.runTaskNow(tMedia.id)
+assert.equal(calls.create.length, 1, 'standalone uses agents.create')
+assert.equal(calls.resume.length, 0, 'standalone does not resume')
+assert.equal(calls.create[0].meta.agentPreset, 'media', 'run session meta.agentPreset = task.preset')
+assert.equal(calls.create[0].meta.parentSession, undefined, 'standalone has no parentSession')
+assert.equal(calls.create[0].seed, undefined, 'standalone has no seed / inherited grant')
+assert.ok(String(calls.create[0].sessionId).startsWith(`scheduled-${tMedia.id}-`), 'standalone session id is per-run')
+const firstSid = calls.create[0].sessionId
+calls.create.length = 0
+await svc05.runTaskNow(tMedia.id)
+assert.notEqual(calls.create[0].sessionId, firstSid, 'second standalone run mints a new session')
+const summaries = svc05.listTaskSummaries()
+const mediaSum = summaries.find((t) => t.id === tMedia.id)
+assert.equal(mediaSum.preset, 'media')
+assert.equal(JSON.stringify(mediaSum).includes('cwd'), false, 'TaskSummary has no cwd')
+assert.equal(JSON.stringify(mediaSum).includes('"prompt"'), false, 'TaskSummary has no prompt')
+assert.equal(JSON.stringify(mediaSum).includes('/tmp'), false, 'TaskSummary has no path')
+
+const tCont = await svc05.createTask({
+  title: 'cont',
+  prompt: 'p',
+  cwd: '/tmp',
+  preset: 'media',
+  runMode: 'continuation',
+  continuationSessionId: 'sess-continue-1',
+})
+calls.create.length = 0
+calls.resume.length = 0
+const runCont = await svc05.runTaskNow(tCont.id)
+assert.equal(calls.resume.length, 1, 'continuation uses agents.resume')
+assert.equal(calls.create.length, 0, 'continuation does not create a new session')
+assert.equal(calls.resume[0].resumeSessionId, 'sess-continue-1')
+assert.equal(runCont.sessionId, 'sess-continue-1', 'continuation reuses the original session id')
+assert.equal(svc05.listRuns(tCont.id)[0].status, 'succeeded')
+assert.deepEqual([...new Set(svc05.listRuns(tMedia.id).map((r) => r.status))].sort(), ['succeeded'], 'RunStatus vocabulary unchanged')
+
+await assert.rejects(
+  () => svc05.createTask({ title: 'no-sid', prompt: 'p', cwd: '/tmp', runMode: 'continuation' }),
+  /continuationSessionId/,
+  'continuation without session id is rejected',
+)
+const tFlip = await svc05.createTask({
+  title: 'flip',
+  prompt: 'p',
+  cwd: '/tmp',
+  preset: 'media',
+  runMode: 'continuation',
+  continuationSessionId: 'sess-flip',
+})
+await svc05.updateTask(tFlip.id, { runMode: 'standalone' })
+assert.equal(svc05.getTask(tFlip.id).runMode, 'standalone', 'updateTask persists runMode')
+assert.equal(svc05.getTask(tFlip.id).preset, 'media', 'updateTask does not rewrite preset')
+
+await mkdir('/tmp/moyu-schedule-legacy/scheduled-tasks', { recursive: true })
+await writeFile('/tmp/moyu-schedule-legacy/scheduled-tasks/store.json', JSON.stringify({
+  version: 2,
+  tasks: [{
+    id: 'legacy-1',
+    title: 'old',
+    prompt: 'p',
+    cwd: '/tmp',
+    enabled: false,
+    schedule: { kind: 'once', runAt: Date.now() + 60_000 },
+    nextRunAt: Date.now() + 60_000,
+    lastRunAt: null,
+    createdAt: 1,
+    updatedAt: 1,
+  }],
+  runs: {},
+}))
+process.env.MOYU_DSH_HOME = '/tmp/moyu-schedule-legacy'
+const svcLegacy = new ScheduledTasksService(makeCtx())
+await svcLegacy.ready
+const legacy = svcLegacy.listTaskSummaries()[0]
+assert.equal(legacy.preset, 'moyu', 'old tasks without preset are treated as moyu')
+assert.equal(legacy.runMode, 'standalone')
+process.env.MOYU_DSH_HOME = '/tmp/moyu-schedule-verify'
+console.log('PASS: M4 preset/runMode/compat/DTO isolation')
+
+console.log('\nALL CHECKS PASSED (SCHEDULE-01 + 02 + 03 route + 03b writes + 04a recurring kernel + 05 notifications + M4 preset)')
 process.exit(0)

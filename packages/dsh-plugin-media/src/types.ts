@@ -76,6 +76,7 @@ export interface MediaDirectory {
 export interface MediaSettings {
   directories: MediaDirectory[]
   subtitleSuffixes: string[]
+  inventoryThreshold: number
 }
 
 export interface PersistedSubtitle {

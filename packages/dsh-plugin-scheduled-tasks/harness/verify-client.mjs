@@ -177,6 +177,9 @@ assert.equal(createCall.title, 'My New Task', 'create DTO title')
 assert.equal(createCall.prompt, 'prompt content', 'create DTO prompt')
 assert.equal(createCall.workspaceId, 'ws-1', 'create DTO workspaceId (no cwd)')
 assert.equal(createCall.enabled, true, 'create DTO enabled')
+assert.ok(!('cwd' in createCall), 'create DTO has no cwd')
+assert.equal(createCall.preset, 'moyu', 'create posts active preset (default moyu)')
+assert.equal(createCall.runMode, 'standalone', 'create default runMode standalone')
 assert.ok(typeof createCall.runAt === 'number' && createCall.runAt > Date.now(), 'create DTO runAt is future ms')
 
 // SCHEDULE-04b: recurrence UI posts a `schedule` object (not runAt)
@@ -185,7 +188,7 @@ await TestRenderer.act(async () => {
   buttonByLabel(root, '创建').props.onClick()
   await flush()
 })
-const setRecurrence = (v) => root.findAll((n) => n.type === 'select')[1].props.onChange({ target: { value: v } })
+const setRecurrence = (v) => root.findAll((n) => n.type === 'select')[2].props.onChange({ target: { value: v } })
 const setTime = (v) => root.findAll((n) => n.type === 'input').find((i) => i.props.type === 'time').props.onChange({ target: { value: v } })
 await TestRenderer.act(async () => {
   setTitle('Recurring Task')
@@ -210,6 +213,42 @@ assert.equal(recCall.schedule.pattern, 'daily', 'recurring pattern daily')
 assert.equal(recCall.schedule.timeOfDay, '08:30', 'recurring timeOfDay posted')
 assert.ok(typeof recCall.schedule.timeZone === 'string' && recCall.schedule.timeZone.length > 0, 'recurring timeZone posted')
 assert.ok(!('runAt' in recCall), 'recurring create does NOT post runAt')
+
+calls.length = 0
+await TestRenderer.act(async () => {
+  buttonByLabel(root, '创建').props.onClick()
+  await flush()
+})
+const setRunMode = (v) => root.findAll((n) => n.type === 'select')[1].props.onChange({ target: { value: v } })
+await TestRenderer.act(async () => {
+  setTitle('Cont Task')
+  await flush()
+  setPrompt('p')
+  await flush()
+  setWorkspace('ws-1')
+  await flush()
+  setRunMode('continuation')
+  await flush()
+  setRunAt('2099-01-01T10:00')
+  await flush()
+})
+await TestRenderer.act(async () => {
+  buttonByLabel(root, '保存').props.onClick()
+  await flush()
+})
+assert.ok(calls.every((c) => c.operation !== 'create'), 'continuation without session does not post create')
+assert.ok(findByText(renderer.toJSON(), '续写会话需要当前打开的对话'), 'continuation requires current session')
+
+mockCtx.sessions.list = { getSnapshot: () => ({ current: 'sess-live-1' }) }
+calls.length = 0
+await TestRenderer.act(async () => {
+  buttonByLabel(root, '保存').props.onClick()
+  await flush()
+})
+const contCall = calls.find((c) => c.operation === 'create' && c.title === 'Cont Task')
+assert.ok(contCall, 'continuation with current session posts create')
+assert.equal(contCall.runMode, 'continuation')
+assert.equal(contCall.continuationSessionId, 'sess-live-1')
 
 calls.length = 0
 await TestRenderer.act(async () => {
@@ -245,6 +284,20 @@ if (openBtn) {
 const allText = JSON.stringify(renderer.toJSON())
 assert.ok(allText.includes('重复'), 'recurrence control (重复) present (SCHEDULE-04b implemented)')
 assert.ok(allText.includes('每天 09:00'), 'recurring schedule described in list row (SCHEDULE-04b)')
+
+listTasks = [
+  { id: 't-moyu', title: 'Moyu Task', enabled: true, schedule: { kind: 'once', runAt: 1 }, nextRunAt: 1, lastRunAt: null, lastRunStatus: null, unreadCount: 0, running: false, preset: 'moyu' },
+  { id: 't-media', title: 'Media Task', enabled: true, schedule: { kind: 'once', runAt: 1 }, nextRunAt: 1, lastRunAt: null, lastRunStatus: null, unreadCount: 0, running: false, preset: 'media' },
+]
+globalThis.window.__moyuActivePreset = 'media'
+const renderer3 = TestRenderer.create(element)
+await TestRenderer.act(async () => { await flush() })
+const filtered = JSON.stringify(renderer3.toJSON())
+assert.ok(filtered.includes('Media Task'), 'media preset shows media tasks')
+assert.equal(filtered.includes('Moyu Task'), false, 'media preset hides moyu tasks')
+assert.ok(!filtered.includes('__moyuSessionFilter'), 'task filter is not coupled to sessionVisible')
+renderer3.unmount()
+globalThis.window.__moyuActivePreset = 'moyu'
 
 renderer.unmount()
 failList = true

@@ -675,6 +675,7 @@ await test('capabilities route returns media session capabilities for media pres
   assert.ok(json.capabilities.tools.includes('video_scan'))
   assert.ok(json.capabilities.tools.includes('video_subtitle_read'))
   assert.ok(json.capabilities.tools.includes('media_artifact_save'))
+  assert.ok(json.capabilities.tools.includes('moyu_schedule_create'))
   assert.ok(json.capabilities.tools.includes('image_convert'))
   assert.ok(json.capabilities.tools.includes('screenshot_capture'))
   assert.ok(!json.capabilities.tools.includes('pdf_process'))
@@ -938,6 +939,9 @@ await test('settings view returns directory labels without paths', async () => {
   assert.equal(status, 200)
   assert.equal(json.directories[0].label, 'library')
   assert.ok(!JSON.stringify(json).includes('/tmp/moyu-media-verify/library'))
+  const th = await routeCall(route, { operation: 'settings-set-threshold', inventoryThreshold: 5 })
+  assert.equal(th.status, 200)
+  assert.equal(th.json.inventoryThreshold, 5)
 })
 
 await test('thumbnail cache hits then invalidates on mtime change', async () => {

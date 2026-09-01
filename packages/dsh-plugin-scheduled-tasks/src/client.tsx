@@ -1,8 +1,8 @@
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import React from 'react'
-import { computeNextRun, describeSchedule } from './schedule'
-import type { ScheduleSpec, RecurrencePattern } from './schedule'
+import { computeNextRun, describeSchedule, taskPresetOf } from './schedule'
+import type { ScheduleSpec, RecurrencePattern, RunMode } from './schedule'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
@@ -24,6 +24,8 @@ export interface TaskSummary {
   lastRunStatus: 'succeeded' | 'failed' | 'interrupted' | null
   unreadCount: number
   running: boolean
+  preset?: string
+  runMode?: RunMode
 }
 
 export interface RunSummary {
@@ -57,6 +59,7 @@ interface Draft {
   dayOfMonth: number
   timeZone: string
   enabled: boolean
+  runMode: RunMode
 }
 
 function fmtTime(ts: number | null): string {
@@ -275,6 +278,19 @@ function EditorModal(props: {
         ),
       ),
       field(
+        '运行方式',
+        React.createElement(
+          'select',
+          {
+            value: draft.runMode || 'standalone',
+            onChange: (e: React.ChangeEvent<HTMLSelectElement>) => set({ runMode: e.target.value === 'continuation' ? 'continuation' : 'standalone' }),
+            style: inputStyle,
+          },
+          React.createElement('option', { value: 'standalone' }, '独立会话（每次新建）'),
+          React.createElement('option', { value: 'continuation' }, '续写当前会话'),
+        ),
+      ),
+      field(
         '重复',
         React.createElement(
           'select',
@@ -418,9 +434,16 @@ function ScheduledNotifications(props: {
   )
 }
 
+function readActivePreset(): string {
+  if (typeof window === 'undefined') return 'moyu'
+  const value = (window as unknown as { __moyuActivePreset?: unknown }).__moyuActivePreset
+  return typeof value === 'string' && value.trim() ? value.trim() : 'moyu'
+}
+
 function ScheduledTasksPanel(props: {
   request: (payload: Record<string, unknown>, signal?: AbortSignal) => Promise<any>
   openSession: (id: string) => void
+  getCurrentSessionId?: () => string | undefined
 }): React.ReactElement {
   const [tasks, setTasks] = React.useState<TaskSummary[] | null>(null)
   const [error, setError] = React.useState<string | null>(null)
@@ -432,6 +455,7 @@ function ScheduledTasksPanel(props: {
   const [runs, setRuns] = React.useState<RunSummary[] | null>(null)
   const [runsError, setRunsError] = React.useState<string | null>(null)
   const [query, setQuery] = React.useState('')
+  const [activePreset, setActivePreset] = React.useState(readActivePreset)
   const pollRef = React.useRef<{ cancel: () => void } | null>(null)
 
   const reload = React.useCallback(async () => {
@@ -487,6 +511,13 @@ function ScheduledTasksPanel(props: {
     void reload()
     void loadWorkspaces()
   }, [reload, loadWorkspaces])
+
+  React.useEffect(() => {
+    const onPreset = () => setActivePreset(readActivePreset())
+    if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return
+    window.addEventListener('moyu-preset-changed', onPreset)
+    return () => window.removeEventListener('moyu-preset-changed', onPreset)
+  }, [])
 
   React.useEffect(() => {
     if (!selected) {
@@ -560,6 +591,7 @@ function ScheduledTasksPanel(props: {
               dayOfMonth: !isOnce && s.dayOfMonth != null ? s.dayOfMonth : 1,
               timeZone: !isOnce ? s.timeZone : detectTimeZone(),
               enabled: Boolean(detail.enabled),
+              runMode: detail.runMode === 'continuation' ? 'continuation' : 'standalone',
             },
           })
         } else {
@@ -567,7 +599,7 @@ function ScheduledTasksPanel(props: {
             draft: {
               title: '', prompt: '', workspaceId: '',
               recurrence: 'once', runAtLocal: '', timeOfDay: '09:00', weekday: 1, dayOfMonth: 1,
-              timeZone: detectTimeZone(), enabled: true,
+              timeZone: detectTimeZone(), enabled: true, runMode: 'standalone',
             },
           })
         }
@@ -624,12 +656,23 @@ function ScheduledTasksPanel(props: {
         return
       }
       const taskId = editing?.taskId
+      const activePreset = readActivePreset()
+      const currentSessionId = props.getCurrentSessionId?.()
       const body: Record<string, unknown> = {
         operation: taskId ? 'update' : 'create',
         title: d.title,
         prompt: d.prompt,
         workspaceId: d.workspaceId,
         enabled: d.enabled,
+        preset: activePreset,
+        runMode: d.runMode,
+      }
+      if (d.runMode === 'continuation') {
+        if (currentSessionId) body.continuationSessionId = currentSessionId
+        else if (!taskId) {
+          setError('续写会话需要当前打开的对话')
+          return
+        }
       }
       if (taskId) body.taskId = taskId
       if (isRecurring && schedule) body.schedule = schedule
@@ -647,7 +690,7 @@ function ScheduledTasksPanel(props: {
         setError(e instanceof Error ? e.message : String(e))
       }
     },
-    [props.request, editing, selected, loadRuns, reload],
+    [props.request, editing, selected, loadRuns, reload, props.getCurrentSessionId],
   )
 
   const openRun = React.useCallback(
@@ -673,9 +716,10 @@ function ScheduledTasksPanel(props: {
   }, [props.request, reload])
 
   const normalizedQuery = query.trim().toLocaleLowerCase()
-  const visibleTasks = (tasks || []).filter((t) =>
-    normalizedQuery === '' || t.title.toLocaleLowerCase().includes(normalizedQuery),
-  )
+  const visibleTasks = (tasks || []).filter((t) => {
+    if (taskPresetOf(t) !== activePreset) return false
+    return normalizedQuery === '' || t.title.toLocaleLowerCase().includes(normalizedQuery)
+  })
   const rows = visibleTasks.map((t) => {
     const actions: React.ReactNode[] = [
       btn('立即运行', () => void runTask(t.id), { disabled: t.running }),
@@ -696,7 +740,7 @@ function ScheduledTasksPanel(props: {
       React.createElement(
         'div',
         { style: { fontSize: 12, opacity: 0.7, marginTop: 2 } },
-        `计划：${describeSchedule(t.schedule)}　下次：${fmtTime(t.nextRunAt)}（${tzOf(t.schedule)}）　上次：${fmtTime(t.lastRunAt)}` +
+        `目标：${t.title}　模式：${t.runMode === 'continuation' ? '续写会话' : '独立会话'}　计划：${describeSchedule(t.schedule)}　下次：${fmtTime(t.nextRunAt)}（${tzOf(t.schedule)}）　上次：${fmtTime(t.lastRunAt)}` +
           (t.lastRunStatus ? `（${t.lastRunStatus}）` : '') +
           (t.unreadCount > 0 ? `　未读：${t.unreadCount}` : ''),
       ),
@@ -775,10 +819,12 @@ function ScheduledTasksPanel(props: {
         : null,
       React.createElement(
         ScheduledNotifications,
-        { tasks: tasks || [], onOpen: (id: string) => setSelected(selected === id ? null : id), onMarkAll: () => void markAllRead() },
+        { tasks: visibleTasks, onOpen: (id: string) => setSelected(selected === id ? null : id), onMarkAll: () => void markAllRead() },
       ),
       tasks == null
         ? React.createElement('div', { className: 'moyu-st-empty' }, '加载中…')
+        : visibleTasks.length === 0 && (tasks || []).length > 0
+          ? React.createElement('div', { className: 'moyu-st-empty', 'data-preset-empty': activePreset }, '当前工作台没有安排任务')
         : tasks.length === 0
           ? React.createElement('div', { className: 'moyu-st-empty' }, '暂无已安排任务')
           : rows.length === 0
@@ -839,7 +885,12 @@ export function apply(ctx: ClientContext): void {
         name: 'surface.scheduled',
         inject: () => ({}),
       },
-      () => React.createElement(ScheduledTasksPanel, { request, openSession }),
+      () => React.createElement(ScheduledTasksPanel, {
+        request,
+        openSession,
+        getCurrentSessionId: () =>
+          (ctx.sessions as { list?: { getSnapshot?: () => { current?: string } } }).list?.getSnapshot?.()?.current,
+      }),
     ),
   )
 }

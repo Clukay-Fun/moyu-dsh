@@ -95,7 +95,7 @@ console.log('\nMoyu Preset Guard:')
 // 3. Media Preset 守卫校验
 console.log('\nMedia Preset Guard:')
 {
-  const validMediaTools = ['image_convert', 'screenshot_capture', 'video_scan', 'video_subtitle_read', 'media_artifact_save', 'ask_user_question', 'mock_media_task']
+  const validMediaTools = ['image_convert', 'screenshot_capture', 'video_scan', 'video_subtitle_read', 'media_artifact_save', 'moyu_schedule_create', 'moyu_schedule_run_now', 'ask_user_question', 'mock_media_task']
   let ok = false
   try {
     ok = assertMoyuToolSurface(createMockCtx(validMediaTools), createMockSession('media'))
@@ -150,7 +150,18 @@ console.log('\nMedia Preset Guard:')
 }
 
 {
-  const mediaWithShell = ['image_convert', 'screenshot_capture', 'video_scan', 'video_subtitle_read', 'media_artifact_save', 'terminal']
+  const missingSchedule = ['image_convert', 'screenshot_capture', 'video_scan', 'video_subtitle_read', 'media_artifact_save']
+  let rejected = false
+  try {
+    assertMoyuToolSurface(createMockCtx(missingSchedule), createMockSession('media'))
+  } catch (e) {
+    rejected = e.message.includes('必备工具缺失') && e.message.includes('moyu_schedule_create')
+  }
+  assert('media preset missing moyu_schedule_create is rejected', rejected === true)
+}
+
+{
+  const mediaWithShell = ['image_convert', 'screenshot_capture', 'video_scan', 'video_subtitle_read', 'media_artifact_save', 'moyu_schedule_create', 'moyu_schedule_run_now', 'terminal']
   let rejected = false
   try {
     assertMoyuToolSurface(createMockCtx(mediaWithShell), createMockSession('media'))

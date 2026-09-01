@@ -120,8 +120,8 @@ const WRITE_OPS = new Set([
 // Scheduling types + pure engine live in ./schedule (shared with the Client
 // bundle, which must not import Host-only code). Re-exported so the host
 // harness can keep importing computeNextRun/validateSchedule from lib/index.mjs.
-import { computeNextRun, validateSchedule, ServiceError } from './schedule'
-import type { ScheduleSpec, RecurrencePattern } from './schedule'
+import { computeNextRun, validateSchedule, ServiceError, taskPresetOf, taskRunModeOf } from './schedule'
+import type { ScheduleSpec, RecurrencePattern, RunMode } from './schedule'
 export * from './schedule'
 
 export interface ScheduledTask {
@@ -136,6 +136,11 @@ export interface ScheduledTask {
   lastRunAt: number | null
   createdAt: number
   updatedAt: number
+  /** Creating workbench. Missing on disk is treated as moyu. */
+  preset: string
+  runMode: RunMode
+  /** Required when runMode is continuation; reused as the live session id. */
+  continuationSessionId?: string
 }
 
 export type RunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'missed' | 'cancelled'
@@ -166,6 +171,8 @@ export interface TaskSummary {
   lastRunStatus: RunStatus | null
   unreadCount: number
   running: boolean
+  preset: string
+  runMode: RunMode
 }
 
 /** Full task detail, only returned when the editor explicitly opens it. No cwd. */
@@ -180,6 +187,8 @@ export interface TaskDetail {
   lastRunAt: number | null
   createdAt: number
   updatedAt: number
+  preset: string
+  runMode: RunMode
 }
 
 export interface WorkspaceSummary {
@@ -257,12 +266,17 @@ export class ScheduledTasksService extends Service {
       }
       let migrated = false
       for (const t of parsed.tasks ?? []) {
-        if (t.schedule) {
-          this.tasks.set(t.id, t as ScheduledTask)
-        } else {
-          this.tasks.set(t.id, this.migrateV1Task(t))
-          migrated = true
-        }
+        const base = t.schedule ? (t as ScheduledTask) : this.migrateV1Task(t)
+        if (!t.schedule) migrated = true
+        this.tasks.set(base.id, {
+          ...base,
+          preset: taskPresetOf(base),
+          runMode: taskRunModeOf(base),
+          continuationSessionId:
+            typeof (base as ScheduledTask).continuationSessionId === 'string'
+              ? (base as ScheduledTask).continuationSessionId
+              : undefined,
+        })
       }
       for (const [taskId, list] of Object.entries(parsed.runs ?? {})) this.runs.set(taskId, list)
       // Write the migrated store back so subsequent loads don't re-migrate and the
@@ -369,6 +383,8 @@ export class ScheduledTasksService extends Service {
         lastRunStatus: last ? last.status : null,
         unreadCount: runs.filter((r) => r.unread).length,
         running: this.activeRuns.has(t.id),
+        preset: taskPresetOf(t),
+        runMode: taskRunModeOf(t),
       }
     })
   }
@@ -388,6 +404,8 @@ export class ScheduledTasksService extends Service {
       lastRunAt: t.lastRunAt,
       createdAt: t.createdAt,
       updatedAt: t.updatedAt,
+      preset: taskPresetOf(t),
+      runMode: taskRunModeOf(t),
     }
   }
 
@@ -423,6 +441,9 @@ export class ScheduledTasksService extends Service {
     enabled?: boolean
     schedule?: ScheduleSpec
     runAt?: number
+    preset?: string
+    runMode?: RunMode
+    continuationSessionId?: string
   }): Promise<ScheduledTask> {
     await this.ready
     this.validateInput(input.title, input.prompt)
@@ -433,6 +454,14 @@ export class ScheduledTasksService extends Service {
     const enabled = input.enabled ?? true
     await this.validateCwd(input.cwd)
     const now = Date.now()
+    const runMode = taskRunModeOf({ runMode: input.runMode })
+    const continuationSessionId =
+      typeof input.continuationSessionId === 'string' && input.continuationSessionId.trim()
+        ? input.continuationSessionId.trim()
+        : undefined
+    if (runMode === 'continuation' && !continuationSessionId) {
+      throw new ServiceError('invalid_input', 'continuation tasks require continuationSessionId', 400)
+    }
     const task: ScheduledTask = {
       id: randomUUID(),
       title: input.title,
@@ -445,6 +474,9 @@ export class ScheduledTasksService extends Service {
       lastRunAt: null,
       createdAt: now,
       updatedAt: now,
+      preset: taskPresetOf({ preset: input.preset }),
+      runMode,
+      continuationSessionId,
     }
     await this.ensureWorkspace(task)
     this.tasks.set(task.id, task)
@@ -462,6 +494,8 @@ export class ScheduledTasksService extends Service {
       schedule?: ScheduleSpec
       runAt?: number
       enabled?: boolean
+      runMode?: RunMode
+      continuationSessionId?: string
     },
   ): Promise<ScheduledTask> {
     await this.ready
@@ -490,6 +524,13 @@ export class ScheduledTasksService extends Service {
     if (patch.enabled !== undefined) {
       if (patch.enabled) this.assertResumable(t)
       t.enabled = patch.enabled
+    }
+    if (patch.runMode !== undefined) t.runMode = taskRunModeOf({ runMode: patch.runMode })
+    if (patch.continuationSessionId !== undefined) {
+      t.continuationSessionId = patch.continuationSessionId.trim() || undefined
+    }
+    if (taskRunModeOf(t) === 'continuation' && !t.continuationSessionId) {
+      throw new ServiceError('invalid_input', 'continuation tasks require continuationSessionId', 400)
     }
     t.updatedAt = Date.now()
     await this.persist()
@@ -746,17 +787,29 @@ export class ScheduledTasksService extends Service {
         throw e
       }
 
-      const sessionId = `scheduled-${task.id}-${run.id}` as unknown as SessionId
-
+      const preset = taskPresetOf(task)
+      const runMode = taskRunModeOf(task)
       let handle: AgentHandle
+      let sessionId: string
       try {
-        handle = await this.ctx.agents.create({
-          sessionId,
-          meta: { cwd: task.cwd, agentPreset: 'moyu' },
-        })
+        if (runMode === 'continuation' && task.continuationSessionId) {
+          sessionId = task.continuationSessionId
+          handle = await this.ctx.agents.resume({
+            resumeSessionId: sessionId as unknown as SessionId,
+          })
+        } else {
+          // standalone: new session identity every run. No parentSession / seed,
+          // so the background agent does not inherit a foreground session's
+          // temporary grants (decision 15).
+          sessionId = `scheduled-${task.id}-${run.id}`
+          handle = await this.ctx.agents.create({
+            sessionId: sessionId as unknown as SessionId,
+            meta: { cwd: task.cwd, agentPreset: preset },
+          })
+        }
       } catch (e) {
         run.status = 'failed'
-        run.errorCode = 'agent_create_failed'
+        run.errorCode = runMode === 'continuation' ? 'agent_resume_failed' : 'agent_create_failed'
         run.errorMessage = String((e as Error).message)
         run.finishedAt = Date.now()
         await this.persist()
@@ -991,6 +1044,9 @@ export function apply(ctx: Context): Promise<void> {
               runAt?: unknown
               enabled?: unknown
               schedule?: unknown
+              preset?: unknown
+              runMode?: unknown
+              continuationSessionId?: unknown
             }
             if (typeof b.workspaceId !== 'string' || !isId(b.workspaceId)) {
               sendJson(res, 400, { error: 'workspaceId must be a non-empty string' })
@@ -1010,6 +1066,9 @@ export function apply(ctx: Context): Promise<void> {
               enabled: b.enabled === undefined ? true : Boolean(b.enabled),
               schedule: b.schedule && typeof b.schedule === 'object' ? (b.schedule as ScheduleSpec) : undefined,
               runAt: typeof b.runAt === 'number' ? b.runAt : undefined,
+              preset: typeof b.preset === 'string' ? b.preset : undefined,
+              runMode: b.runMode === 'continuation' ? 'continuation' : 'standalone',
+              continuationSessionId: typeof b.continuationSessionId === 'string' ? b.continuationSessionId : undefined,
             })
             sendJson(res, 200, { taskId: task.id, nextRunAt: task.nextRunAt ?? 0 })
             return
@@ -1023,6 +1082,8 @@ export function apply(ctx: Context): Promise<void> {
               runAt?: unknown
               enabled?: unknown
               schedule?: unknown
+              runMode?: unknown
+              continuationSessionId?: unknown
             }
             if (!isId(b.taskId)) {
               sendJson(res, 400, { error: 'taskId must be a non-empty string <= 128 chars' })
@@ -1040,6 +1101,8 @@ export function apply(ctx: Context): Promise<void> {
               schedule: b.schedule && typeof b.schedule === 'object' ? (b.schedule as ScheduleSpec) : undefined,
               runAt: typeof b.runAt === 'number' ? b.runAt : undefined,
               enabled: typeof b.enabled === 'boolean' ? b.enabled : undefined,
+              runMode: b.runMode === 'continuation' ? 'continuation' : b.runMode === 'standalone' ? 'standalone' : undefined,
+              continuationSessionId: typeof b.continuationSessionId === 'string' ? b.continuationSessionId : undefined,
             })
             sendJson(res, 200, { taskId: task.id, nextRunAt: task.nextRunAt ?? 0 })
             return
@@ -1118,12 +1181,15 @@ export function apply(ctx: Context): Promise<void> {
       defineTool({
         name: 'moyu_schedule_run_now',
         description:
-          'Moyu 安排任务：立即用给定提示词在指定工作区创建一个新会话并自动执行（无人值守，单次）。',
+          'Moyu 安排任务：立即用给定提示词在指定工作区创建一个新会话并自动执行（无人值守，单次）。默认 runMode=standalone，不继承前台会话临时授权。',
         parameters: {
           title: { type: 'string', required: true },
           prompt: { type: 'string', required: true },
           cwd: { type: 'string', required: true },
           workspaceId: { type: 'string' },
+          preset: { type: 'string' },
+          runMode: { type: 'string' },
+          continuationSessionId: { type: 'string' },
         },
         output: {
           schema: {
@@ -1143,6 +1209,9 @@ export function apply(ctx: Context): Promise<void> {
           prompt: string
           cwd: string
           workspaceId?: string
+          preset?: string
+          runMode?: string
+          continuationSessionId?: string
         }) => {
           const task = await svc.createTask({
             title: args.title,
@@ -1150,6 +1219,9 @@ export function apply(ctx: Context): Promise<void> {
             cwd: args.cwd,
             workspaceId: args.workspaceId,
             enabled: false,
+            preset: args.preset,
+            runMode: args.runMode === 'continuation' ? 'continuation' : 'standalone',
+            continuationSessionId: args.continuationSessionId,
           })
           const run = await svc.runTaskNow(task.id)
           return {
@@ -1166,13 +1238,16 @@ export function apply(ctx: Context): Promise<void> {
       defineTool({
         name: 'moyu_schedule_create',
         description:
-          'Moyu 安排任务：创建一个定时任务（spike 仅支持单次，runAt 为未来毫秒时间戳）。',
+          'Moyu 安排任务：创建一个定时任务（单次 runAt 为未来毫秒时间戳）。自媒体待发布/库存不足提醒请用 runMode=standalone（默认），每次独立会话报告。',
         parameters: {
           title: { type: 'string', required: true },
           prompt: { type: 'string', required: true },
           cwd: { type: 'string', required: true },
           runAt: { type: 'number', required: true },
           workspaceId: { type: 'string' },
+          preset: { type: 'string' },
+          runMode: { type: 'string' },
+          continuationSessionId: { type: 'string' },
         },
         output: {
           schema: {
@@ -1188,6 +1263,9 @@ export function apply(ctx: Context): Promise<void> {
           cwd: string
           runAt: number
           workspaceId?: string
+          preset?: string
+          runMode?: string
+          continuationSessionId?: string
         }) => {
           if (!Number.isFinite(args.runAt) || args.runAt <= Date.now()) {
             throw new Error('runAt must be a finite future timestamp in milliseconds')
@@ -1199,6 +1277,9 @@ export function apply(ctx: Context): Promise<void> {
             workspaceId: args.workspaceId,
             enabled: true,
             runAt: args.runAt,
+            preset: args.preset,
+            runMode: args.runMode === 'continuation' ? 'continuation' : 'standalone',
+            continuationSessionId: args.continuationSessionId,
           })
           return { taskId: task.id, nextRunAt: task.nextRunAt ?? 0 }
         },
