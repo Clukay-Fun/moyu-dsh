@@ -40,13 +40,13 @@ test('plugin name', () => {
   assert.equal(mod.name, 'moyu-media-client')
 })
 
-test('inject declares slots', () => {
-  assert.deepEqual([...mod.inject], ['slots'])
+test('inject declares slots and sessions', () => {
+  assert.deepEqual([...mod.inject], ['slots', 'sessions'])
 })
 
 test('manifest dsh.client.inject matches source', () => {
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
-  assert.deepEqual(pkg.dsh.client.inject, ['slots'])
+  assert.deepEqual(pkg.dsh.client.inject, ['slots', 'sessions'])
 })
 
 test('apply registers the upstream settings.section slot', () => {
@@ -66,6 +66,9 @@ test('apply registers the upstream settings.section slot', () => {
         return () => {}
       },
     },
+    sessions: {
+      use: () => ({ ids: [], byId: {} }),
+    },
   }
   mod.apply(mockCtx)
   assert.equal(injectedSlot, 'settings.section')
@@ -83,6 +86,9 @@ test('slot harness does not execute providers for unknown slots', () => {
     slots: {
       inject: () => {},
       register: () => { registered = true; return () => {} },
+    },
+    sessions: {
+      use: () => ({ ids: [], byId: {} }),
     },
   }
   mod.apply(mockCtx)
@@ -146,29 +152,12 @@ test('duplicate events in same batch are deduplicated', () => {
   assert.equal(accepted.length, 1, 'second duplicate rejected within same call')
 })
 
-// ─── 4. M1 Session Filtering and Capabilities Client Exports ────────
-console.log('\nM1 Client Session Filter Exports:')
+// ─── 4. M1 capabilities client exports ──────────────────────────────
+console.log('\nM1 Client Capabilities Exports:')
 
-test('client exports buildPresetSessionIndex and filter functions', () => {
-  assert.equal(typeof mod.buildPresetSessionIndex, 'function')
-  assert.equal(typeof mod.filterSessionListByPreset, 'function')
-  assert.equal(typeof mod.filterSearchResultsByPreset, 'function')
-  assert.equal(typeof mod.createPresetSessionSelector, 'function')
+test('client exports getSessionCapabilities and hasCapability', () => {
   assert.equal(typeof mod.getSessionCapabilities, 'function')
   assert.equal(typeof mod.hasCapability, 'function')
-})
-
-test('client filterSessionListByPreset isolates sessions by preset', () => {
-  const list = {
-    ids: ['a1', 'm1'],
-    byId: {
-      a1: { id: 'a1', agentPreset: 'moyu' },
-      m1: { id: 'm1', agentPreset: 'media' },
-    },
-  }
-  const filtered = mod.filterSessionListByPreset(list, 'media')
-  assert.deepEqual(filtered.ids, ['m1'])
-  assert.deepEqual(Object.keys(filtered.byId), ['m1'])
 })
 
 // ─── Summary ─────────────────────────────────────────────────────────

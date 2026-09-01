@@ -235,9 +235,27 @@ window.__ModuleLoader__.load({
 		* is visible. Subagent children use their parent header catalog; archived
 		* sessions are visible nowhere, while their accounting slots remain so
 		* unarchiving restores position.
+		*
+		* Moyu preset filter: when window.__moyuActivePreset is set (by the
+		* moyu-media-client plugin), sessions whose agentPreset does not match
+		* are hidden. The current (active) session is always visible regardless
+		* of preset to prevent losing navigation context. Sessions without
+		* agentPreset (legacy) are visible only when preset filter is unset or
+		* set to 'moyu' (default).
+		* Preset 过滤真源在此；legacy（无 agentPreset）会话在 'moyu' 视图下可见。
+		* 不要再在别处平行实现。
 		*/
 		function sessionVisible(session, current, archived) {
-			return session.origin !== "subagent" && !archived.has(session.id) && (!session.blank || session.id === current);
+			if (session.origin === "subagent" || archived.has(session.id)) return false;
+			if (session.blank) return session.id === current;
+			const activePreset = typeof window !== "undefined" && window.__moyuActivePreset;
+			if (!activePreset) return true;
+			if (session.id === current) return true;
+			const sessionPreset = session.agentPreset;
+			if (!sessionPreset || typeof sessionPreset !== "string" || sessionPreset.trim() === "") {
+				return activePreset === "moyu";
+			}
+			return sessionPreset === activePreset;
 		}
 		/**
 		* A blank session is the selected Workspace's provisional New Session row;

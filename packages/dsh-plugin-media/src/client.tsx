@@ -1,3 +1,12 @@
+/**
+描述: 自媒体工作台 Client 插件。
+主要功能:
+    - 提供 preset 切换器（moyu / media），写入 __moyuActivePreset 驱动 overlay 过滤
+    - MediaSpikePanel 根据 Host capabilities 路由动态显隐 UI 入口
+    - M0 协议审批、SSE 推送、事件去重保持不变
+会话列表过滤真源是 overlay sessionVisible，本文件不平行实现。
+*/
+
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import React, { useState, useEffect, useCallback, useRef } from 'react'
@@ -13,26 +22,20 @@ import type {
 import {
   getSessionCapabilities,
   hasCapability,
-  buildPresetSessionIndex,
-  filterSessionListByPreset,
-  filterSearchResultsByPreset,
-  createPresetSessionSelector,
 } from './session-filter.js'
 
 export {
   getSessionCapabilities,
   hasCapability,
-  buildPresetSessionIndex,
-  filterSessionListByPreset,
-  filterSearchResultsByPreset,
-  createPresetSessionSelector,
 }
 
 export type { SessionCapabilities }
 
 export const name = 'moyu-media-client'
 
-export const inject = ['slots'] as const
+export const inject = ['slots', 'sessions'] as const
+
+//#region 事件去重
 
 export function deduplicateEvents(
   incoming: RunEvent[],
@@ -50,6 +53,10 @@ export function deduplicateEvents(
   return { accepted, highWater: updated }
 }
 
+//#endregion
+
+//#region API 请求
+
 async function apiRequest(
   payload: Record<string, unknown>,
 ): Promise<unknown> {
@@ -66,7 +73,91 @@ async function apiRequest(
   return value
 }
 
-function MediaSpikePanel(): React.ReactElement {
+//#endregion
+
+//#region Preset 切换器
+
+/**
+描述: preset 切换器组件，设置 window.__moyuActivePreset 并触发 session 列表刷新。
+用处，参数: 无
+
+功能:
+    - 渲染 moyu / media 两个切换按钮
+    - 点击后设置全局 activePreset，触发 sessions 订阅刷新
+    - 提供 session 统计摘要（各 preset 下可见会话数量）
+*/
+function PresetSwitcher({ sessions }: { sessions: ClientContext['sessions'] }): React.ReactElement {
+  const [activePreset, setActivePreset] = useState<string>(
+    () => (typeof window !== 'undefined' && (window as unknown as Record<string, unknown>).__moyuActivePreset as string) || 'moyu'
+  )
+
+  // 通过 sessions.list（ObservableSnapshot）读取真实会话数据，仅用于切换器计数。
+  // 列表隔离本身由 overlay sessionVisible 完成，这里不平行实现过滤。
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const listRef = (sessions as any).list
+  const [sessionList, setSessionList] = useState<{
+    ids: string[]
+    byId: Record<string, { agentPreset?: unknown } | undefined>
+  }>(() => listRef?.getSnapshot?.() ?? { ids: [], byId: {} })
+
+  useEffect(() => {
+    if (!listRef?.subscribe) return
+    const unsubscribe = listRef.subscribe(() => {
+      setSessionList(listRef.getSnapshot())
+    })
+    setSessionList(listRef.getSnapshot())
+    return unsubscribe
+  }, [listRef])
+
+  // 计数跟 overlay sessionVisible 对齐：无 agentPreset 的 legacy 会话计入 moyu。
+  let moyuCount = 0
+  let mediaCount = 0
+  for (const id of sessionList.ids) {
+    const raw = sessionList.byId[id]?.agentPreset
+    const preset = typeof raw === 'string' ? raw.trim() : ''
+    if (preset === 'media') mediaCount++
+    else if (preset === 'moyu' || preset === '') moyuCount++
+  }
+
+  const switchPreset = useCallback((preset: string) => {
+    (window as unknown as Record<string, unknown>).__moyuActivePreset = preset
+    setActivePreset(preset)
+    // 触发 sessions store 重新 derive
+    window.dispatchEvent(new CustomEvent('moyu-preset-changed', { detail: preset }))
+  }, [])
+
+  const buttonStyle = (isActive: boolean): React.CSSProperties => ({
+    padding: '4px 12px',
+    borderRadius: 4,
+    border: isActive ? '2px solid #4a90d9' : '1px solid #ccc',
+    background: isActive ? '#e8f0fe' : 'transparent',
+    cursor: 'pointer',
+    fontWeight: isActive ? 600 : 400,
+    fontSize: 13,
+  })
+
+  return React.createElement('div', { style: { marginBottom: 12 } },
+    React.createElement('div', { style: { fontSize: 12, color: '#666', marginBottom: 4 } },
+      'Preset 切换（会话过滤）',
+    ),
+    React.createElement('div', { style: { display: 'flex', gap: 6, marginBottom: 8 } },
+      React.createElement('button', {
+        onClick: () => switchPreset('moyu'),
+        style: buttonStyle(activePreset === 'moyu'),
+      }, `Moyu (${moyuCount})`),
+      React.createElement('button', {
+        onClick: () => switchPreset('media'),
+        style: buttonStyle(activePreset === 'media'),
+      }, `Media (${mediaCount})`),
+    ),
+  )
+}
+
+//#endregion
+
+//#region MediaSpikePanel
+
+function MediaSpikePanel({ sessions }: { sessions: ClientContext['sessions'] }): React.ReactElement {
   const [runs, setRuns] = useState<MediaRun[]>([])
   const [error, setError] = useState<string | null>(null)
   const [responding, setResponding] = useState(false)
@@ -74,6 +165,22 @@ function MediaSpikePanel(): React.ReactElement {
   const highWaterRef = useRef<Map<number, number>>(new Map())
   const [processedEvents, setProcessedEvents] = useState<RunEvent[]>([])
   const [artifacts, setArtifacts] = useState<MediaArtifact[]>([])
+  const [capabilities, setCapabilities] = useState<SessionCapabilities | null>(null)
+
+  // 获取当前 preset 的 capabilities
+  useEffect(() => {
+    const fetchCaps = () => {
+      const preset = (typeof window !== 'undefined' && (window as unknown as Record<string, unknown>).__moyuActivePreset as string) || 'moyu'
+      apiRequest({ operation: 'capabilities', preset })
+        .then(result => setCapabilities((result as { capabilities: SessionCapabilities }).capabilities))
+        .catch(() => {})
+    }
+    fetchCaps()
+
+    const handler = () => fetchCaps()
+    window.addEventListener('moyu-preset-changed', handler)
+    return () => window.removeEventListener('moyu-preset-changed', handler)
+  }, [])
 
   // SSE connection — replaces polling
   useEffect(() => {
@@ -99,7 +206,6 @@ function MediaSpikePanel(): React.ReactElement {
         }
       }
 
-      // Refresh runs for status display
       apiRequest({ operation: 'list-runs' })
         .then(result => setRuns((result as { runs: MediaRun[] }).runs))
         .catch(() => {})
@@ -112,7 +218,6 @@ function MediaSpikePanel(): React.ReactElement {
 
     es.addEventListener('connected', () => {
       setError(null)
-      // Fetch current state on connect
       apiRequest({ operation: 'list-runs' })
         .then(result => setRuns((result as { runs: MediaRun[] }).runs))
         .catch(() => {})
@@ -149,18 +254,50 @@ function MediaSpikePanel(): React.ReactElement {
     r => r.status === 'running' || r.status === 'awaiting_user',
   )
 
+  // 动态显隐：根据 capabilities 决定哪些 UI 入口可见
+  const showMockTask = hasCapability(capabilities ?? undefined, 'tool', 'mock_media_task')
+  const showApproval = hasCapability(capabilities ?? undefined, 'approval', 'confirm_publish')
+
   return React.createElement('div', { style: { padding: 16 } },
-    React.createElement('h3', null, 'Media Protocol Spike (M0)'),
+    React.createElement('h3', null, 'Media Workspace (M1)'),
+
+    // Preset 切换器
+    React.createElement(PresetSwitcher, { sessions }),
+
+    // Capabilities 状态展示
+    capabilities && React.createElement('div', {
+      style: { fontSize: 11, color: '#666', marginBottom: 12, padding: 8, background: '#f5f5f5', borderRadius: 4 },
+    },
+      React.createElement('div', null,
+        React.createElement('strong', null, 'Active Capabilities: '),
+        capabilities.tools.join(', '),
+      ),
+      capabilities.approvalRequired.length > 0 && React.createElement('div', null,
+        React.createElement('strong', null, 'Approval: '),
+        capabilities.approvalRequired.join(', '),
+      ),
+      React.createElement('div', null,
+        React.createElement('strong', null, 'Sources: '),
+        capabilities.fileSourceTypes.join(', '),
+      ),
+    ),
 
     error && React.createElement('div', { style: { color: 'red', marginBottom: 8 } }, error),
 
-    !activeRun && React.createElement(
+    // Mock Task 按钮 — 仅在 capabilities 含 mock_media_task 时显示
+    showMockTask && !activeRun && React.createElement(
       'button',
       { onClick: handleStartMock },
       'Run Mock Task',
     ),
 
-    pendingRequest && React.createElement('div', {
+    // 非 media preset 时不显示 mock task 入口的提示
+    !showMockTask && React.createElement('div', {
+      style: { fontSize: 12, color: '#999', fontStyle: 'italic', marginBottom: 8 },
+    }, '当前 preset 无 media 专有工具（mock_media_task 不可用）'),
+
+    // 审批 UI — 仅在 capabilities 含 confirm_publish 审批项时显示
+    showApproval && pendingRequest && React.createElement('div', {
       style: { border: '1px solid #ccc', padding: 12, margin: '8px 0', borderRadius: 4 },
     },
       React.createElement('p', null,
@@ -220,16 +357,27 @@ function MediaSpikePanel(): React.ReactElement {
   )
 }
 
+//#endregion
+
+//#region Plugin 注册
+
 export function apply(ctx: ClientContext): void {
+  // 初始化默认 preset 过滤
+  if (typeof window !== 'undefined' && !(window as unknown as Record<string, unknown>).__moyuActivePreset) {
+    (window as unknown as Record<string, unknown>).__moyuActivePreset = 'moyu'
+  }
+
   ctx.slots.inject('settings.section' as never, () =>
     ctx.slots.register(
       {
         name: 'settings.section',
         id: 'moyu-media-spike',
         order: 90,
-        label: () => 'Media Protocol Spike',
+        label: () => 'Media Workspace',
       } as never,
-      MediaSpikePanel as never,
+      (() => React.createElement(MediaSpikePanel, { sessions: ctx.sessions })) as never,
     ),
   )
 }
+
+//#endregion

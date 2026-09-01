@@ -697,72 +697,8 @@ await test('capabilities route returns standard capabilities for moyu preset', a
   assert.deepEqual(json.capabilities.approvalRequired, [])
 })
 
-// ─── 12. M1 Session Filtering & Indexing ───────────────────────────
-console.log('\nM1 Session Filtering & Indexing:')
-
-await test('buildPresetSessionIndex groups sessions by agentPreset and classifies old sessions as other', () => {
-  const { buildPresetSessionIndex } = mod
-  const mockList = {
-    ids: ['s1', 's2', 's3', 's4', 's5'],
-    byId: {
-      s1: { id: 's1', agentPreset: 'moyu' },
-      s2: { id: 's2', agentPreset: 'media' },
-      s3: { id: 's3', agentPreset: 'media' },
-      s4: { id: 's4' }, // old session without agentPreset
-      s5: { id: 's5', agentPreset: '   ' }, // blank string without valid preset
-    },
-  }
-
-  const index = buildPresetSessionIndex(mockList)
-  assert.deepEqual([...(index.byPreset.get('moyu') || [])], ['s1'])
-  assert.deepEqual([...(index.byPreset.get('media') || [])], ['s2', 's3'])
-  assert.deepEqual([...index.other], ['s4', 's5'])
-  assert.deepEqual([...index.all], ['s1', 's2', 's3', 's4', 's5'])
-})
-
-await test('filterSessionListByPreset produces isolated views for media and moyu', () => {
-  const { filterSessionListByPreset } = mod
-  const mockList = {
-    ids: ['s1', 's2', 's3', 's4'],
-    byId: {
-      s1: { id: 's1', displayTitle: 'Moyu Session', agentPreset: 'moyu' },
-      s2: { id: 's2', displayTitle: 'Media Video 1', agentPreset: 'media' },
-      s3: { id: 's3', displayTitle: 'Media Video 2', agentPreset: 'media' },
-      s4: { id: 's4', displayTitle: 'Old Unset Session' },
-    },
-  }
-
-  const mediaView = filterSessionListByPreset(mockList, 'media')
-  assert.deepEqual(mediaView.ids, ['s2', 's3'])
-  assert.equal(Object.keys(mediaView.byId).length, 2)
-  assert.ok(mediaView.byId.s2 && mediaView.byId.s3)
-  assert.ok(!mediaView.byId.s1 && !mediaView.byId.s4)
-
-  const moyuView = filterSessionListByPreset(mockList, 'moyu')
-  assert.deepEqual(moyuView.ids, ['s1'])
-  assert.equal(Object.keys(moyuView.byId).length, 1)
-  assert.ok(moyuView.byId.s1)
-  assert.ok(!moyuView.byId.s2 && !moyuView.byId.s4)
-
-  const otherView = filterSessionListByPreset(mockList, 'other')
-  assert.deepEqual(otherView.ids, ['s4'])
-  assert.equal(Object.keys(otherView.byId).length, 1)
-  assert.ok(otherView.byId.s4)
-})
-
-await test('filterSearchResultsByPreset intersects content results with active preset session set', () => {
-  const { filterSearchResultsByPreset } = mod
-  const allowedMediaIds = new Set(['s2', 's3'])
-  const searchResults = [
-    { id: 's1', title: 'Moyu hit' },
-    { id: 's2', title: 'Media hit 1' },
-    { id: 's3', title: 'Media hit 2' },
-    { id: 's4', title: 'Old hit' },
-  ]
-
-  const filtered = filterSearchResultsByPreset(searchResults, allowedMediaIds)
-  assert.deepEqual(filtered.map(r => r.id), ['s2', 's3'])
-})
+// ─── 12. M1 capabilities helpers ───────────────────────────────────
+console.log('\nM1 capabilities helpers:')
 
 await test('hasCapability accurately detects available tools and permissions', () => {
   const { getSessionCapabilities, hasCapability } = mod
