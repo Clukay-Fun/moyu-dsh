@@ -15,6 +15,7 @@
     "packages/dsh-plugin-pdf",
     "packages/dsh-plugin-screenshot",
     "packages/dsh-plugin-scheduled-tasks",
+    "packages/dsh-plugin-media",
     "packages/dsh-profile"
   ],
   "main": "./out/main/index.js",
@@ -43,8 +44,7 @@
     "asar": true,
     "asarUnpack": [
       "node_modules/sharp/**/*",
-      "node_modules/@img/**/*",
-
+      "node_modules/@img/**/*"
     ],
     "directories": {
       "output": "release"
