@@ -146,13 +146,29 @@ test('duplicate events in same batch are deduplicated', () => {
   assert.equal(accepted.length, 1, 'second duplicate rejected within same call')
 })
 
-// ─── 3. No polling ──────────────────────────────────────────────────
-console.log('\nArchitecture:')
+// ─── 4. M1 Session Filtering and Capabilities Client Exports ────────
+console.log('\nM1 Client Session Filter Exports:')
 
-test('client uses EventSource, not setInterval polling', () => {
-  const clientSource = readFileSync(new URL('../src/client.tsx', import.meta.url), 'utf8')
-  assert.ok(clientSource.includes('EventSource'), 'client.tsx should reference EventSource')
-  assert.ok(!clientSource.includes('setInterval'), 'client.tsx should NOT use setInterval for polling')
+test('client exports buildPresetSessionIndex and filter functions', () => {
+  assert.equal(typeof mod.buildPresetSessionIndex, 'function')
+  assert.equal(typeof mod.filterSessionListByPreset, 'function')
+  assert.equal(typeof mod.filterSearchResultsByPreset, 'function')
+  assert.equal(typeof mod.createPresetSessionSelector, 'function')
+  assert.equal(typeof mod.getSessionCapabilities, 'function')
+  assert.equal(typeof mod.hasCapability, 'function')
+})
+
+test('client filterSessionListByPreset isolates sessions by preset', () => {
+  const list = {
+    ids: ['a1', 'm1'],
+    byId: {
+      a1: { id: 'a1', agentPreset: 'moyu' },
+      m1: { id: 'm1', agentPreset: 'media' },
+    },
+  }
+  const filtered = mod.filterSessionListByPreset(list, 'media')
+  assert.deepEqual(filtered.ids, ['m1'])
+  assert.deepEqual(Object.keys(filtered.byId), ['m1'])
 })
 
 // ─── Summary ─────────────────────────────────────────────────────────

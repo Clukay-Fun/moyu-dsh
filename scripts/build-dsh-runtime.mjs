@@ -34,7 +34,8 @@ const MOYU_PLUGINS = {
   '@moyu/dsh-plugin-image': 'dsh-plugin-image',
   '@moyu/dsh-plugin-pdf': 'dsh-plugin-pdf',
   '@moyu/dsh-plugin-screenshot': 'dsh-plugin-screenshot',
-  '@moyu/dsh-plugin-scheduled-tasks': 'dsh-plugin-scheduled-tasks'
+  '@moyu/dsh-plugin-scheduled-tasks': 'dsh-plugin-scheduled-tasks',
+  '@moyu/dsh-plugin-media': 'dsh-plugin-media'
 }
 
 const RUNTIME_DEPENDENCIES = {
@@ -231,6 +232,22 @@ async function buildProfileTemplate() {
   await writeFile(
     join(presetDir, 'agent.cordis.yml'),
     `# Moyu 预设：仅使用内置核心能力
+- id: agent-instructions
+  name: '@deepseek-ai/dsh-agent-instructions'
+  config:
+    maxBytes: 65536
+- id: tool-ask-user
+  name: '@deepseek-ai/dsh-tool-ask-user'
+`
+  )
+
+  // 为 agent-presets 提供 media preset 模板
+  const mediaPresetDir = join(home, '.agent-presets', 'media')
+  await mkdir(mediaPresetDir, { recursive: true })
+  await writeFile(join(mediaPresetDir, 'preset.yml'), 'name: 自媒体\ndescription: 自媒体内容创作工作台\n')
+  await writeFile(
+    join(mediaPresetDir, 'agent.cordis.yml'),
+    `# 自媒体预设：自媒体内容创作工作台
 - id: agent-instructions
   name: '@deepseek-ai/dsh-agent-instructions'
   config:

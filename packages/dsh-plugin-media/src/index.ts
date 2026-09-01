@@ -14,9 +14,27 @@ import type {
   RunEvent,
   ServerRequest,
   ServerResponse,
+  SessionCapabilities,
 } from './types.js'
 
-export type { RunEvent, ServerRequest, ServerResponse, MediaArtifact, MediaRun, MediaStore }
+import {
+  getSessionCapabilities,
+  hasCapability,
+  buildPresetSessionIndex,
+  filterSessionListByPreset,
+  filterSearchResultsByPreset,
+  createPresetSessionSelector,
+} from './session-filter.js'
+
+export type { RunEvent, ServerRequest, ServerResponse, MediaArtifact, MediaRun, MediaStore, SessionCapabilities }
+export {
+  getSessionCapabilities,
+  hasCapability,
+  buildPresetSessionIndex,
+  filterSessionListByPreset,
+  filterSearchResultsByPreset,
+  createPresetSessionSelector,
+}
 
 export const name = 'moyu-media'
 export const inject = ['tools', 'webServer']
@@ -446,7 +464,7 @@ export class MockMediaRunService extends Service {
   }
 }
 
-const SUPPORTED_OPERATIONS = new Set(['list-runs', 'run-mock', 'respond', 'status'])
+const SUPPORTED_OPERATIONS = new Set(['list-runs', 'run-mock', 'respond', 'status', 'capabilities'])
 
 export function apply(ctx: Context): Promise<void> {
   const svc = new MockMediaRunService(ctx)
@@ -475,6 +493,12 @@ export function apply(ctx: Context): Promise<void> {
         }
         try {
           await svc.ready
+          if (operation === 'capabilities') {
+            const preset = (body as { preset?: unknown }).preset
+            const caps = getSessionCapabilities(typeof preset === 'string' ? preset : 'moyu')
+            sendJson(res, 200, { capabilities: caps })
+            return
+          }
           if (operation === 'list-runs') {
             sendJson(res, 200, { runs: svc.getRuns() })
             return

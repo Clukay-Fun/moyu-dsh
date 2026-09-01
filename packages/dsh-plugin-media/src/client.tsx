@@ -7,7 +7,28 @@ import type {
   RunEvent,
   ServerRequest,
   MediaArtifact,
+  SessionCapabilities,
 } from './types.js'
+
+import {
+  getSessionCapabilities,
+  hasCapability,
+  buildPresetSessionIndex,
+  filterSessionListByPreset,
+  filterSearchResultsByPreset,
+  createPresetSessionSelector,
+} from './session-filter.js'
+
+export {
+  getSessionCapabilities,
+  hasCapability,
+  buildPresetSessionIndex,
+  filterSessionListByPreset,
+  filterSearchResultsByPreset,
+  createPresetSessionSelector,
+}
+
+export type { SessionCapabilities }
 
 export const name = 'moyu-media-client'
 

@@ -10,5 +10,8 @@
   "files": [
     "index.mjs",
     "cordis.patch.yml"
-  ]
+  ],
+  "scripts": {
+    "verify": "node harness/verify.mjs"
+  }
 }

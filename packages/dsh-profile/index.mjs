@@ -1,15 +1,19 @@
-// 唯一 Moyu profile 的产品属性与会话级工具面守卫。
-//
-// Moyu 必备工具清单：三个内置能力（image_convert、pdf_process、screenshot_capture）
-// 必须始终在工具面中在场，否则拒绝创建会话。
-// 守卫从当前会话的 Agent Scope / 上下文中读取真实工具面，无法获取时严格 fail-closed。
-// 默认 moyu preset 下严禁出现任何 shell 类工具。
+/**
+描述: Moyu profile 的产品属性与多 Preset 会话级工具面守卫。
+主要功能:
+    - 按 preset（moyu / media）校验必备工具集
+    - 未知 preset 严格 fail-closed
+    - 检查并禁止默认 preset 下出现 shell 类工具
+*/
 
-export const MOYU_REQUIRED_TOOLS = Object.freeze([
-  'image_convert',
-  'pdf_process',
-  'screenshot_capture'
-])
+//#region 常量与配置定义
+
+export const PRESET_REQUIRED_TOOLS = Object.freeze({
+  moyu: Object.freeze(['image_convert', 'pdf_process', 'screenshot_capture']),
+  media: Object.freeze(['image_convert', 'screenshot_capture'])
+})
+
+export const MOYU_REQUIRED_TOOLS = PRESET_REQUIRED_TOOLS.moyu
 
 // 兼容别名
 export const MOYU_TOOL_WHITELIST = Object.freeze([
@@ -19,7 +23,7 @@ export const MOYU_TOOL_WHITELIST = Object.freeze([
   'screenshot_capture'
 ])
 
-// 默认（moyu）preset 下不得出现在 agent 工具面的 shell 类工具
+// 默认（moyu / media）preset 下不得出现在 agent 工具面的 shell 类工具
 export const MOYU_SHELL_CLASS_TOOLS = Object.freeze([
   'bash',
   'pwsh',
@@ -27,7 +31,18 @@ export const MOYU_SHELL_CLASS_TOOLS = Object.freeze([
   'str_replace_editor'
 ])
 
-/** 从 session 结构中提取实际生效的 preset id；未指定时默认作为 'moyu' 处理。 */
+//#endregion
+
+//#region 工具面解析与守卫校验
+
+/**
+从 session 结构中提取实际生效的 preset id；未指定时默认作为 'moyu' 处理。
+用处，参数:
+    - session: 当前会话对象或快照
+
+功能:
+    - 依次解析 session 事件流、header、agent 配置提取 preset id
+*/
 export function readPresetId(session) {
   if (!session) return 'moyu'
   // 1. 从 session 事件流中查找最新的 preset 选择事件
@@ -53,7 +68,15 @@ export function readPresetId(session) {
   return 'moyu'
 }
 
-/** 从 session / agent / ctx 中解析当前会话真实可见的工具名称清单。 */
+/**
+从 session / agent / ctx 中解析当前会话真实可见的工具名称清单。
+用处，参数:
+    - ctx: Cordis 上下文
+    - session: 会话对象
+
+功能:
+    - 读取 agent 局部 scope tools、session tools 或 ctx tools 中的 schema 工具名列表
+*/
 function resolveToolNames(ctx, session) {
   // 1. 优先读取 session 绑定的 agent 局部 scope tools
   const agentTools = session?.agent?.ctx?.get?.('tools') ?? session?.agent?.tools
@@ -75,11 +98,17 @@ function resolveToolNames(ctx, session) {
 }
 
 /**
- * 会话创建守卫：读取当前 session 的真实工具面。
- * - 必备工具必须都在（contains 语义，允许用户切换到的其它 preset 引入额外工具）；
- * - 默认 moyu preset 下严禁出现 shell 类工具；
- * - 拿不到有效工具面时必须 fail-closed 抛错拒绝创建。
- */
+会话创建守卫：读取当前 session 的真实工具面。
+用处，参数:
+    - ctx: Cordis 上下文
+    - session: 会话对象
+
+功能:
+    - 按 preset（moyu / media）检查必备工具集是否存在（contains 语义）；
+    - 未知 preset 严格 fail-closed 抛错拒绝创建；
+    - 检查并严禁出现 shell 类工具；
+    - 无法可靠读取工具面时 fail-closed 抛错拒绝创建。
+*/
 export function assertMoyuToolSurface(ctx, session) {
   const actual = resolveToolNames(ctx, session)
   if (!actual || !Array.isArray(actual)) {
@@ -88,24 +117,30 @@ export function assertMoyuToolSurface(ctx, session) {
     throw error
   }
 
-  const missing = MOYU_REQUIRED_TOOLS.filter((name) => !actual.includes(name))
+  const preset = readPresetId(session)
+  if (!preset || typeof preset !== 'string' || !Object.prototype.hasOwnProperty.call(PRESET_REQUIRED_TOOLS, preset)) {
+    const error = new Error(`未知 preset [${preset}]，拒绝创建会话 (fail-closed)`)
+    process.stderr.write(`[moyu] ${error.message}\n`)
+    throw error
+  }
+
+  const required = PRESET_REQUIRED_TOOLS[preset]
+  const missing = required.filter((name) => !actual.includes(name))
   if (missing.length) {
     const error = new Error(
-      `moyu 必备工具缺失：工具面实际注册 [${actual.slice().sort().join(', ')}]，`
-      + `必备清单 [${MOYU_REQUIRED_TOOLS.join(', ')}]，缺失 [${missing.join(', ')}]`
-      + `（cordis.patch.yml 与 @moyu/dsh-profile 必须同时包含必备三件套）`
+      `preset [${preset}] 必备工具缺失：工具面实际注册 [${actual.slice().sort().join(', ')}]，`
+      + `必备清单 [${required.join(', ')}]，缺失 [${missing.join(', ')}]`
     )
     process.stderr.write(`[moyu] ${error.message}\n`)
     throw error
   }
 
-  const preset = readPresetId(session)
-  if (preset === 'moyu' || !preset) {
+  if (preset === 'moyu' || preset === 'media') {
     const shellTools = MOYU_SHELL_CLASS_TOOLS.filter((name) => actual.includes(name))
     if (shellTools.length) {
       const error = new Error(
-        `moyu 默认 preset 下出现 shell 类工具：[${shellTools.join(', ')}]；`
-        + `shell 能力只能由用户主动切换到的其它 agent preset 引入，moyu 默认 surface 必须保持纯内置三件套`
+        `preset [${preset}] 下出现 shell 类工具：[${shellTools.join(', ')}]；`
+        + `默认 surface 必须保持纯内置安全能力，严禁出现 shell 工具`
       )
       process.stderr.write(`[moyu] ${error.message}\n`)
       throw error
@@ -114,3 +149,5 @@ export function assertMoyuToolSurface(ctx, session) {
 
   return true
 }
+
+//#endregion

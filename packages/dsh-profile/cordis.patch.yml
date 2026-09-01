@@ -102,3 +102,5 @@
       name: '@moyu/dsh-plugin-session-export'
     - id: moyu-scheduled-tasks
       name: '@moyu/dsh-plugin-scheduled-tasks'
+    - id: moyu-media
+      name: '@moyu/dsh-plugin-media'
