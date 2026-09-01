@@ -229,7 +229,7 @@ async function buildProfileTemplate() {
   // 为 agent-presets 提供默认的 moyu preset 模板，仅声明已在场的安全组件，解除对 standard 的隐式依赖
   const presetDir = join(home, '.agent-presets', PROFILE_NAME)
   await mkdir(presetDir, { recursive: true })
-  await writeFile(join(presetDir, 'preset.yml'), 'name: Moyu\ndescription: MOYU 默认预设\n')
+  await writeFile(join(presetDir, 'preset.yml'), 'name: MOYU Chat\ndescription: MOYU 默认对话工作台\n')
   await writeFile(
     join(presetDir, 'agent.cordis.yml'),
     `# Moyu 预设：仅使用内置核心能力
@@ -245,7 +245,7 @@ async function buildProfileTemplate() {
   // 为 agent-presets 提供 media preset 模板
   const mediaPresetDir = join(home, '.agent-presets', 'media')
   await mkdir(mediaPresetDir, { recursive: true })
-  await writeFile(join(mediaPresetDir, 'preset.yml'), 'name: 自媒体\ndescription: 自媒体内容创作工作台\n')
+  await writeFile(join(mediaPresetDir, 'preset.yml'), 'name: MOYU Media\ndescription: MOYU 自媒体内容创作工作台\n')
   const personaSrc = await readFile(join(root, 'packages/dsh-plugin-media/src/media-prompt.ts'), 'utf8')
   const personaMark = 'export const MEDIA_PERSONA_TEXT = `'
   const personaStart = personaSrc.indexOf(personaMark)

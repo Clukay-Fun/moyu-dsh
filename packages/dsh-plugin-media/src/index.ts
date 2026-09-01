@@ -3,7 +3,7 @@ import { Service } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { randomUUID } from 'node:crypto'
-import { createReadStream } from 'node:fs'
+import { createReadStream, watch, type FSWatcher } from 'node:fs'
 import { mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { homedir } from 'node:os'
@@ -292,6 +292,11 @@ export class MockMediaRunService extends Service {
   private activeRun: string | null = null
   private requestResolvers = new Map<string, (response: MediaServerResponse) => void>()
   private tokens = new Map<string, FileToken>()
+  // UI-F03: 目录实时监听。fs.watch 结果防抖后重扫 + SSE 主动推送，Client 不轮询。
+  private watchers = new Set<FSWatcher>()
+  private watchDebounce: ReturnType<typeof setTimeout> | null = null
+  private rescanInFlight = false
+  private rescanQueued = false
   ready: Promise<void>
 
   constructor(ctx: Context) {
@@ -340,6 +345,7 @@ export class MockMediaRunService extends Service {
         this.ctx.logger?.error?.('[moyu-media] startup scan failed', err)
       })
     }
+    this.startWatching()
   }
 
   private async recover(): Promise<void> {
@@ -602,6 +608,50 @@ export class MockMediaRunService extends Service {
     return this.listVideos()
   }
 
+  // UI-F03: 为当前所有已配置目录建立监听。macOS 支持 recursive；不可访问的目录跳过并告警。
+  startWatching(): void {
+    this.stopWatching()
+    for (const directory of this.store.settings.directories) {
+      try {
+        const w = watch(directory.path, { recursive: true }, () => this.scheduleRescan())
+        w.on('error', (e) => this.ctx.logger?.warn?.('[moyu-media] watch error', this.publicError(e)))
+        this.watchers.add(w)
+      } catch (e) {
+        this.ctx.logger?.warn?.('[moyu-media] watch directory skipped', this.publicError(e))
+      }
+    }
+  }
+
+  private stopWatching(): void {
+    for (const w of this.watchers) {
+      try { w.close() } catch { /* already closed */ }
+    }
+    this.watchers.clear()
+  }
+
+  // 防抖 + 合并：复制大文件会连发很多事件；等空档再重扫，重扫期间又来的事件排队一次。
+  private scheduleRescan(): void {
+    if (this.watchDebounce) clearTimeout(this.watchDebounce)
+    this.watchDebounce = setTimeout(() => {
+      this.watchDebounce = null
+      void this.runRescan()
+    }, 800)
+  }
+
+  private async runRescan(): Promise<void> {
+    if (this.rescanInFlight) { this.rescanQueued = true; return }
+    this.rescanInFlight = true
+    try {
+      const videos = await this.scan()
+      this.sseBroadcast('media-updated', { count: videos.length })
+    } catch (e) {
+      this.ctx.logger?.warn?.('[moyu-media] auto rescan failed', this.publicError(e))
+    } finally {
+      this.rescanInFlight = false
+      if (this.rescanQueued) { this.rescanQueued = false; this.scheduleRescan() }
+    }
+  }
+
   async setSuffixes(suffixes: unknown): Promise<{ directories: DirectoryView[]; subtitleSuffixes: string[] }> {
     if (!Array.isArray(suffixes)) throw new Error('subtitleSuffixes required')
     const next: string[] = []
@@ -628,6 +678,7 @@ export class MockMediaRunService extends Service {
     this.store.settings.directories = this.store.settings.directories.filter((d) => d.id !== id)
     await this.persist()
     await this.scan()
+    this.startWatching()
     return this.settingsView()
   }
 
@@ -641,6 +692,7 @@ export class MockMediaRunService extends Service {
     this.store.settings.directories.push(entry)
     await this.persist()
     await this.scan()
+    this.startWatching()
     return this.settingsView()
   }
 
@@ -786,6 +838,8 @@ export class MockMediaRunService extends Service {
     const pathname = `/moyu/media/${fileId}`
     this.logRange(req, pathname)
     const size = token.size
+    // UI-F05: .mov 作为 QuickTime 容器返回，其余按 MP4。
+    const contentType = token.path.toLowerCase().endsWith('.mov') ? 'video/quicktime' : 'video/mp4'
     if (size > MAX_MEDIA_BYTES) {
       sendJson(res, 404, { error: 'not found' })
       return
@@ -794,7 +848,7 @@ export class MockMediaRunService extends Service {
     if (method === 'HEAD') {
       res.writeHead(200, {
         'accept-ranges': 'bytes',
-        'content-type': 'video/mp4',
+        'content-type': contentType,
         'content-length': String(size),
       })
       res.end()
@@ -822,7 +876,7 @@ export class MockMediaRunService extends Service {
     if (resolved.type === 'full') {
       res.writeHead(200, {
         'accept-ranges': 'bytes',
-        'content-type': 'video/mp4',
+        'content-type': contentType,
         'content-length': String(size),
       })
       await pipeFile(token.path, 0, size - 1, req, res)
@@ -831,7 +885,7 @@ export class MockMediaRunService extends Service {
     const length = resolved.end - resolved.start + 1
     res.writeHead(206, {
       'accept-ranges': 'bytes',
-      'content-type': 'video/mp4',
+      'content-type': contentType,
       'content-range': `bytes ${resolved.start}-${resolved.end}/${size}`,
       'content-length': String(length),
     })
@@ -1098,6 +1152,8 @@ export class MockMediaRunService extends Service {
     this.requestResolvers.clear()
     this.eventListeners.clear()
     this.requestListeners.clear()
+    this.stopWatching()
+    if (this.watchDebounce) { clearTimeout(this.watchDebounce); this.watchDebounce = null }
     for (const conn of this.sseConnections) conn.end()
     this.sseConnections.clear()
     this.activeRun = null

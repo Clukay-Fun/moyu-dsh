@@ -157,6 +157,64 @@ function PresetSwitcher({ sessions }: { sessions: ClientContext['sessions'] }): 
 
 //#endregion
 
+//#region CapabilitiesView (UI-F04)
+
+// 内部 ID → 人类可读标签。未知 ID 回落显示原文，保证不隐藏真值。
+const TOOL_LABELS: Record<string, string> = {
+  mock_media_task: '示例任务（Spike）',
+  image_convert: '图片转换',
+  screenshot_capture: '截图',
+  pdf_process: 'PDF 处理',
+  video_scan: '视频库扫描',
+  video_subtitle_read: '读取字幕',
+  media_artifact_save: '保存产物',
+  moyu_schedule_create: '创建定时任务',
+  moyu_schedule_run_now: '立即运行任务',
+}
+const APPROVAL_LABELS: Record<string, string> = {
+  confirm_publish: '发布前确认',
+}
+const SOURCE_LABELS: Record<string, string> = {
+  'project-source': '项目素材',
+  'session-attachment': '会话附件',
+  'job-result': '任务产物',
+  'scheduled-input': '定时任务输入',
+}
+function labelize(id: string, map: Record<string, string>): string {
+  return map[id] ?? id
+}
+
+function CapabilitiesRow({ title, values }: { title: string; values: string[] }): React.ReactElement {
+  return React.createElement('div', { style: { display: 'flex', gap: 8, margin: '2px 0' } },
+    React.createElement('span', { style: { color: '#888', minWidth: 64, flex: '0 0 auto' } }, title),
+    React.createElement('span', null, values.length ? values.join('、') : '无'),
+  )
+}
+
+/** UI-F04：当前模式真实生效能力，人类可读；内部 ID 收进「高级信息」折叠。 */
+function CapabilitiesView({ capabilities }: { capabilities: SessionCapabilities }): React.ReactElement {
+  return React.createElement('div', {
+    style: { fontSize: 12, marginBottom: 12, padding: 10, border: '1px solid #e5e5e5', borderRadius: 6 },
+  },
+    React.createElement('div', { style: { fontWeight: 600, marginBottom: 4 } }, '当前模式生效能力'),
+    React.createElement(CapabilitiesRow, { title: '可用工具', values: capabilities.tools.map((t) => labelize(t, TOOL_LABELS)) }),
+    React.createElement(CapabilitiesRow, { title: '需要确认', values: capabilities.approvalRequired.map((a) => labelize(a, APPROVAL_LABELS)) }),
+    React.createElement(CapabilitiesRow, { title: '文件来源', values: capabilities.fileSourceTypes.map((s) => labelize(s, SOURCE_LABELS)) }),
+    capabilities.skills.length > 0 && React.createElement(CapabilitiesRow, { title: '技能', values: capabilities.skills }),
+    React.createElement('details', { style: { marginTop: 6 } },
+      React.createElement('summary', { style: { cursor: 'pointer', color: '#888' } }, '高级信息（内部 ID）'),
+      React.createElement('pre', { style: { fontSize: 11, color: '#666', whiteSpace: 'pre-wrap', margin: '4px 0 0' } },
+        `tools: ${capabilities.tools.join(', ') || '—'}\n`
+        + `approvalRequired: ${capabilities.approvalRequired.join(', ') || '—'}\n`
+        + `fileSourceTypes: ${capabilities.fileSourceTypes.join(', ') || '—'}\n`
+        + `skills: ${capabilities.skills.join(', ') || '—'}`,
+      ),
+    ),
+  )
+}
+
+//#endregion
+
 //#region MediaSpikePanel
 
 function MediaSpikePanel({ sessions }: { sessions: ClientContext['sessions'] }): React.ReactElement {
@@ -266,23 +324,9 @@ function MediaSpikePanel({ sessions }: { sessions: ClientContext['sessions'] }):
     // Preset 切换器
     React.createElement(PresetSwitcher, { sessions }),
 
-    // Capabilities 状态展示
-    capabilities && React.createElement('div', {
-      style: { fontSize: 11, color: '#666', marginBottom: 12, padding: 8, background: '#f5f5f5', borderRadius: 4 },
-    },
-      React.createElement('div', null,
-        React.createElement('strong', null, 'Active Capabilities: '),
-        capabilities.tools.join(', '),
-      ),
-      capabilities.approvalRequired.length > 0 && React.createElement('div', null,
-        React.createElement('strong', null, 'Approval: '),
-        capabilities.approvalRequired.join(', '),
-      ),
-      React.createElement('div', null,
-        React.createElement('strong', null, 'Sources: '),
-        capabilities.fileSourceTypes.join(', '),
-      ),
-    ),
+    // UI-F04: 当前模式生效能力（Host 真值，来自 getSessionCapabilities）。
+    // 人类可读呈现；内部 ID 收进「高级信息」，默认界面不再堆原始调试文本。
+    capabilities && React.createElement(CapabilitiesView, { capabilities }),
 
     error && React.createElement('div', { style: { color: 'red', marginBottom: 8 } }, error),
 
@@ -374,39 +418,58 @@ function useCapabilities(): SessionCapabilities | null {
   return capabilities
 }
 
-async function captureThumbnail(fileId: string): Promise<boolean> {
+// UI-F05: 缩略图结果三态。'undecodable' 覆盖 ProRes/HEVC 等 Chromium 无法解码或
+// 加载/seek 超时挂死的情况——用超时兜底，绝不让 UI 无限转圈或白屏。
+type ThumbnailResult = 'ok' | 'undecodable' | 'error'
+const THUMBNAIL_TIMEOUT_MS = 15000
+
+function waitVideoStage(
+  bind: (resolve: () => void, reject: (e: Error) => void) => void,
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    let done = false
+    const finish = (fn: () => void) => { if (!done) { done = true; fn() } }
+    const timer = setTimeout(() => finish(() => reject(new Error('undecodable'))), THUMBNAIL_TIMEOUT_MS)
+    bind(
+      () => finish(() => { clearTimeout(timer); resolve() }),
+      (e) => finish(() => { clearTimeout(timer); reject(e) }),
+    )
+  })
+}
+
+async function captureThumbnail(fileId: string): Promise<ThumbnailResult> {
   const video = document.createElement('video')
   video.muted = true
   video.playsInline = true
   video.preload = 'auto'
   video.src = `/moyu/media/${fileId}`
   try {
-    await new Promise<void>((resolve, reject) => {
+    await waitVideoStage((resolve, reject) => {
       video.onloadeddata = () => resolve()
-      video.onerror = () => reject(new Error('video load failed'))
+      video.onerror = () => reject(new Error('undecodable'))
     })
     const duration = Number.isFinite(video.duration) ? video.duration : 0
     video.currentTime = duration > 0 ? duration * 0.1 : 0
-    await new Promise<void>((resolve, reject) => {
+    await waitVideoStage((resolve, reject) => {
       video.onseeked = () => resolve()
-      video.onerror = () => reject(new Error('video seek failed'))
+      video.onerror = () => reject(new Error('undecodable'))
     })
     const canvas = document.createElement('canvas')
     canvas.width = Math.max(1, video.videoWidth)
     canvas.height = Math.max(1, video.videoHeight)
     const ctx = canvas.getContext('2d')
-    if (!ctx) return false
+    if (!ctx) return 'error'
     ctx.drawImage(video, 0, 0)
     const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.8))
-    if (!blob) return false
+    if (!blob) return 'error'
     const response = await fetch(`/moyu/media/${fileId}/thumbnail`, {
       method: 'POST',
       headers: { 'content-type': 'image/jpeg' },
       body: blob,
     })
-    return response.ok || response.status === 204
-  } catch {
-    return false
+    return (response.ok || response.status === 204) ? 'ok' : 'error'
+  } catch (e) {
+    return (e as Error)?.message === 'undecodable' ? 'undecodable' : 'error'
   } finally {
     video.src = ''
     video.load()
@@ -553,6 +616,7 @@ function VideoLibraryView(): React.ReactElement {
   const [selected, setSelected] = useState<string | null>(null)
   const [subtitlePreview, setSubtitlePreview] = useState<string>('')
   const [thumbs, setThumbs] = useState<Record<string, string>>({})
+  const [thumbStatus, setThumbStatus] = useState<Record<string, 'pending' | ThumbnailResult>>({})
 
   const loadList = useCallback(async (rescan: boolean) => {
     const result = await apiRequest({ operation: rescan ? 'scan' : 'list' }) as { videos: VideoListItem[] }
@@ -574,16 +638,31 @@ function VideoLibraryView(): React.ReactElement {
         const url = `/moyu/media/${video.fileId}/thumbnail`
         if (video.hasThumbnail) {
           setThumbs((prev) => (prev[video.fileId] ? prev : { ...prev, [video.fileId]: url }))
+          setThumbStatus((prev) => ({ ...prev, [video.fileId]: 'ok' }))
           continue
         }
-        const ok = await captureThumbnail(video.fileId)
+        if (thumbStatus[video.fileId] && thumbStatus[video.fileId] !== 'pending') continue
+        setThumbStatus((prev) => (prev[video.fileId] ? prev : { ...prev, [video.fileId]: 'pending' }))
+        const status = await captureThumbnail(video.fileId)
         if (cancelled) return
-        if (ok) setThumbs((prev) => ({ ...prev, [video.fileId]: `${url}?t=${Date.now()}` }))
+        setThumbStatus((prev) => ({ ...prev, [video.fileId]: status }))
+        if (status === 'ok') setThumbs((prev) => ({ ...prev, [video.fileId]: `${url}?t=${Date.now()}` }))
       }
     }
     void run()
     return () => { cancelled = true }
   }, [videos, showLibrary])
+
+  // UI-F03: 目录变化时 Host 主动推送 media-updated，收到即拉取最新列表（不轮询、不访问文件系统）。
+  // selected 以 fileId 为键、React 状态保留，列表在原地更新，筛选/滚动/选择不丢。
+  useEffect(() => {
+    if (!showLibrary) return
+    const es = new EventSource('/moyu/media/events')
+    es.addEventListener('media-updated', () => {
+      loadList(false).catch(() => {})
+    })
+    return () => { es.close() }
+  }, [showLibrary, loadList])
 
   if (!showLibrary) {
     return React.createElement('div', {
@@ -641,8 +720,20 @@ function VideoLibraryView(): React.ReactElement {
               style: { width: '100%', height: 100, objectFit: 'cover', borderRadius: 4, background: '#111' },
             })
             : React.createElement('div', {
-              style: { height: 100, borderRadius: 4, background: '#eee', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: '#888' },
-            }, '生成缩略图…'),
+              style: {
+                height: 100, borderRadius: 4,
+                background: thumbStatus[video.fileId] === 'undecodable' ? '#fdf0e2' : '#eee',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                textAlign: 'center', padding: 6,
+                fontSize: 11, color: thumbStatus[video.fileId] === 'undecodable' ? '#b56727' : '#888',
+              },
+            },
+              thumbStatus[video.fileId] === 'undecodable'
+                ? '⚠ 编码不受支持，无法直接预览'
+                : thumbStatus[video.fileId] === 'error'
+                  ? '缩略图生成失败'
+                  : '生成缩略图…',
+            ),
           React.createElement('div', { style: { fontWeight: 600, marginTop: 6, fontSize: 13 } }, video.fileName),
           React.createElement('div', { style: { fontSize: 11, color: '#666' } },
             `${formatDuration(video.durationMs)} · ${formatSize(video.size)}`,
@@ -760,13 +851,12 @@ export function apply(ctx: ClientContext): void {
     ),
   )
 
-  ctx.slots.inject('conversation.view' as never, () =>
+  // UI-F02: 视频库注册为 Media 一级 surface（占满主内容区），不再作为会话顶部 tab。
+  ctx.slots.inject('surface.media-library' as never, () =>
     ctx.slots.register(
       {
-        name: 'conversation.view',
+        name: 'surface.media-library',
         id: 'moyu-media-library',
-        order: 40,
-        label: () => '视频库',
       } as never,
       VideoLibraryView as never,
     ),

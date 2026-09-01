@@ -1,11 +1,15 @@
 /**
 描述: 视频目录扫描与字幕关联。
 主要功能:
-    - 递归查找 .mp4（跳过 >1GB）
+    - 递归查找 .mp4 / .mov（大小写不敏感，跳过 >1GB）
     - 同名 .srt/.txt 关联
     - sourceId 由 realpath 指纹稳定生成
 消费点：Host MediaService.scan。
 */
+
+// UI-F05: 视频库支持的容器扩展名（大小写不敏感）。.mov 与 .mp4 均为 ISO-BMFF/QuickTime，
+// mvhd 时长解析与 Range 路由通用；能否直接预览取决于编码，由 Client <video> 反馈。
+export const VIDEO_EXTENSIONS = new Set(['.mp4', '.mov'])
 
 import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
@@ -81,7 +85,7 @@ async function walk(
       continue
     }
     if (!entry.isFile()) continue
-    if (extname(entry.name).toLowerCase() !== '.mp4') continue
+    if (!VIDEO_EXTENSIONS.has(extname(entry.name).toLowerCase())) continue
     let info
     try {
       info = await stat(full)
