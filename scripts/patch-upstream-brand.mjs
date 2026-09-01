@@ -50,6 +50,12 @@ changed += patchFile("dsh-client-ui-settings-models/lib/client.js", (t) =>
     .replace(/ctx\.slots\.inject\("settings\.onboarding",\s*\(\s*\)\s*=>\s*ctx\.slots\.register\(\{\s*name:\s*"settings\.onboarding",\s*id:\s*"welcome-notice"[\s\S]*?WelcomeNotice\)\);/g, "/* MOYU: 内测声明弹窗已移除 */")
 );
 
+// 2b. DeepSeek 首次运行「添加 API Key」引导弹窗：注销该 onboarding 步骤，
+//     使其不再在启动时阻断 MOYU（模型密钥仍可在 设置→模型 里配置）。
+changed += patchFile("dsh-client-ui-settings-models/lib/client.js", (t) =>
+  t.replace(/ctx\.slots\.inject\("settings\.onboarding",\s*\(\s*\)\s*=>\s*ctx\.slots\.register\(\{\s*name:\s*"settings\.onboarding",\s*id:\s*"deepseek-official"[\s\S]*?DeepSeekOnboardingDialog\)\);/g, "/* MOYU: API Key 引导弹窗已移除 */")
+);
+
 // 3. Tool/env description referencing the DSH Web GUI
 changed += patchFile("dsh-web-app/lib/index.js", (t) =>
   t.replace(/DeepSeek Harness Web GUI/g, "MOYU")
