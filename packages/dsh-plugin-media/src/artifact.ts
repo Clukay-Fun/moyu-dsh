@@ -71,6 +71,9 @@ export function normalizeArtifact(raw: unknown): MediaArtifact | null {
   if (typeof record.feedbackSessionId === 'string' && record.feedbackSessionId) {
     artifact.feedbackSessionId = record.feedbackSessionId
   }
+  if (typeof record.videoSourceId === 'string' && record.videoSourceId) {
+    artifact.videoSourceId = record.videoSourceId
+  }
   if (typeof record.videoFileId === 'string' && record.videoFileId) {
     artifact.videoFileId = record.videoFileId
   }

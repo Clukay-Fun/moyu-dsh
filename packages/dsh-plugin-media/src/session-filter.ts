@@ -22,7 +22,7 @@ import type { SessionCapabilities } from './types.js'
 export function getSessionCapabilities(preset?: string): SessionCapabilities {
   if (preset === 'media') {
     return {
-      tools: ['mock_media_task', 'video_scan', 'video_subtitle_read', 'media_artifact_save', 'moyu_schedule_create', 'moyu_schedule_run_now', 'image_convert', 'screenshot_capture'],
+      tools: ['video_scan', 'video_subtitle_read', 'media_artifact_save', 'moyu_schedule_create', 'moyu_schedule_run_now', 'image_convert', 'screenshot_capture'],
       skills: [],
       fileSourceTypes: ['project-source', 'session-attachment', 'job-result', 'scheduled-input'],
       approvalRequired: ['confirm_publish'],

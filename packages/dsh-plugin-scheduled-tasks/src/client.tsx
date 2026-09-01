@@ -543,6 +543,19 @@ function ScheduledTasksPanel(props: {
     [props.request, selected, loadRuns, reload],
   )
 
+  const cancelTask = React.useCallback(
+    async (taskId: string) => {
+      try {
+        await props.request({ operation: 'cancel', taskId })
+        if (selected === taskId) loadRuns(taskId)
+        else await reload()
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e))
+      }
+    },
+    [props.request, selected, loadRuns, reload],
+  )
+
   const togglePause = React.useCallback(
     async (taskId: string, enabled: boolean) => {
       try {
@@ -723,6 +736,7 @@ function ScheduledTasksPanel(props: {
   const rows = visibleTasks.map((t) => {
     const actions: React.ReactNode[] = [
       btn('立即运行', () => void runTask(t.id), { disabled: t.running }),
+      t.running ? btn('取消', () => void cancelTask(t.id)) : null,
       btn('编辑', () => void openEditor(t.id)),
       btn(t.enabled && t.nextRunAt ? '暂停' : '恢复', () => void togglePause(t.id, t.enabled)),
       btn('删除', () => setConfirmDelete(t.id), { danger: true }),
@@ -744,7 +758,7 @@ function ScheduledTasksPanel(props: {
           (t.lastRunStatus ? `（${t.lastRunStatus}）` : '') +
           (t.unreadCount > 0 ? `　未读：${t.unreadCount}` : ''),
       ),
-      React.createElement('div', { style: { display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' } }, ...actions),
+      React.createElement('div', { style: { display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' } }, ...actions.filter(Boolean)),
       selected === t.id
         ? React.createElement(
             'div',

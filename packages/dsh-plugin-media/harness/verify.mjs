@@ -9,6 +9,10 @@ let capturedTools = []
 let capturedRoutes = {}
 let effectDisposers = []
 
+const mediaExec = { agent: { id: 'sess-media', session: { id: 'sess-media', header: { agentPreset: 'media' }, agentPreset: 'media' } } }
+const moyuExec = { agent: { id: 'sess-moyu', session: { id: 'sess-moyu', header: { agentPreset: 'moyu' }, agentPreset: 'moyu' } } }
+const mediaExecB = { agent: { id: 'sess-b', session: { id: 'sess-b', header: { agentPreset: 'media' }, agentPreset: 'media' } } }
+
 function makeCtx() {
   effectDisposers = []
   capturedRoutes = {}
@@ -19,7 +23,11 @@ function makeCtx() {
       effectDisposers.push(disposer)
       return disposer
     },
-    tools: { register(tool) { capturedTools.push(tool) } },
+    tools: {
+      register(tool) { capturedTools.push(tool) },
+      guard() { return () => {} },
+    },
+    on() {},
     webServer: { register(route) { capturedRoutes[`${route.kind}:${route.path}`] = route; return () => {} } },
     logger: { info() {}, warn() {}, error() {}, debug() {} },
   }
@@ -525,11 +533,11 @@ await test('status with unknown runId returns 404', async () => {
 // ─── 8. Tool registration ───────────────────────────────────────────
 console.log('\nTool registration:')
 
-await test('mock_media_task tool is registered after apply', async () => {
+await test('mock_media_task tool is not registered in production apply', async () => {
   await createService()
   const tool = capturedTools.find(t => t.name === 'mock_media_task')
-  assert.ok(tool, 'mock_media_task tool should be registered')
-  assert.ok(tool.description, 'tool should have description')
+  assert.equal(tool, undefined, 'mock_media_task must not be on the production tool surface')
+  assert.ok(capturedTools.some(t => t.name === 'video_scan'), 'video_scan is registered')
 })
 
 // ─── 9. Persistence ─────────────────────────────────────────────────
@@ -671,7 +679,7 @@ await test('capabilities route returns media session capabilities for media pres
   })
   assert.equal(status, 200)
   assert.ok(json.capabilities)
-  assert.ok(json.capabilities.tools.includes('mock_media_task'))
+  assert.ok(!json.capabilities.tools.includes('mock_media_task'))
   assert.ok(json.capabilities.tools.includes('video_scan'))
   assert.ok(json.capabilities.tools.includes('video_subtitle_read'))
   assert.ok(json.capabilities.tools.includes('media_artifact_save'))
@@ -782,7 +790,7 @@ await test('hasCapability accurately detects available tools and permissions', (
   const mediaCaps = getSessionCapabilities('media')
   const moyuCaps = getSessionCapabilities('moyu')
 
-  assert.equal(hasCapability(mediaCaps, 'tool', 'mock_media_task'), true)
+  assert.equal(hasCapability(mediaCaps, 'tool', 'mock_media_task'), false)
   assert.equal(hasCapability(mediaCaps, 'tool', 'pdf_process'), false)
   assert.equal(hasCapability(mediaCaps, 'approval', 'confirm_publish'), true)
   assert.equal(hasCapability(mediaCaps, 'sourceType', 'project-source'), true)
@@ -896,7 +904,7 @@ await test('Range request never degrades to 200', async () => {
 
 await test('invalid, expired, and cross-subject tokens return 404 without paths', async () => {
   await seedLibrary()
-  const { fileRoute } = await createService()
+  const { ctx, fileRoute, tools, route } = await createService()
   const res = await fileCall(fileRoute, {
     method: 'GET',
     url: '/moyu/media/00000000-0000-4000-8000-000000000000',
@@ -906,6 +914,39 @@ await test('invalid, expired, and cross-subject tokens return 404 without paths'
   const body = res.body.toString('utf8')
   assert.equal(body.includes('/tmp/'), false)
   assert.equal(body.includes('不存在') || body.includes('无权限'), false)
+
+  const listed = await routeCall(route, { operation: 'list' })
+  const sourceId = listed.json.videos[0].sourceId
+  const libraryId = listed.json.videos[0].fileId
+  const svc = ctx.moyuMedia
+  assert.ok(svc, 'apply exposes the live Host service')
+  const sessA = svc.issueCapabilityToken(sourceId, {
+    ops: ['read', 'subtitle', 'thumbnail', 'artifact-bind'],
+    subject: 'sess-a',
+    ttlMs: 60_000,
+  })
+  assert.ok(sessA)
+  const httpDenied = await fileCall(fileRoute, {
+    method: 'GET',
+    url: `/moyu/media/${sessA}`,
+    headers: { range: 'bytes=0-1' },
+  })
+  assert.equal(httpDenied.status, 404, 'HTTP library subject cannot use a session-scoped token')
+  assert.equal(httpDenied.body.toString('utf8').includes('/tmp/'), false)
+  const readTool = tools.find((t) => t.name === 'video_subtitle_read')
+  await assert.rejects(
+    () => readTool.execute({ videoFileId: sessA }, mediaExecB),
+    /not found/,
+    'Tool with sess-b cannot use sess-a token',
+  )
+  const okHttp = await fileCall(fileRoute, {
+    method: 'GET',
+    url: `/moyu/media/${libraryId}`,
+    headers: { range: 'bytes=0-1' },
+  })
+  assert.equal(okHttp.status, 206, 'HTTP media-library subject can use library tokens')
+  const fromLibrary = await readTool.execute({ videoFileId: libraryId }, mediaExecB)
+  assert.ok(fromLibrary.text.includes('hello'), 'media session Tool may consume media-library tokens')
 })
 
 await test('host restart reissues fileId and invalidates the old token', async () => {
@@ -972,7 +1013,8 @@ await test('video_subtitle_read returns text and basename labels without paths',
   const fileId = listed.json.videos[0].fileId
   const tool = tools.find(t => t.name === 'video_subtitle_read')
   assert.ok(tool, 'video_subtitle_read tool registered')
-  const result = await tool.execute({ videoFileId: fileId })
+  await assert.rejects(() => tool.execute({ videoFileId: fileId }, moyuExec), /not available in this session/)
+  const result = await tool.execute({ videoFileId: fileId }, mediaExec)
   assert.ok(result.text.includes('hello'))
   assert.ok(result.files.some(f => f.label === 'clip-01' && f.fileName === 'clip-01.srt'))
   assert.equal(JSON.stringify(result).includes('/tmp/'), false)
@@ -987,7 +1029,7 @@ await test('video_subtitle_read returns empty when no subtitle exists', async ()
   const lonely = listed.json.videos.find(v => v.fileName === 'lonely.mp4')
   assert.ok(lonely)
   const tool = tools.find(t => t.name === 'video_subtitle_read')
-  const result = await tool.execute({ videoFileId: lonely.fileId })
+  const result = await tool.execute({ videoFileId: lonely.fileId }, mediaExec)
   assert.equal(result.text, '')
   assert.deepEqual(result.files, [])
 })
@@ -996,7 +1038,7 @@ await test('video_subtitle_read invalid token is non-enumerable', async () => {
   await seedLibrary()
   const { tools } = await createService()
   const tool = tools.find(t => t.name === 'video_subtitle_read')
-  await assert.rejects(() => tool.execute({ videoFileId: '00000000-0000-4000-8000-000000000000' }), /not found/)
+  await assert.rejects(() => tool.execute({ videoFileId: '00000000-0000-4000-8000-000000000000' }, mediaExec), /not found/)
 })
 
 await test('media_artifact_save writes draft and emits artifact_created', async () => {
@@ -1013,12 +1055,16 @@ await test('media_artifact_save writes draft and emits artifact_created', async 
   })
   const tool = tools.find(t => t.name === 'media_artifact_save')
   assert.ok(tool, 'media_artifact_save tool registered')
+  await assert.rejects(
+    () => tool.execute({ kind: 'title', candidates: [{ content: '标题甲' }], videoFileId: fileId }, moyuExec),
+    /not available in this session/,
+  )
   const saved = await tool.execute({
     kind: 'title',
     candidates: [{ content: '标题甲', weight: 0.8, style: 'hook', reason: '短' }],
     videoFileId: fileId,
     platform: 'bilibili',
-  })
+  }, mediaExec)
   assert.equal(saved.status, 'draft')
   assert.equal(saved.kind, 'title')
   assert.equal(saved.revision, 1)
@@ -1057,12 +1103,12 @@ await test('parentArtifactId increments revision', async () => {
   const parent = await tool.execute({
     kind: 'title',
     candidates: [{ content: 'v1' }],
-  })
+  }, mediaExec)
   const child = await tool.execute({
     kind: 'title',
     candidates: [{ content: 'v2' }],
     parentArtifactId: parent.artifactId,
-  })
+  }, mediaExec)
   assert.equal(child.parentArtifactId, parent.artifactId)
   assert.equal(child.revision, parent.revision + 1)
 })
@@ -1071,11 +1117,11 @@ await test('artifact-set-status moves draft to kept and discarded', async () => 
   await seedLibrary()
   const { route, tools } = await createService()
   const tool = tools.find(t => t.name === 'media_artifact_save')
-  const saved = await tool.execute({ kind: 'tags', candidates: [{ content: 'tag-a' }] })
+  const saved = await tool.execute({ kind: 'tags', candidates: [{ content: 'tag-a' }] }, mediaExec)
   const kept = await routeCall(route, { operation: 'artifact-set-status', artifactId: saved.artifactId, status: 'kept' })
   assert.equal(kept.status, 200)
   assert.equal(kept.json.artifact.status, 'kept')
-  const other = await tool.execute({ kind: 'tags', candidates: [{ content: 'tag-b' }] })
+  const other = await tool.execute({ kind: 'tags', candidates: [{ content: 'tag-b' }] }, mediaExec)
   const discarded = await routeCall(route, { operation: 'artifact-set-status', artifactId: other.artifactId, status: 'discarded' })
   assert.equal(discarded.json.artifact.status, 'discarded')
 })
@@ -1099,6 +1145,32 @@ await test('M3 tools do not call a model', async () => {
   assert.equal(/openai|chat\.completions|llm\.complete|generateText|anthropic/i.test(combined), false)
   assert.ok(typeof readTool.execute === 'function')
   assert.ok(typeof saveTool.execute === 'function')
+})
+
+await test('artifact persists sourceId and rebinds fileId after host generation', async () => {
+  await seedLibrary()
+  const first = await createService()
+  const list1 = await routeCall(first.route, { operation: 'list' })
+  const oldId = list1.json.videos[0].fileId
+  const sourceId = list1.json.videos[0].sourceId
+  const saveTool = first.tools.find((t) => t.name === 'media_artifact_save')
+  const saved = await saveTool.execute({
+    kind: 'title',
+    candidates: [{ content: 'bind-me' }],
+    videoFileId: oldId,
+  }, mediaExec)
+  assert.equal(saved.videoFileId, oldId)
+  assert.equal(saved.videoSourceId, sourceId)
+  const raw = JSON.parse(await readFile('/tmp/moyu-media-verify/media/store.json', 'utf8'))
+  assert.equal(raw.artifacts[0].videoSourceId, sourceId)
+  assert.equal(raw.artifacts[0].videoFileId, undefined, 'persisted artifact must not keep generation fileId')
+  const second = await createService()
+  const list2 = await routeCall(second.route, { operation: 'list' })
+  const freshId = list2.json.videos[0].fileId
+  assert.notEqual(freshId, oldId)
+  const rebound = await routeCall(second.route, { operation: 'list-artifacts' })
+  assert.equal(rebound.json.artifacts[0].videoSourceId, sourceId)
+  assert.equal(rebound.json.artifacts[0].videoFileId, freshId, 'DTO resolves current generation fileId')
 })
 
 // ─── Summary ─────────────────────────────────────────────────────────

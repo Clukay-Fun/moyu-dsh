@@ -16,10 +16,15 @@ export interface MediaArtifact {
   candidates?: MediaArtifactCandidate[]
   status: ArtifactStatus
   feedbackSessionId?: string
+  /** Stable library identity persisted across Host generations. */
+  videoSourceId?: string
+  /** Current-generation capability token; never persisted. */
   videoFileId?: string
   platform?: string
   createdAt: number
 }
+
+export type FileTokenOp = 'read' | 'subtitle' | 'thumbnail' | 'artifact-bind'
 
 export type RunStatus = 'running' | 'awaiting_user' | 'success' | 'failed' | 'cancelled' | 'interrupted'
 

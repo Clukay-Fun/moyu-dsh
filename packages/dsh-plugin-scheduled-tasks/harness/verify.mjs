@@ -6,10 +6,13 @@ const PLUGIN = new URL('../lib/index.mjs', import.meta.url).pathname
 
 const captured = []
 let capturedRoute = null
-const calls = { create: [], resume: [], followup: [], dispose: [] }
+const calls = { create: [], resume: [], followup: [], dispose: [], cancel: [] }
+const sessionStore = new Map()
 let shouldFailNext = false
 let blockIdle = false
 let resolveIdle = null
+let blockCreate = false
+let resolveCreate = null
 let effectDisposer = null
 
 function mockAgent(sessionId) {
@@ -23,6 +26,9 @@ function mockAgent(sessionId) {
           listeners[event] = (listeners[event] || []).filter((f) => f !== cb)
         }
       },
+    },
+    cancel() {
+      calls.cancel.push(sessionId)
     },
     followup(msg) {
       calls.followup.push(msg)
@@ -46,14 +52,22 @@ function makeCtx() {
     },
     agents: {
       create(options) {
-        calls.create.push(options)
-        return Promise.resolve({
-          agent: mockAgent(options.sessionId),
-          dispose() {
-            calls.dispose.push(options.sessionId)
-            return Promise.resolve()
-          },
-        })
+        const finish = () => {
+          calls.create.push(options)
+          return {
+            agent: mockAgent(options.sessionId),
+            dispose() {
+              calls.dispose.push(options.sessionId)
+              return Promise.resolve()
+            },
+          }
+        }
+        if (blockCreate) {
+          return new Promise((resolve) => {
+            resolveCreate = () => resolve(finish())
+          })
+        }
+        return Promise.resolve(finish())
       },
       resume(options) {
         calls.resume.push(options)
@@ -66,7 +80,12 @@ function makeCtx() {
         })
       },
     },
-    sessions: { create() {}, list() { return [] }, get() { return null }, fork() {} },
+    sessions: {
+      create() {},
+      list() { return [...sessionStore.values()] },
+      get(id) { return sessionStore.get(String(id)) ?? null },
+      fork() {},
+    },
     tools: { register(tool) { captured.push(tool) } },
     webServer: { register(route) { capturedRoute = route; return () => {} } },
     logger: { info() {}, warn() {}, error() {}, debug() {} },
@@ -77,14 +96,18 @@ const mockCtx = makeCtx()
 
 function reset() {
   return rm('/tmp/moyu-schedule-verify', { recursive: true, force: true }).then(() => {
+    sessionStore.clear()
     captured.length = 0
     calls.create.length = 0
     calls.resume.length = 0
     calls.followup.length = 0
     calls.dispose.length = 0
+    calls.cancel.length = 0
     shouldFailNext = false
     blockIdle = false
     resolveIdle = null
+    blockCreate = false
+    resolveCreate = null
   })
 }
 
@@ -638,6 +661,21 @@ assert.equal(JSON.stringify(mediaSum).includes('cwd'), false, 'TaskSummary has n
 assert.equal(JSON.stringify(mediaSum).includes('"prompt"'), false, 'TaskSummary has no prompt')
 assert.equal(JSON.stringify(mediaSum).includes('/tmp'), false, 'TaskSummary has no path')
 
+sessionStore.set('sess-continue-1', { id: 'sess-continue-1', agentPreset: 'media' })
+sessionStore.set('sess-flip', { id: 'sess-flip', agentPreset: 'media' })
+sessionStore.set('sess-moyu', { id: 'sess-moyu', agentPreset: 'moyu' })
+await assert.rejects(
+  () => svc05.createTask({
+    title: 'mismatch',
+    prompt: 'p',
+    cwd: '/tmp',
+    preset: 'media',
+    runMode: 'continuation',
+    continuationSessionId: 'sess-moyu',
+  }),
+  /preset mismatch/,
+  'continuation session preset must match task.preset',
+)
 const tCont = await svc05.createTask({
   title: 'cont',
   prompt: 'p',
@@ -672,6 +710,32 @@ const tFlip = await svc05.createTask({
 await svc05.updateTask(tFlip.id, { runMode: 'standalone' })
 assert.equal(svc05.getTask(tFlip.id).runMode, 'standalone', 'updateTask persists runMode')
 assert.equal(svc05.getTask(tFlip.id).preset, 'media', 'updateTask does not rewrite preset')
+
+calls.create.length = 0
+calls.resume.length = 0
+calls.followup.length = 0
+const tCancelNow = await svc05.createTask({ title: 'cancel-now', prompt: 'p', cwd: '/tmp', preset: 'media' })
+await svc05.startTaskRun(tCancelNow.id)
+await svc05.cancelRun(tCancelNow.id)
+await new Promise((r) => setTimeout(r, 50))
+assert.equal(calls.create.length, 0, 'immediate cancelRun prevents agents.create')
+assert.equal(calls.resume.length, 0, 'immediate cancelRun prevents agents.resume')
+assert.equal(calls.followup.length, 0, 'immediate cancelRun prevents followup')
+assert.equal(svc05.listRuns(tCancelNow.id)[0].status, 'cancelled')
+
+blockCreate = true
+calls.create.length = 0
+calls.followup.length = 0
+const tCancelGate = await svc05.createTask({ title: 'cancel-gate', prompt: 'p', cwd: '/tmp', preset: 'media' })
+void svc05.startTaskRun(tCancelGate.id)
+await new Promise((r) => setTimeout(r, 20))
+await svc05.cancelRun(tCancelGate.id)
+if (resolveCreate) resolveCreate()
+await new Promise((r) => setTimeout(r, 20))
+blockCreate = false
+resolveCreate = null
+assert.equal(calls.followup.length, 0, 'cancel during in-flight create skips followup')
+assert.equal(svc05.listRuns(tCancelGate.id)[0].status, 'cancelled')
 
 await mkdir('/tmp/moyu-schedule-legacy/scheduled-tasks', { recursive: true })
 await writeFile('/tmp/moyu-schedule-legacy/scheduled-tasks/store.json', JSON.stringify({

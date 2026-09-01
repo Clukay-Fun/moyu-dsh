@@ -286,17 +286,11 @@ function MediaSpikePanel({ sessions }: { sessions: ClientContext['sessions'] }):
 
     error && React.createElement('div', { style: { color: 'red', marginBottom: 8 } }, error),
 
-    // Mock Task 按钮 — 仅在 capabilities 含 mock_media_task 时显示
     showMockTask && !activeRun && React.createElement(
       'button',
       { onClick: handleStartMock },
       'Run Mock Task',
     ),
-
-    // 非 media preset 时不显示 mock task 入口的提示
-    !showMockTask && React.createElement('div', {
-      style: { fontSize: 12, color: '#999', fontStyle: 'italic', marginBottom: 8 },
-    }, '当前 preset 无 media 专有工具（mock_media_task 不可用）'),
 
     // 审批 UI — 仅在 capabilities 含 confirm_publish 审批项时显示
     showApproval && pendingRequest && React.createElement('div', {

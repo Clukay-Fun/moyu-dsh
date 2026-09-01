@@ -8,10 +8,12 @@ import { mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/
 import { basename, dirname, join } from 'node:path'
 import { homedir } from 'node:os'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 
 import type {
   ArtifactStatus,
   DirectoryView,
+  FileTokenOp,
   MediaArtifact,
   MediaDirectory,
   MediaRun,
@@ -54,6 +56,10 @@ const MAX_THUMBNAIL_BYTES = 2 * 1024 * 1024
 const MAX_SUBTITLE_BYTES = 256 * 1024
 const FILE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const DEFAULT_SUFFIXES = ['.srt', '.txt']
+const TOKEN_TTL_MS = 12 * 60 * 60 * 1000
+const LIBRARY_TOKEN_OPS: readonly FileTokenOp[] = ['read', 'subtitle', 'thumbnail', 'artifact-bind']
+const MEDIA_LIBRARY_SUBJECT = 'media-library'
+const MEDIA_ONLY_TOOLS = ['video_scan', 'video_subtitle_read', 'media_artifact_save'] as const
 
 type FileToken = {
   sourceId: string
@@ -62,6 +68,67 @@ type FileToken = {
   generation: number
   mtimeMs: number
   size: number
+  subject: string
+  ops: FileTokenOp[]
+  expiresAt: number
+}
+
+function persistArtifact(item: MediaArtifact): Omit<MediaArtifact, 'videoFileId'> {
+  const { videoFileId: _drop, ...rest } = item
+  return rest
+}
+
+function agentPresetOf(exec: unknown): string {
+  if (!exec || typeof exec !== 'object') return 'moyu'
+  const agent = (exec as { agent?: Record<string, unknown> }).agent
+  if (!agent || typeof agent !== 'object') return 'moyu'
+  const session = agent.session
+  if (session && typeof session === 'object') {
+    const rec = session as Record<string, unknown>
+    if (typeof rec.agentPreset === 'string' && rec.agentPreset.trim()) return rec.agentPreset.trim()
+    const header = rec.header as Record<string, unknown> | undefined
+    if (typeof header?.agentPreset === 'string' && header.agentPreset.trim()) return header.agentPreset.trim()
+    if (Array.isArray(rec.events)) {
+      for (let i = rec.events.length - 1; i >= 0; i--) {
+        const ev = rec.events[i] as { type?: string; data?: { agentPreset?: string } }
+        if (ev?.type === 'agent-preset/selected' && typeof ev.data?.agentPreset === 'string') {
+          return ev.data.agentPreset
+        }
+      }
+    }
+  }
+  const nested =
+    (agent.preset as { id?: string } | string | undefined) ??
+    (agent.meta as { agentPreset?: string } | undefined)?.agentPreset ??
+    (agent.setup as { meta?: { agentPreset?: string } } | undefined)?.meta?.agentPreset
+  if (typeof nested === 'string' && nested.trim()) return nested.trim()
+  if (nested && typeof nested === 'object' && typeof nested.id === 'string') return nested.id
+  return 'moyu'
+}
+
+function assertMediaToolAccess(exec: unknown): void {
+  if (agentPresetOf(exec) !== 'media') {
+    throw new Error('not available in this session')
+  }
+}
+
+function sessionSubjectOf(exec: unknown): string | undefined {
+  if (!exec || typeof exec !== 'object') return undefined
+  const agent = (exec as { agent?: Record<string, unknown> }).agent
+  if (!agent || typeof agent !== 'object') return undefined
+  if (typeof agent.id === 'string' && agent.id.trim()) return agent.id.trim()
+  const session = agent.session
+  if (session && typeof session === 'object') {
+    const id = (session as { id?: unknown }).id
+    if (typeof id === 'string' && id.trim()) return id.trim()
+  }
+  return undefined
+}
+
+function requireToolSubject(exec: unknown): string {
+  const subject = sessionSubjectOf(exec)
+  if (!subject) throw new Error('not found')
+  return subject
 }
 
 function defaultSettings(): MediaSettings {
@@ -181,6 +248,7 @@ function pipeFile(
       stream.destroy()
       reject(error)
     }
+    const onDrain = () => stream.resume()
     stream.on('error', fail)
     req.on?.('close', () => {
       stream.destroy()
@@ -191,7 +259,12 @@ function pipeFile(
       finish()
     })
     stream.on('data', (chunk: Buffer | string) => {
-      res.write(chunk)
+      const ok = res.write(chunk)
+      if (ok === false) {
+        stream.pause()
+        if (typeof res.once === 'function') res.once('drain', onDrain)
+        else stream.resume()
+      }
     })
     stream.on('end', () => {
       res.end()
@@ -357,7 +430,18 @@ export class MockMediaRunService extends Service {
   }
 
   private persist(): Promise<void> {
-    const snapshot = JSON.stringify(this.store, null, 2)
+    const snapshot = JSON.stringify(
+      {
+        ...this.store,
+        artifacts: this.store.artifacts.map(persistArtifact),
+        runs: this.store.runs.map((run) => ({
+          ...run,
+          artifacts: (run.artifacts ?? []).map(persistArtifact),
+        })),
+      },
+      null,
+      2,
+    )
     const write = (async () => {
       await this.writeChain.catch(() => {})
       await mkdir(resolveDataDir(), { recursive: true })
@@ -385,7 +469,10 @@ export class MockMediaRunService extends Service {
     return join(resolveDataDir(), 'thumbnails', `${sourceId}.jpg`)
   }
 
-  private issueToken(source: PersistedSource): string {
+  private issueToken(
+    source: PersistedSource,
+    options?: { ops?: readonly FileTokenOp[]; subject?: string; ttlMs?: number },
+  ): string {
     const fileId = randomUUID()
     this.tokens.set(fileId, {
       sourceId: source.sourceId,
@@ -394,6 +481,9 @@ export class MockMediaRunService extends Service {
       generation: this.store.generation,
       mtimeMs: source.mtimeMs,
       size: source.size,
+      subject: options?.subject ?? MEDIA_LIBRARY_SUBJECT,
+      ops: [...(options?.ops ?? LIBRARY_TOKEN_OPS)],
+      expiresAt: Date.now() + (options?.ttlMs ?? TOKEN_TTL_MS),
     })
     return fileId
   }
@@ -405,16 +495,36 @@ export class MockMediaRunService extends Service {
     }
   }
 
-  private tokenFor(fileId: string): FileToken | undefined {
-    if (!FILE_ID_RE.test(fileId)) return undefined
+  private tokenFor(fileId: string, op: FileTokenOp, subject: string): FileToken | undefined {
+    if (!subject || !FILE_ID_RE.test(fileId)) return undefined
     const token = this.tokens.get(fileId)
     if (!token || token.generation !== this.store.generation) return undefined
-    return token
+    if (token.expiresAt <= Date.now()) return undefined
+    if (!token.ops.includes(op)) return undefined
+    if (token.subject === subject) return token
+    // Shared project sources: media-library tokens may be consumed by a media
+    // session Tool. HTTP always presents media-library itself (exact match).
+    if (token.subject === MEDIA_LIBRARY_SUBJECT && subject !== MEDIA_LIBRARY_SUBJECT) return token
+    return undefined
   }
 
-  private fileIdForSource(sourceId: string): string | undefined {
+  /** Test/harness: mint a capability token with explicit subject, ops, and TTL. */
+  issueCapabilityToken(
+    sourceId: string,
+    options: { ops: readonly FileTokenOp[]; subject: string; ttlMs?: number },
+  ): string | undefined {
+    const source = this.store.sources.find((item) => item.sourceId === sourceId)
+    if (!source) return undefined
+    return this.issueToken(source, options)
+  }
+
+  inspectToken(fileId: string, op: FileTokenOp, subject: string): FileToken | undefined {
+    return this.tokenFor(fileId, op, subject)
+  }
+
+  private fileIdForSource(sourceId: string, subject: string = MEDIA_LIBRARY_SUBJECT): string | undefined {
     for (const [fileId, token] of this.tokens) {
-      if (token.sourceId === sourceId) return fileId
+      if (token.sourceId === sourceId && token.subject === subject) return fileId
     }
     return undefined
   }
@@ -439,8 +549,8 @@ export class MockMediaRunService extends Service {
 
   listVideos(): VideoListItem[] {
     return this.store.sources.map((source) => {
-      let fileId = this.fileIdForSource(source.sourceId)
-      if (!fileId) fileId = this.issueToken(source)
+      let fileId = this.fileIdForSource(source.sourceId, MEDIA_LIBRARY_SUBJECT)
+      if (!fileId) fileId = this.issueToken(source, { subject: MEDIA_LIBRARY_SUBJECT })
       return {
         sourceId: source.sourceId,
         fileId,
@@ -544,8 +654,8 @@ export class MockMediaRunService extends Service {
     return this.addDirectoryPath(resolved.path)
   }
 
-  async subtitleText(fileId: string): Promise<{ files: Array<{ fileName: string; text: string }> }> {
-    const token = this.tokenFor(fileId)
+  async subtitleText(fileId: string, subject: string): Promise<{ files: Array<{ fileName: string; text: string }> }> {
+    const token = this.tokenFor(fileId, 'subtitle', subject)
     if (!token) return Promise.reject(Object.assign(new Error('not found'), { status: 404 }))
     const suffixes = this.store.settings.subtitleSuffixes
     const matched = matchSubtitleFiles(token.path, suffixes)
@@ -562,10 +672,10 @@ export class MockMediaRunService extends Service {
     return { files }
   }
 
-  async readSubtitles(fileId: string): Promise<{ text: string; files: Array<{ label: string; fileName: string }> }> {
-    const token = this.tokenFor(fileId)
+  async readSubtitles(fileId: string, subject: string): Promise<{ text: string; files: Array<{ label: string; fileName: string }> }> {
+    const token = this.tokenFor(fileId, 'subtitle', subject)
     if (!token) throw Object.assign(new Error('not found'), { status: 404 })
-    const { files } = await this.subtitleText(fileId)
+    const { files } = await this.subtitleText(fileId, subject)
     return {
       text: files.map((file) => file.text).join('\n\n'),
       files: files.map((file) => ({
@@ -576,7 +686,19 @@ export class MockMediaRunService extends Service {
   }
 
   listArtifacts(): MediaArtifact[] {
-    return this.store.artifacts
+    return this.store.artifacts.map((item) => this.artifactView(item))
+  }
+
+  private artifactView(item: MediaArtifact): MediaArtifact {
+    const view: MediaArtifact = { ...item }
+    if (item.videoSourceId) {
+      const fileId = this.fileIdForSource(item.videoSourceId, MEDIA_LIBRARY_SUBJECT)
+      if (fileId) view.videoFileId = fileId
+      else delete view.videoFileId
+    } else {
+      delete view.videoFileId
+    }
+    return view
   }
 
   personaText(): string {
@@ -590,6 +712,7 @@ export class MockMediaRunService extends Service {
     parentArtifactId?: unknown
     platform?: unknown
     feedbackSessionId?: unknown
+    subject: string
   }): Promise<MediaArtifact> {
     if (!isArtifactKind(input.kind)) throw new Error('kind required')
     const candidates = normalizeCandidates(input.candidates)
@@ -603,7 +726,8 @@ export class MockMediaRunService extends Service {
       revision = parent.revision + 1
     }
     if (typeof input.videoFileId === 'string' && input.videoFileId) {
-      if (!this.tokenFor(input.videoFileId)) throw Object.assign(new Error('not found'), { status: 404 })
+      const token = this.tokenFor(input.videoFileId, 'artifact-bind', input.subject)
+      if (!token) throw Object.assign(new Error('not found'), { status: 404 })
     }
     const artifact: MediaArtifact = {
       artifactId: randomUUID(),
@@ -614,22 +738,26 @@ export class MockMediaRunService extends Service {
       createdAt: Date.now(),
     }
     if (parentArtifactId) artifact.parentArtifactId = parentArtifactId
-    if (typeof input.videoFileId === 'string' && input.videoFileId) artifact.videoFileId = input.videoFileId
+    if (typeof input.videoFileId === 'string' && input.videoFileId) {
+      const token = this.tokenFor(input.videoFileId, 'artifact-bind', input.subject)
+      if (token) artifact.videoSourceId = token.sourceId
+    }
     if (typeof input.platform === 'string' && input.platform) artifact.platform = input.platform
     if (typeof input.feedbackSessionId === 'string' && input.feedbackSessionId) {
       artifact.feedbackSessionId = input.feedbackSessionId
     }
     this.store.artifacts.push(artifact)
+    const view = this.artifactView(artifact)
     const event: RunEvent = {
       type: 'artifact_created',
       runId: 'media-library',
-      artifact,
+      artifact: view,
       generation: this.store.generation,
       sequence: this.nextSequence(),
     }
     this.emit(event)
     await this.persist()
-    return artifact
+    return view
   }
 
   async setArtifactStatus(artifactId: string, status: unknown): Promise<MediaArtifact> {
@@ -638,7 +766,7 @@ export class MockMediaRunService extends Service {
     if (!artifact) throw Object.assign(new Error('not found'), { status: 404 })
     artifact.status = status
     await this.persist()
-    return artifact
+    return this.artifactView(artifact)
   }
 
   logRange(req: IncomingMessage, pathname: string): void {
@@ -650,7 +778,7 @@ export class MockMediaRunService extends Service {
   }
 
   async serveFile(fileId: string, req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const token = this.tokenFor(fileId)
+    const token = this.tokenFor(fileId, 'read', MEDIA_LIBRARY_SUBJECT)
     if (!token) {
       sendJson(res, 404, { error: 'not found' })
       return
@@ -711,7 +839,7 @@ export class MockMediaRunService extends Service {
   }
 
   async serveThumbnail(fileId: string, req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const token = this.tokenFor(fileId)
+    const token = this.tokenFor(fileId, 'thumbnail', MEDIA_LIBRARY_SUBJECT)
     if (!token) {
       sendJson(res, 404, { error: 'not found' })
       return
@@ -999,6 +1127,7 @@ const SUPPORTED_OPERATIONS = new Set([
 
 export function apply(ctx: Context): Promise<void> {
   const svc = new MockMediaRunService(ctx)
+  ;(ctx as { moyuMedia?: MockMediaRunService }).moyuMedia = svc
   ctx.effect(() => () => svc.dispose())
 
   ctx.effect(() =>
@@ -1109,7 +1238,7 @@ export function apply(ctx: Context): Promise<void> {
               return
             }
             try {
-              sendJson(res, 200, await svc.subtitleText(fileId))
+              sendJson(res, 200, await svc.subtitleText(fileId, MEDIA_LIBRARY_SUBJECT))
             } catch (e) {
               if ((e as { status?: number }).status === 404) sendJson(res, 404, { error: 'not found' })
               else throw e
@@ -1126,12 +1255,15 @@ export function apply(ctx: Context): Promise<void> {
           }
           if (operation === 'artifact-save') {
             try {
-              const artifact = await svc.saveArtifact(body as {
-                kind: unknown
-                candidates: unknown
-                videoFileId?: unknown
-                parentArtifactId?: unknown
-                platform?: unknown
+              const artifact = await svc.saveArtifact({
+                ...(body as {
+                  kind: unknown
+                  candidates: unknown
+                  videoFileId?: unknown
+                  parentArtifactId?: unknown
+                  platform?: unknown
+                }),
+                subject: MEDIA_LIBRARY_SUBJECT,
               })
               sendJson(res, 200, { artifact })
             } catch (e) {
@@ -1227,6 +1359,28 @@ export function apply(ctx: Context): Promise<void> {
     }),
   )
 
+  const toolsApi = ctx.tools as {
+    register: typeof ctx.tools.register
+    guard?: (guard: (execution: { name: string; agent?: unknown }) => string | undefined) => () => void
+  }
+  if (typeof toolsApi.guard === 'function') {
+    toolsApi.guard((execution) => {
+      if (!(MEDIA_ONLY_TOOLS as readonly string[]).includes(execution.name)) return undefined
+      if (agentPresetOf(execution) !== 'media') return 'not available in this session'
+      return undefined
+    })
+  }
+  const maybeOn = (ctx as { on?: (event: string, listener: (session: unknown) => void, options?: { global?: boolean }) => void }).on
+  if (typeof maybeOn === 'function') {
+    maybeOn('session/created', (session) => {
+      const preset = agentPresetOf({ agent: { session } })
+      const agent = (session as { agent?: { ctx?: { tools?: { restrict?: (filter: { deny: string[] }) => void } } } })?.agent
+      if (preset !== 'media') {
+        agent?.ctx?.tools?.restrict?.({ deny: [...MEDIA_ONLY_TOOLS] })
+      }
+    }, { global: true })
+  }
+
   return svc.ready.then(() => {
     ctx.tools.register(
       defineTool({
@@ -1258,7 +1412,9 @@ export function apply(ctx: Context): Promise<void> {
           },
           render: (_args: unknown, value: unknown) => [{ type: 'text' as const, text: JSON.stringify(value) }],
         },
-        execute: async () => ({
+        execute: async (_args: Record<string, never>, exec: ToolRunContext) => {
+          assertMediaToolAccess(exec)
+          return {
           videos: (await svc.scan()).map((video) => ({
             sourceId: video.sourceId,
             fileId: video.fileId,
@@ -1268,7 +1424,8 @@ export function apply(ctx: Context): Promise<void> {
             durationMs: video.durationMs ?? undefined,
             hasThumbnail: video.hasThumbnail,
           })),
-        }),
+          }
+        },
       }),
     )
 
@@ -1300,10 +1457,12 @@ export function apply(ctx: Context): Promise<void> {
           },
           render: (_args: unknown, value: unknown) => [{ type: 'text' as const, text: JSON.stringify(value) }],
         },
-        execute: async (args: { videoFileId?: string }) => {
+        execute: async (args: { videoFileId?: string }, exec: ToolRunContext) => {
+          assertMediaToolAccess(exec)
+          const subject = requireToolSubject(exec)
           if (typeof args?.videoFileId !== 'string' || !args.videoFileId) throw new Error('not found')
           try {
-            return await svc.readSubtitles(args.videoFileId)
+            return await svc.readSubtitles(args.videoFileId, subject)
           } catch (e) {
             if ((e as { status?: number }).status === 404) throw new Error('not found')
             throw e
@@ -1336,7 +1495,9 @@ export function apply(ctx: Context): Promise<void> {
           },
           render: (_args: unknown, value: unknown) => [{ type: 'text' as const, text: JSON.stringify(value) }],
         },
-        execute: async (args) => {
+        execute: async (args, exec: ToolRunContext) => {
+          assertMediaToolAccess(exec)
+          const subject = requireToolSubject(exec)
           try {
             const artifact = await svc.saveArtifact({
               kind: args.kind,
@@ -1344,32 +1505,13 @@ export function apply(ctx: Context): Promise<void> {
               videoFileId: args.videoFileId,
               parentArtifactId: args.parentArtifactId,
               platform: args.platform,
+              subject,
             })
             return JSON.parse(JSON.stringify(artifact))
           } catch (e) {
             if ((e as { status?: number }).status === 404) throw new Error('not found')
             throw e
           }
-        },
-      }),
-    )
-
-    ctx.tools.register(
-      defineTool({
-        name: 'mock_media_task',
-        description: 'Run a mock media task to exercise the run protocol (M0 spike only)',
-        parameters: {},
-        output: {
-          schema: {
-            type: 'object',
-            additionalProperties: false,
-            properties: { runId: { type: 'string' }, status: { type: 'string' } },
-          },
-          render: (_args: unknown, value: unknown) => [{ type: 'text' as const, text: JSON.stringify(value) }],
-        },
-        execute: async () => {
-          const runId = await svc.runMockTask()
-          return { runId, status: 'started' }
         },
       }),
     )

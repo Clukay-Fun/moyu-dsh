@@ -163,6 +163,7 @@ test('media capabilities include schedule tools for inventory reminders', () => 
   const caps = mod.getSessionCapabilities('media')
   assert.ok(caps.tools.includes('moyu_schedule_create'))
   assert.ok(caps.tools.includes('moyu_schedule_run_now'))
+  assert.equal(caps.tools.includes('mock_media_task'), false)
 })
 
 test('settings client bundle persists inventoryThreshold', () => {

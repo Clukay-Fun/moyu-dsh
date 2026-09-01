@@ -24,6 +24,7 @@ const SUPPORTED_OPERATIONS = new Set([
   'update',
   'set-enabled',
   'run',
+  'cancel',
   'delete',
   'mark-run-read',
 ])
@@ -40,6 +41,22 @@ function workspaceLabel(cwd: string): string {
 /** Non-empty, length-bounded id string (taskId / runId / workspaceId). */
 function isId(v: unknown): v is string {
   return typeof v === 'string' && v.length > 0 && v.length <= 128
+}
+
+function liveSessionPreset(session: unknown): string {
+  if (!session || typeof session !== 'object') return 'moyu'
+  const rec = session as Record<string, unknown>
+  if (typeof rec.agentPreset === 'string' && rec.agentPreset.trim()) return rec.agentPreset.trim()
+  const header = rec.header as Record<string, unknown> | undefined
+  if (typeof header?.agentPreset === 'string' && header.agentPreset.trim()) return header.agentPreset.trim()
+  const agent = rec.agent as Record<string, unknown> | undefined
+  if (agent) {
+    if (typeof agent.preset === 'string' && agent.preset.trim()) return agent.preset.trim()
+    const nested = (agent.preset as { id?: string } | undefined)?.id
+      ?? (agent.meta as { agentPreset?: string } | undefined)?.agentPreset
+    if (typeof nested === 'string' && nested.trim()) return nested.trim()
+  }
+  return 'moyu'
 }
 
 function sanitizeError(error: unknown): string {
@@ -112,6 +129,7 @@ const WRITE_OPS = new Set([
   'update',
   'set-enabled',
   'run',
+  'cancel',
   'delete',
   'mark-run-read',
   'mark-all-read',
@@ -244,6 +262,8 @@ export class ScheduledTasksService extends Service {
   private runs = new Map<string, ScheduledRun[]>()
   private timers = new Map<string, ReturnType<typeof setTimeout>>()
   private handles = new Set<AgentHandle>()
+  private runHandles = new Map<string, AgentHandle>()
+  private runAborts = new Map<string, AbortController>()
   private activeRuns = new Map<string, string>()
   private writeChain: Promise<void> = Promise.resolve()
   private storeFile = join(resolveDataDir(), 'store.json')
@@ -462,6 +482,9 @@ export class ScheduledTasksService extends Service {
     if (runMode === 'continuation' && !continuationSessionId) {
       throw new ServiceError('invalid_input', 'continuation tasks require continuationSessionId', 400)
     }
+    if (runMode === 'continuation' && continuationSessionId) {
+      this.assertContinuationPreset(taskPresetOf({ preset: input.preset }), continuationSessionId)
+    }
     const task: ScheduledTask = {
       id: randomUUID(),
       title: input.title,
@@ -531,6 +554,9 @@ export class ScheduledTasksService extends Service {
     }
     if (taskRunModeOf(t) === 'continuation' && !t.continuationSessionId) {
       throw new ServiceError('invalid_input', 'continuation tasks require continuationSessionId', 400)
+    }
+    if (taskRunModeOf(t) === 'continuation' && t.continuationSessionId) {
+      this.assertContinuationPreset(taskPresetOf(t), t.continuationSessionId)
     }
     t.updatedAt = Date.now()
     await this.persist()
@@ -700,6 +726,17 @@ export class ScheduledTasksService extends Service {
     return t
   }
 
+  private assertContinuationPreset(taskPreset: string, sessionId: string): void {
+    const sessions = this.ctx.sessions as { get?: (id: unknown) => unknown } | undefined
+    const session = sessions?.get?.(sessionId)
+    if (!session) {
+      throw new ServiceError('invalid_input', 'continuation session not found', 400)
+    }
+    if (liveSessionPreset(session) !== taskPreset) {
+      throw new ServiceError('invalid_input', 'continuation session preset mismatch', 400)
+    }
+  }
+
   /** Enabling a task is only valid when it still has a future schedule. */
   private assertResumable(t: ScheduledTask): void {
     if (!t.nextRunAt) {
@@ -758,6 +795,7 @@ export class ScheduledTasksService extends Service {
     // Reserve synchronously (before any await) so a concurrent invocation of the
     // same task sees the guard and cannot start a second run.
     this.activeRuns.set(taskId, runId)
+    this.runAborts.set(runId, new AbortController())
     task.lastRunAt = Date.now()
     if (task.schedule.kind === 'recurring') {
       // Only advance the series when this run IS the scheduled occurrence.
@@ -772,13 +810,31 @@ export class ScheduledTasksService extends Service {
     return run
   }
 
+  private runStillActive(run: ScheduledRun): boolean {
+    return run.status === 'running' && !this.runAborts.get(run.id)?.signal.aborted
+  }
+
+  private async abandonHandle(taskId: string, handle?: AgentHandle): Promise<void> {
+    if (!handle) return
+    this.handles.delete(handle)
+    this.runHandles.delete(taskId)
+    try {
+      handle.agent.cancel?.('abort' as never)
+    } catch {
+      // cancel is best-effort; dispose still releases the live loop
+    }
+    await handle.dispose().catch(() => {})
+  }
+
   /** Drive one run to completion: validate, create the agent, follow up, persist. */
   private async driveTaskRun(task: ScheduledTask, run: ScheduledRun): Promise<void> {
+    let handle: AgentHandle | undefined
     try {
       try {
         await this.validateCwd(task.cwd)
         await this.ensureWorkspace(task)
       } catch (e) {
+        if (!this.runStillActive(run)) return
         run.status = 'failed'
         run.errorCode = 'validation'
         run.errorMessage = String((e as Error).message)
@@ -787,12 +843,18 @@ export class ScheduledTasksService extends Service {
         throw e
       }
 
+      if (!this.runStillActive(run)) return
+      // Yield so a 202 cancel from the same turn (UI click / startTaskRun then
+      // cancelRun) can land before we mint a live agent.
+      await new Promise((resolve) => setImmediate(resolve))
+      if (!this.runStillActive(run)) return
+
       const preset = taskPresetOf(task)
       const runMode = taskRunModeOf(task)
-      let handle: AgentHandle
       let sessionId: string
       try {
         if (runMode === 'continuation' && task.continuationSessionId) {
+          this.assertContinuationPreset(preset, task.continuationSessionId)
           sessionId = task.continuationSessionId
           handle = await this.ctx.agents.resume({
             resumeSessionId: sessionId as unknown as SessionId,
@@ -808,6 +870,10 @@ export class ScheduledTasksService extends Service {
           })
         }
       } catch (e) {
+        if (!this.runStillActive(run)) {
+          await this.abandonHandle(task.id, handle)
+          return
+        }
         run.status = 'failed'
         run.errorCode = runMode === 'continuation' ? 'agent_resume_failed' : 'agent_create_failed'
         run.errorMessage = String((e as Error).message)
@@ -815,7 +881,14 @@ export class ScheduledTasksService extends Service {
         await this.persist()
         throw e
       }
+
+      if (!this.runStillActive(run)) {
+        await this.abandonHandle(task.id, handle)
+        return
+      }
+
       this.handles.add(handle)
+      this.runHandles.set(task.id, handle)
 
       const agent = handle.agent
       run.sessionId = String(sessionId)
@@ -829,6 +902,10 @@ export class ScheduledTasksService extends Service {
       })
 
       try {
+        if (!this.runStillActive(run)) {
+          await this.abandonHandle(task.id, handle)
+          return
+        }
         const message = createUserMessage({
           content: [{ type: 'text', text: task.prompt }],
           source: {
@@ -842,6 +919,10 @@ export class ScheduledTasksService extends Service {
         } catch (e) {
           failed = true
           errorInfo = e
+        }
+        if (!this.runStillActive(run)) {
+          await this.abandonHandle(task.id, handle)
+          return
         }
         await agent.whenIdle()
       } catch (e) {
@@ -868,11 +949,15 @@ export class ScheduledTasksService extends Service {
 
       // Explicit release: stop the live agent loop once the turn is done.
       // The session log persists; only the live agent handle is torn down.
-      this.handles.delete(handle)
-      await handle.dispose().catch(() => {})
+      if (handle) {
+        this.handles.delete(handle)
+        this.runHandles.delete(task.id)
+        await handle.dispose().catch(() => {})
+      }
     } finally {
       // Every exit path must release the active-run guard.
       this.activeRuns.delete(task.id)
+      this.runAborts.delete(run.id)
     }
   }
 
@@ -884,6 +969,25 @@ export class ScheduledTasksService extends Service {
     void this.driveTaskRun(task, run).catch((e) =>
       this.ctx.logger?.error?.(`[moyu-scheduled-tasks] scheduled run failed: ${String((e as Error)?.message)}`),
     )
+    return run
+  }
+
+  async cancelRun(taskId: string): Promise<ScheduledRun> {
+    await this.ready
+    const runs = this.runs.get(taskId) ?? []
+    const run = [...runs].reverse().find((item) => item.status === 'running')
+    if (!run) throw new ServiceError('not_running', 'no running run to cancel', 409)
+    run.status = 'cancelled'
+    run.finishedAt = Date.now()
+    this.activeRuns.delete(taskId)
+    this.runAborts.get(run.id)?.abort()
+    const handle = this.runHandles.get(taskId)
+    if (handle) {
+      this.handles.delete(handle)
+      this.runHandles.delete(taskId)
+      await handle.dispose().catch(() => {})
+    }
+    await this.persist()
     return run
   }
 
@@ -1132,7 +1236,21 @@ export function apply(ctx: Context): Promise<void> {
               return
             }
             const run = await svc.startTaskRun(taskId)
-            sendJson(res, 202, { runId: run.id, taskId, status: run.status })
+            sendJson(res, 202, { runId: run.id, status: run.status, sessionId: run.sessionId })
+            return
+          }
+          if (operation === 'cancel') {
+            const taskId = (body as { taskId?: unknown }).taskId
+            if (!isId(taskId)) {
+              sendJson(res, 400, { error: 'taskId must be a non-empty string <= 128 chars' })
+              return
+            }
+            if (!svc.getTask(taskId)) {
+              sendJson(res, 404, { error: 'task not found' })
+              return
+            }
+            const run = await svc.cancelRun(taskId)
+            sendJson(res, 200, { runId: run.id, taskId, status: run.status })
             return
           }
           if (operation === 'delete') {
