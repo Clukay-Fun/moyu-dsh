@@ -10,6 +10,7 @@ import { homedir } from 'node:os'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
 import type {
+  ArtifactStatus,
   DirectoryView,
   MediaArtifact,
   MediaDirectory,
@@ -30,6 +31,8 @@ import {
 } from './session-filter.js'
 import { parseRangeHeader, resolveRange, MAX_MEDIA_BYTES } from './range.js'
 import { matchSubtitleFiles, scanDirectory, toPersistedSource } from './scan.js'
+import { isArtifactKind, isArtifactStatus, normalizeArtifact, normalizeCandidates } from './artifact.js'
+import { MEDIA_PERSONA_TEXT } from './media-prompt.js'
 
 export type { RunEvent, ServerRequest, ServerResponse, MediaArtifact, MediaRun, MediaStore, SessionCapabilities } from './types.js'
 export {
@@ -37,6 +40,9 @@ export {
   hasCapability,
   parseRangeHeader,
   resolveRange,
+  normalizeCandidates,
+  normalizeArtifact,
+  MEDIA_PERSONA_TEXT,
 }
 
 export const name = 'moyu-media'
@@ -63,7 +69,7 @@ function defaultSettings(): MediaSettings {
 }
 
 function emptyStore(generation = 0): MediaStore {
-  return { version: STORE_VERSION, generation, runs: [], settings: defaultSettings(), sources: [] }
+  return { version: STORE_VERSION, generation, runs: [], settings: defaultSettings(), sources: [], artifacts: [] }
 }
 
 function resolveDataDir(): string {
@@ -235,6 +241,13 @@ export class MockMediaRunService extends Service {
             : [...DEFAULT_SUFFIXES],
         },
         sources: Array.isArray(parsed.sources) ? parsed.sources : [],
+        artifacts: (Array.isArray(parsed.artifacts)
+          ? parsed.artifacts
+          : (parsed.runs ?? []).flatMap((run) => run.artifacts ?? [])
+        ).map((item) => normalizeArtifact(item)).filter((item): item is MediaArtifact => item !== null),
+      }
+      for (const run of this.store.runs) {
+        run.artifacts = (run.artifacts ?? []).map((item) => normalizeArtifact(item)).filter((item): item is MediaArtifact => item !== null)
       }
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
@@ -537,6 +550,85 @@ export class MockMediaRunService extends Service {
     return { files }
   }
 
+  async readSubtitles(fileId: string): Promise<{ text: string; files: Array<{ label: string; fileName: string }> }> {
+    const token = this.tokenFor(fileId)
+    if (!token) throw Object.assign(new Error('not found'), { status: 404 })
+    const { files } = await this.subtitleText(fileId)
+    return {
+      text: files.map((file) => file.text).join('\n\n'),
+      files: files.map((file) => ({
+        label: file.fileName.replace(/\.[^.]+$/, ''),
+        fileName: file.fileName,
+      })),
+    }
+  }
+
+  listArtifacts(): MediaArtifact[] {
+    return this.store.artifacts
+  }
+
+  personaText(): string {
+    return MEDIA_PERSONA_TEXT
+  }
+
+  async saveArtifact(input: {
+    kind: unknown
+    candidates: unknown
+    videoFileId?: unknown
+    parentArtifactId?: unknown
+    platform?: unknown
+    feedbackSessionId?: unknown
+  }): Promise<MediaArtifact> {
+    if (!isArtifactKind(input.kind)) throw new Error('kind required')
+    const candidates = normalizeCandidates(input.candidates)
+    if (candidates.length === 0) throw new Error('candidates required')
+    let revision = 1
+    let parentArtifactId: string | undefined
+    if (typeof input.parentArtifactId === 'string' && input.parentArtifactId) {
+      const parent = this.store.artifacts.find((item) => item.artifactId === input.parentArtifactId)
+      if (!parent) throw Object.assign(new Error('not found'), { status: 404 })
+      parentArtifactId = parent.artifactId
+      revision = parent.revision + 1
+    }
+    if (typeof input.videoFileId === 'string' && input.videoFileId) {
+      if (!this.tokenFor(input.videoFileId)) throw Object.assign(new Error('not found'), { status: 404 })
+    }
+    const artifact: MediaArtifact = {
+      artifactId: randomUUID(),
+      revision,
+      kind: input.kind,
+      candidates,
+      status: 'draft',
+      createdAt: Date.now(),
+    }
+    if (parentArtifactId) artifact.parentArtifactId = parentArtifactId
+    if (typeof input.videoFileId === 'string' && input.videoFileId) artifact.videoFileId = input.videoFileId
+    if (typeof input.platform === 'string' && input.platform) artifact.platform = input.platform
+    if (typeof input.feedbackSessionId === 'string' && input.feedbackSessionId) {
+      artifact.feedbackSessionId = input.feedbackSessionId
+    }
+    this.store.artifacts.push(artifact)
+    const event: RunEvent = {
+      type: 'artifact_created',
+      runId: 'media-library',
+      artifact,
+      generation: this.store.generation,
+      sequence: this.nextSequence(),
+    }
+    this.emit(event)
+    await this.persist()
+    return artifact
+  }
+
+  async setArtifactStatus(artifactId: string, status: unknown): Promise<MediaArtifact> {
+    if (!isArtifactStatus(status) || status === 'draft') throw new Error('status required')
+    const artifact = this.store.artifacts.find((item) => item.artifactId === artifactId)
+    if (!artifact) throw Object.assign(new Error('not found'), { status: 404 })
+    artifact.status = status
+    await this.persist()
+    return artifact
+  }
+
   logRange(req: IncomingMessage, pathname: string): void {
     const range = req.headers.range
     this.ctx.logger?.info?.(
@@ -682,8 +774,9 @@ export class MockMediaRunService extends Service {
         artifactId: randomUUID(),
         revision: 1,
         kind: 'title',
-        candidates: ['Recovered Title'],
+        candidates: [{ content: 'Recovered Title' }],
         status: 'draft',
+        createdAt: Date.now(),
       }
       run.artifacts.push(artifact)
       const events: RunEvent[] = [
@@ -810,8 +903,13 @@ export class MockMediaRunService extends Service {
         artifactId: randomUUID(),
         revision: 1,
         kind: 'title',
-        candidates: ['Mock Title A', 'Mock Title B', 'Mock Title C'],
+        candidates: [
+          { content: 'Mock Title A' },
+          { content: 'Mock Title B' },
+          { content: 'Mock Title C' },
+        ],
         status: 'draft',
+        createdAt: Date.now(),
       }
       run.artifacts.push(artifact)
       pushEvent({
@@ -880,6 +978,10 @@ const SUPPORTED_OPERATIONS = new Set([
   'settings-remove-directory',
   'settings-set-suffixes',
   'subtitle-text',
+  'list-artifacts',
+  'artifact-save',
+  'artifact-set-status',
+  'instructions',
 ])
 
 export function apply(ctx: Context): Promise<void> {
@@ -991,6 +1093,45 @@ export function apply(ctx: Context): Promise<void> {
             }
             try {
               sendJson(res, 200, await svc.subtitleText(fileId))
+            } catch (e) {
+              if ((e as { status?: number }).status === 404) sendJson(res, 404, { error: 'not found' })
+              else throw e
+            }
+            return
+          }
+          if (operation === 'list-artifacts') {
+            sendJson(res, 200, { artifacts: svc.listArtifacts() })
+            return
+          }
+          if (operation === 'instructions') {
+            sendJson(res, 200, { text: svc.personaText() })
+            return
+          }
+          if (operation === 'artifact-save') {
+            try {
+              const artifact = await svc.saveArtifact(body as {
+                kind: unknown
+                candidates: unknown
+                videoFileId?: unknown
+                parentArtifactId?: unknown
+                platform?: unknown
+              })
+              sendJson(res, 200, { artifact })
+            } catch (e) {
+              if ((e as { status?: number }).status === 404) sendJson(res, 404, { error: 'not found' })
+              else throw e
+            }
+            return
+          }
+          if (operation === 'artifact-set-status') {
+            const artifactId = (body as { artifactId?: unknown }).artifactId
+            const statusValue = (body as { status?: unknown }).status
+            if (typeof artifactId !== 'string') {
+              sendJson(res, 404, { error: 'not found' })
+              return
+            }
+            try {
+              sendJson(res, 200, { artifact: await svc.setArtifactStatus(artifactId, statusValue) })
             } catch (e) {
               if ((e as { status?: number }).status === 404) sendJson(res, 404, { error: 'not found' })
               else throw e
@@ -1111,6 +1252,88 @@ export function apply(ctx: Context): Promise<void> {
             hasThumbnail: video.hasThumbnail,
           })),
         }),
+      }),
+    )
+
+    ctx.tools.register(
+      defineTool({
+        name: 'video_subtitle_read',
+        description: 'Read same-stem subtitle text for a video fileId. Returns basename labels only, never filesystem paths. Empty files array when no subtitle exists.',
+        parameters: {
+          videoFileId: { type: 'string', required: true },
+        },
+        output: {
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              text: { type: 'string' },
+              files: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  additionalProperties: false,
+                  properties: {
+                    label: { type: 'string' },
+                    fileName: { type: 'string' },
+                  },
+                },
+              },
+            },
+          },
+          render: (_args: unknown, value: unknown) => [{ type: 'text' as const, text: JSON.stringify(value) }],
+        },
+        execute: async (args: { videoFileId?: string }) => {
+          if (typeof args?.videoFileId !== 'string' || !args.videoFileId) throw new Error('not found')
+          try {
+            return await svc.readSubtitles(args.videoFileId)
+          } catch (e) {
+            if ((e as { status?: number }).status === 404) throw new Error('not found')
+            throw e
+          }
+        },
+      }),
+    )
+
+    ctx.tools.register(
+      defineTool({
+        name: 'media_artifact_save',
+        description: 'Persist generated media candidates as a draft MediaArtifact. Deterministic write only; does not call a model.',
+        parameters: {
+          kind: { type: 'string', enum: ['tags', 'title', 'cover', 'script', 'subtitle', 'bundle'], required: true },
+          candidates: { type: 'array', required: true },
+          videoFileId: { type: 'string' },
+          parentArtifactId: { type: 'string' },
+          platform: { type: 'string' },
+        },
+        output: {
+          schema: {
+            type: 'object',
+            additionalProperties: true,
+            properties: {
+              artifactId: { type: 'string' },
+              revision: { type: 'number' },
+              kind: { type: 'string' },
+              status: { type: 'string' },
+            },
+          },
+          render: (_args: unknown, value: unknown) => [{ type: 'text' as const, text: JSON.stringify(value) }],
+        },
+        execute: async (args) => {
+          try {
+            const artifact = await svc.saveArtifact({
+              kind: args.kind,
+              candidates: args.candidates,
+              videoFileId: args.videoFileId,
+              parentArtifactId: args.parentArtifactId,
+              platform: args.platform,
+            })
+            return JSON.parse(JSON.stringify(artifact))
+          } catch (e) {
+            if ((e as { status?: number }).status === 404) throw new Error('not found')
+            throw e
+          }
+        },
       }),
     )
 

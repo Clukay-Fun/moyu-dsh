@@ -2,7 +2,7 @@
 描述: dsh-profile 守卫单元与集成测试 harness。
 主要功能:
     - 验证 assertMoyuToolSurface 多 preset 工具面检验
-    - 验证 media preset 必备工具集（image_convert, screenshot_capture, video_scan）
+    - 验证 media preset 必备工具集（image_convert, screenshot_capture, video_scan, video_subtitle_read, media_artifact_save）
     - 验证 moyu preset 必备工具集（image_convert, pdf_process, screenshot_capture）
     - 验证未知 preset fail-closed 拦截
     - 验证 shell 类工具禁用拦截
@@ -95,14 +95,14 @@ console.log('\nMoyu Preset Guard:')
 // 3. Media Preset 守卫校验
 console.log('\nMedia Preset Guard:')
 {
-  const validMediaTools = ['image_convert', 'screenshot_capture', 'video_scan', 'ask_user_question', 'mock_media_task']
+  const validMediaTools = ['image_convert', 'screenshot_capture', 'video_scan', 'video_subtitle_read', 'media_artifact_save', 'ask_user_question', 'mock_media_task']
   let ok = false
   try {
     ok = assertMoyuToolSurface(createMockCtx(validMediaTools), createMockSession('media'))
   } catch (e) {
     ok = false
   }
-  assert('media preset with required M2 tools succeeds (without pdf_process)', ok === true)
+  assert('media preset with required M3 tools succeeds (without pdf_process)', ok === true)
 }
 
 {
@@ -128,7 +128,29 @@ console.log('\nMedia Preset Guard:')
 }
 
 {
-  const mediaWithShell = ['image_convert', 'screenshot_capture', 'video_scan', 'terminal']
+  const missingRead = ['image_convert', 'screenshot_capture', 'video_scan']
+  let rejected = false
+  try {
+    assertMoyuToolSurface(createMockCtx(missingRead), createMockSession('media'))
+  } catch (e) {
+    rejected = e.message.includes('必备工具缺失') && e.message.includes('video_subtitle_read')
+  }
+  assert('media preset missing video_subtitle_read is rejected', rejected === true)
+}
+
+{
+  const missingSave = ['image_convert', 'screenshot_capture', 'video_scan', 'video_subtitle_read']
+  let rejected = false
+  try {
+    assertMoyuToolSurface(createMockCtx(missingSave), createMockSession('media'))
+  } catch (e) {
+    rejected = e.message.includes('必备工具缺失') && e.message.includes('media_artifact_save')
+  }
+  assert('media preset missing media_artifact_save is rejected', rejected === true)
+}
+
+{
+  const mediaWithShell = ['image_convert', 'screenshot_capture', 'video_scan', 'video_subtitle_read', 'media_artifact_save', 'terminal']
   let rejected = false
   try {
     assertMoyuToolSurface(createMockCtx(mediaWithShell), createMockSession('media'))

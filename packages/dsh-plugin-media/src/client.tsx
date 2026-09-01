@@ -328,7 +328,7 @@ function MediaSpikePanel({ sessions }: { sessions: ClientContext['sessions'] }):
           key: a.artifactId,
           style: { fontSize: 12, color: '#555', marginLeft: 8 },
         },
-          `[${a.kind}] ${a.candidates?.join(', ') ?? '(no candidates)'} — ${a.status}`,
+          `[${a.kind}] ${(a.candidates ?? []).map((c) => c.content).join(', ') || '(no candidates)'} — ${a.status}`,
         ),
       ),
     ),
@@ -636,10 +636,82 @@ function VideoLibraryView(): React.ReactElement {
   )
 }
 
+function ArtifactPanel(): React.ReactElement | null {
+  const capabilities = useCapabilities()
+  const show = hasCapability(capabilities ?? undefined, 'tool', 'media_artifact_save')
+  const [artifacts, setArtifacts] = useState<MediaArtifact[]>([])
+  const [error, setError] = useState<string | null>(null)
+
+  const refresh = useCallback(async () => {
+    const result = await apiRequest({ operation: 'list-artifacts' }) as { artifacts: MediaArtifact[] }
+    setArtifacts(result.artifacts)
+  }, [])
+
+  useEffect(() => {
+    if (!show) return
+    refresh().catch((e) => setError(String((e as Error).message ?? e)))
+    const es = new EventSource('/moyu/media/events')
+    es.addEventListener('notification', (e: MessageEvent) => {
+      const event = JSON.parse(e.data) as RunEvent
+      if (event.type === 'artifact_created') {
+        setArtifacts((prev) => {
+          if (prev.some((item) => item.artifactId === event.artifact.artifactId)) return prev
+          return [...prev, event.artifact]
+        })
+      }
+    })
+    return () => { es.close() }
+  }, [show, refresh])
+
+  if (!show) {
+    return React.createElement('div', { 'data-moyu-artifact-panel': 'hidden' })
+  }
+
+  const setStatus = async (artifactId: string, status: 'kept' | 'discarded') => {
+    setError(null)
+    try {
+      const result = await apiRequest({ operation: 'artifact-set-status', artifactId, status }) as { artifact: MediaArtifact }
+      setArtifacts((prev) => prev.map((item) => item.artifactId === artifactId ? result.artifact : item))
+    } catch (e) {
+      setError(String((e as Error).message ?? e))
+    }
+  }
+
+  return React.createElement('div', {
+    'data-moyu-artifact-panel': 'visible',
+    style: { marginTop: 16, paddingTop: 16, borderTop: '1px solid #eee' },
+  },
+    React.createElement('h4', null, '产物'),
+    error && React.createElement('div', { style: { color: 'red' } }, error),
+    artifacts.length === 0 && React.createElement('div', { style: { fontSize: 12, color: '#888' } }, '还没有产物。模型调用 media_artifact_save 后会出现在这里。'),
+    ...artifacts.map((artifact) =>
+      React.createElement('div', {
+        key: artifact.artifactId,
+        'data-artifact-id': artifact.artifactId,
+        'data-artifact-status': artifact.status,
+        style: { border: '1px solid #eee', borderRadius: 6, padding: 8, marginBottom: 8, fontSize: 12 },
+      },
+        React.createElement('div', null,
+          React.createElement('strong', null, artifact.kind),
+          ` · r${artifact.revision} · ${artifact.status}`,
+        ),
+        React.createElement('div', { style: { color: '#555', margin: '4px 0' } },
+          (artifact.candidates ?? []).map((c) => c.content).join(' / ') || '(no candidates)',
+        ),
+        artifact.status === 'draft' && React.createElement('div', { style: { display: 'flex', gap: 8 } },
+          React.createElement('button', { onClick: () => void setStatus(artifact.artifactId, 'kept') }, '保留'),
+          React.createElement('button', { onClick: () => void setStatus(artifact.artifactId, 'discarded') }, '淘汰'),
+        ),
+      ),
+    ),
+  )
+}
+
 function MediaSettingsRoot({ sessions }: { sessions: ClientContext['sessions'] }): React.ReactElement {
   return React.createElement('div', null,
     React.createElement(MediaSpikePanel, { sessions }),
     React.createElement(MediaSettingsPanel),
+    React.createElement(ArtifactPanel),
   )
 }
 

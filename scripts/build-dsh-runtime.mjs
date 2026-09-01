@@ -45,7 +45,8 @@ const RUNTIME_DEPENDENCIES = {
   'qpdf-run': '0.2.1',
   sharp: '0.35.3',
   '@deepseek-ai/dsh-host-directory-picker-native': '0.1.1-rc.2',
-  '@deepseek-ai/dsh-client-ui-directory-picker-native': '0.1.1-rc.2'
+  '@deepseek-ai/dsh-client-ui-directory-picker-native': '0.1.1-rc.2',
+  '@deepseek-ai/dsh-persona': DSH_VERSION
 }
 
 // 这些依赖由 Moyu 插件直接 import。仅放在 dsh-runtime/node_modules 不够：
@@ -245,6 +246,14 @@ async function buildProfileTemplate() {
   const mediaPresetDir = join(home, '.agent-presets', 'media')
   await mkdir(mediaPresetDir, { recursive: true })
   await writeFile(join(mediaPresetDir, 'preset.yml'), 'name: 自媒体\ndescription: 自媒体内容创作工作台\n')
+  const personaSrc = await readFile(join(root, 'packages/dsh-plugin-media/src/media-prompt.ts'), 'utf8')
+  const personaMark = 'export const MEDIA_PERSONA_TEXT = `'
+  const personaStart = personaSrc.indexOf(personaMark)
+  if (personaStart < 0) throw new Error('media persona 正文缺失')
+  const personaFrom = personaStart + personaMark.length
+  const personaEnd = personaSrc.indexOf('`', personaFrom)
+  if (personaEnd < 0) throw new Error('media persona 正文未闭合')
+  const personaBlock = personaSrc.slice(personaFrom, personaEnd).split('\n').map((line) => `      ${line}`).join('\n')
   await writeFile(
     join(mediaPresetDir, 'agent.cordis.yml'),
     `# 自媒体预设：自媒体内容创作工作台
@@ -254,6 +263,11 @@ async function buildProfileTemplate() {
     maxBytes: 65536
 - id: tool-ask-user
   name: '@deepseek-ai/dsh-tool-ask-user'
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    text: |
+${personaBlock}
 `
   )
 

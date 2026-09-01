@@ -673,6 +673,8 @@ await test('capabilities route returns media session capabilities for media pres
   assert.ok(json.capabilities)
   assert.ok(json.capabilities.tools.includes('mock_media_task'))
   assert.ok(json.capabilities.tools.includes('video_scan'))
+  assert.ok(json.capabilities.tools.includes('video_subtitle_read'))
+  assert.ok(json.capabilities.tools.includes('media_artifact_save'))
   assert.ok(json.capabilities.tools.includes('image_convert'))
   assert.ok(json.capabilities.tools.includes('screenshot_capture'))
   assert.ok(!json.capabilities.tools.includes('pdf_process'))
@@ -698,6 +700,8 @@ await test('capabilities route returns standard capabilities for moyu preset', a
   assert.ok(json.capabilities.tools.includes('screenshot_capture'))
   assert.ok(!json.capabilities.tools.includes('mock_media_task'))
   assert.ok(!json.capabilities.tools.includes('video_scan'))
+  assert.ok(!json.capabilities.tools.includes('video_subtitle_read'))
+  assert.ok(!json.capabilities.tools.includes('media_artifact_save'))
   assert.deepEqual(json.capabilities.approvalRequired, [])
 })
 
@@ -787,6 +791,9 @@ await test('hasCapability accurately detects available tools and permissions', (
   assert.equal(hasCapability(moyuCaps, 'approval', 'confirm_publish'), false)
   assert.equal(hasCapability(mediaCaps, 'tool', 'video_scan'), true)
   assert.equal(hasCapability(moyuCaps, 'tool', 'video_scan'), false)
+  assert.equal(hasCapability(mediaCaps, 'tool', 'video_subtitle_read'), true)
+  assert.equal(hasCapability(mediaCaps, 'tool', 'media_artifact_save'), true)
+  assert.equal(hasCapability(moyuCaps, 'tool', 'media_artifact_save'), false)
 })
 
 console.log('\nM2 video_scan and Range:')
@@ -950,6 +957,144 @@ await test('thumbnail cache hits then invalidates on mtime change', async () => 
   const freshId = listed2.json.videos[0].fileId
   const missed = await fileCall(fileRoute, { method: 'GET', url: `/moyu/media/${freshId}/thumbnail`, headers: {} })
   assert.equal(missed.status, 404)
+})
+
+console.log('\nM3 artifacts and subtitles:')
+
+await test('video_subtitle_read returns text and basename labels without paths', async () => {
+  await seedLibrary()
+  const { route, tools } = await createService()
+  const listed = await routeCall(route, { operation: 'list' })
+  const fileId = listed.json.videos[0].fileId
+  const tool = tools.find(t => t.name === 'video_subtitle_read')
+  assert.ok(tool, 'video_subtitle_read tool registered')
+  const result = await tool.execute({ videoFileId: fileId })
+  assert.ok(result.text.includes('hello'))
+  assert.ok(result.files.some(f => f.label === 'clip-01' && f.fileName === 'clip-01.srt'))
+  assert.equal(JSON.stringify(result).includes('/tmp/'), false)
+  assert.equal(JSON.stringify(result).includes('/Users/'), false)
+})
+
+await test('video_subtitle_read returns empty when no subtitle exists', async () => {
+  await seedLibrary()
+  await writeFile('/tmp/moyu-media-verify/library/lonely.mp4', Buffer.alloc(512, 1))
+  const { route, tools } = await createService()
+  const listed = await routeCall(route, { operation: 'scan' })
+  const lonely = listed.json.videos.find(v => v.fileName === 'lonely.mp4')
+  assert.ok(lonely)
+  const tool = tools.find(t => t.name === 'video_subtitle_read')
+  const result = await tool.execute({ videoFileId: lonely.fileId })
+  assert.equal(result.text, '')
+  assert.deepEqual(result.files, [])
+})
+
+await test('video_subtitle_read invalid token is non-enumerable', async () => {
+  await seedLibrary()
+  const { tools } = await createService()
+  const tool = tools.find(t => t.name === 'video_subtitle_read')
+  await assert.rejects(() => tool.execute({ videoFileId: '00000000-0000-4000-8000-000000000000' }), /not found/)
+})
+
+await test('media_artifact_save writes draft and emits artifact_created', async () => {
+  await seedLibrary()
+  const { route, tools, sseRoute } = await createService()
+  const listed = await routeCall(route, { operation: 'list' })
+  const fileId = listed.json.videos[0].fileId
+  const sseChunks = []
+  await sseRoute.handler({ method: 'GET', on() {} }, {
+    writeHead() {},
+    write(chunk) { sseChunks.push(String(chunk)); return true },
+    end() {},
+    on() {},
+  })
+  const tool = tools.find(t => t.name === 'media_artifact_save')
+  assert.ok(tool, 'media_artifact_save tool registered')
+  const saved = await tool.execute({
+    kind: 'title',
+    candidates: [{ content: '标题甲', weight: 0.8, style: 'hook', reason: '短' }],
+    videoFileId: fileId,
+    platform: 'bilibili',
+  })
+  assert.equal(saved.status, 'draft')
+  assert.equal(saved.kind, 'title')
+  assert.equal(saved.revision, 1)
+  assert.equal(saved.candidates[0].content, '标题甲')
+  assert.equal(saved.videoFileId, fileId)
+  const listedArt = await routeCall(route, { operation: 'list-artifacts' })
+  assert.equal(listedArt.json.artifacts.length, 1)
+  assert.equal(listedArt.json.artifacts[0].artifactId, saved.artifactId)
+  assert.ok(sseChunks.join('').includes('artifact_created'), 'SSE must push artifact_created')
+})
+
+await test('legacy string[] candidates normalize on load', async () => {
+  await seedLibrary()
+  const storeFile = '/tmp/moyu-media-verify/media/store.json'
+  const raw = JSON.parse(await readFile(storeFile, 'utf8'))
+  raw.artifacts = [{
+    artifactId: 'legacy-1',
+    revision: 1,
+    kind: 'tags',
+    candidates: ['old-a', 'old-b'],
+    status: 'draft',
+    createdAt: 1,
+  }]
+  await writeFile(storeFile, JSON.stringify(raw))
+  const { route } = await createService()
+  const listed = await routeCall(route, { operation: 'list-artifacts' })
+  const artifact = listed.json.artifacts.find(a => a.artifactId === 'legacy-1')
+  assert.ok(artifact)
+  assert.deepEqual(artifact.candidates, [{ content: 'old-a' }, { content: 'old-b' }])
+})
+
+await test('parentArtifactId increments revision', async () => {
+  await seedLibrary()
+  const { route, tools } = await createService()
+  const tool = tools.find(t => t.name === 'media_artifact_save')
+  const parent = await tool.execute({
+    kind: 'title',
+    candidates: [{ content: 'v1' }],
+  })
+  const child = await tool.execute({
+    kind: 'title',
+    candidates: [{ content: 'v2' }],
+    parentArtifactId: parent.artifactId,
+  })
+  assert.equal(child.parentArtifactId, parent.artifactId)
+  assert.equal(child.revision, parent.revision + 1)
+})
+
+await test('artifact-set-status moves draft to kept and discarded', async () => {
+  await seedLibrary()
+  const { route, tools } = await createService()
+  const tool = tools.find(t => t.name === 'media_artifact_save')
+  const saved = await tool.execute({ kind: 'tags', candidates: [{ content: 'tag-a' }] })
+  const kept = await routeCall(route, { operation: 'artifact-set-status', artifactId: saved.artifactId, status: 'kept' })
+  assert.equal(kept.status, 200)
+  assert.equal(kept.json.artifact.status, 'kept')
+  const other = await tool.execute({ kind: 'tags', candidates: [{ content: 'tag-b' }] })
+  const discarded = await routeCall(route, { operation: 'artifact-set-status', artifactId: other.artifactId, status: 'discarded' })
+  assert.equal(discarded.json.artifact.status, 'discarded')
+})
+
+await test('instructions route returns media persona text', async () => {
+  const { route } = await createService()
+  const { status, json } = await routeCall(route, { operation: 'instructions' })
+  assert.equal(status, 200)
+  assert.ok(json.text.includes('video_subtitle_read'))
+  assert.ok(json.text.includes('media_artifact_save'))
+  assert.ok(json.text.includes('不要再让 Tool 调模型'))
+})
+
+await test('M3 tools do not call a model', async () => {
+  const { tools } = await createService()
+  const readTool = tools.find(t => t.name === 'video_subtitle_read')
+  const saveTool = tools.find(t => t.name === 'media_artifact_save')
+  const src = await readFile(new URL('../src/index.ts', import.meta.url), 'utf8')
+  const promptSrc = await readFile(new URL('../src/media-prompt.ts', import.meta.url), 'utf8')
+  const combined = src + promptSrc
+  assert.equal(/openai|chat\.completions|llm\.complete|generateText|anthropic/i.test(combined), false)
+  assert.ok(typeof readTool.execute === 'function')
+  assert.ok(typeof saveTool.execute === 'function')
 })
 
 // ─── Summary ─────────────────────────────────────────────────────────

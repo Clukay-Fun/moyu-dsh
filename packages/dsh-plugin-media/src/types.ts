@@ -1,11 +1,24 @@
+export type ArtifactKind = 'cover' | 'title' | 'tags' | 'script' | 'subtitle' | 'bundle'
+export type ArtifactStatus = 'draft' | 'kept' | 'discarded'
+
+export interface MediaArtifactCandidate {
+  content: string
+  weight?: number
+  style?: string
+  reason?: string
+}
+
 export interface MediaArtifact {
   artifactId: string
   revision: number
   parentArtifactId?: string
-  kind: 'cover' | 'title' | 'tags' | 'script' | 'subtitle' | 'bundle'
-  candidates?: string[]
-  status: 'draft' | 'kept' | 'discarded'
+  kind: ArtifactKind
+  candidates?: MediaArtifactCandidate[]
+  status: ArtifactStatus
   feedbackSessionId?: string
+  videoFileId?: string
+  platform?: string
+  createdAt: number
 }
 
 export type RunStatus = 'running' | 'awaiting_user' | 'success' | 'failed' | 'cancelled' | 'interrupted'
@@ -88,6 +101,7 @@ export interface MediaStore {
   runs: MediaRun[]
   settings: MediaSettings
   sources: PersistedSource[]
+  artifacts: MediaArtifact[]
 }
 
 export interface VideoListItem {
