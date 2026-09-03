@@ -6,13 +6,14 @@ import { app } from 'electron'
 import { fork as forkChild } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
-import { cp, mkdir, rm } from 'node:fs/promises'
+import { cp, mkdir, rm, mkdtemp, writeFile, symlink } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { dispatchBridgeCall } from './bridge.js'
 import { createHostServiceClient } from './service-bridge.js'
 import { applyModsToProfile, seedPreinstalledMods, resolveActiveModManifests, buildEffectiveToolPolicy } from './mods.js'
-import { resolveActiveKernel, markKernelHealthy } from './kernel.js'
+import { resolveActiveKernel, markKernelHealthy, kernelRoot, readManifest, recordKernelProbe, validateInstalledKernel } from './kernel.js'
 import { writeFile as writeFileAsync, readFile as readFileAsync } from 'node:fs/promises'
 
 const READY_TIMEOUT_MS = 30_000
@@ -25,7 +26,7 @@ function builtinRuntimeRoot() {
     : join(app.getAppPath(), 'build', 'dsh-runtime')
 }
 
-function builtinVersion() {
+export function builtinVersion() {
   try {
     return JSON.parse(readFileSync(join(builtinRuntimeRoot(), RUNTIME_COMPLETE_MARKER), 'utf8')).dshVersion || null
   } catch { return null }
@@ -45,6 +46,11 @@ export async function ensureActiveKernel() {
   return activeKernel
 }
 
+/** current.json 切换后让下一代 Host 重新解析；只由受控 Kernel Manager 调用。 */
+export function resetActiveKernel() {
+  activeKernel = null
+}
+
 // 解析后同步读取本代内核根；未解析时保守回内置。
 function runtimeRoot() {
   return activeKernel?.root || builtinRuntimeRoot()
@@ -58,10 +64,9 @@ function assertRuntimeComplete(root) {
 }
 
 function workerPath() {
-
-  return app.isPackaged
-    ? join(process.resourcesPath, 'workers', 'dsh-host-worker.mjs')
-    : join(app.getAppPath(), 'resources', 'dsh-host-worker.mjs')
+  if (app.isPackaged) return join(process.resourcesPath, 'workers', 'dsh-host-worker.mjs')
+  const appWorker = join(app.getAppPath(), 'resources', 'dsh-host-worker.mjs')
+  return existsSync(appWorker) ? appWorker : join(process.cwd(), 'resources', 'dsh-host-worker.mjs')
 }
 
 /**
@@ -216,11 +221,15 @@ export async function ensureProfile(profileName) {
  *
  * token 只经进程 IPC 下发，不进环境变量、命令行、配置文件和日志。
  */
-export async function startHostGeneration(generation, { onStdout, profile } = {}) {
+export async function startHostGeneration(generation, {
+  onStdout, profile, dshBin: dshBinOverride, home: homeOverride,
+  policyPath: policyPathOverride, confirmHealthy = true,
+} = {}) {
   const token = randomBytes(32).toString('base64url')
   // 入口解析必须发生在 fork 前；否则解析失败时 child 已创建、外层又拿不到 host，
   // 会留下一个永远等 host-auth 的 utility process。
-  const dshBin = resolveDshEntry()
+  const dshBin = dshBinOverride || resolveDshEntry()
+  const hostHome = homeOverride || dshHome()
   // 使用 Electron 自带的 Node 运行时，不依赖用户机器上的外挂 Node。utilityProcess
   // 在打包产物中创建的 Chromium 服务进程无法被应用网络栈访问，B3.5 已实测否决。
   const child = forkChild(workerPath(), [], {
@@ -230,7 +239,7 @@ export async function startHostGeneration(generation, { onStdout, profile } = {}
     // 模型路径的截图确认由主进程的原生对话框（desktop.requestScreenCapture，
     // 带「本次会话内允许」复选框）单独负责。DSH 自带的审批层（permission /
     // ui-permission）由用户在设置里自行选择策略（含 full access），不在主进程钉死。
-    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', DSH_HOME: dshHome(), MOYU_DSH_HOME: dshHome(), MOYU_TOOL_POLICY_PATH: toolPolicyPath() },
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', DSH_HOME: hostHome, MOYU_DSH_HOME: hostHome, MOYU_TOOL_POLICY_PATH: policyPathOverride || toolPolicyPath() },
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     serialization: 'advanced'
   })
@@ -268,7 +277,7 @@ export async function startHostGeneration(generation, { onStdout, profile } = {}
         if (message?.type !== 'host-ready') return
         // C4-a：本代 Host 抵达 host-ready → 若跑的是用户内核，确认其健康，
         // 清除 lastAttempt，避免下代把它误判为"上一代崩溃"而降级。
-        if (activeKernel?.source === 'user') {
+        if (confirmHealthy && activeKernel?.source === 'user') {
           markKernelHealthy({ userDataDir: app.getPath('userData'), version: activeKernel.version, log: (m) => console.error(m) })
             .catch((e) => console.error('[kernel] 健康确认失败：', e?.message ?? e))
         }
@@ -288,6 +297,51 @@ export async function startHostGeneration(generation, { onStdout, profile } = {}
   }
 
   return host
+}
+
+/**
+ * C4-c：在隔离 DSH_HOME 中真实启动候选内核，host-ready 前仍执行现有 Tool 审计。
+ * 不使用产品 DSH_HOME、不启动桌面桥、不读取或修改 current.json。
+ */
+export async function probeInstalledKernel({ userDataDir = app.getPath('userData'), version, onStdout } = {}) {
+  const manifest = await readManifest(userDataDir, version)
+  const root = kernelRoot(userDataDir, version)
+  const check = validateInstalledKernel({
+    root, manifest, platform: process.platform, arch: process.arch, shellVersion: app.getVersion(),
+  })
+  if (!check.ok) {
+    const probe = await recordKernelProbe({ userDataDir, version, result: { ok: false, reason: check.reason } })
+    return { ok: false, probe }
+  }
+
+  const probeRoot = await mkdtemp(join(tmpdir(), 'moyu-kernel-probe-'))
+  let host
+  try {
+    const home = join(probeRoot, 'dsh')
+    const template = join(root, 'home-template')
+    await mkdir(join(home, 'profiles'), { recursive: true })
+    // 候选闭包只读；探针的会话/数据库仍落隔离 home，profile 与 preset 只读链接到候选模板。
+    await symlink(join(template, 'profiles', 'moyu'), join(home, 'profiles', 'moyu'), 'dir')
+    if (existsSync(join(template, '.agent-presets'))) {
+      await symlink(join(template, '.agent-presets'), join(home, '.agent-presets'), 'dir')
+    }
+    const policyPath = join(probeRoot, 'effective-tool-policy.json')
+    await writeFile(policyPath, `${JSON.stringify(buildEffectiveToolPolicy([]), null, 2)}\n`, 'utf8')
+    host = await startHostGeneration(Date.now(), {
+      onStdout, profile: 'moyu',
+      dshBin: join(root, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'),
+      home, policyPath, confirmHealthy: false,
+    })
+    const probe = await recordKernelProbe({ userDataDir, version, result: { ok: true } })
+    return { ok: true, probe }
+  } catch (error) {
+    const reason = String(error?.message || error).slice(0, 240)
+    const probe = await recordKernelProbe({ userDataDir, version, result: { ok: false, reason } })
+    return { ok: false, probe }
+  } finally {
+    await stopHost(host).catch(() => {})
+    await rm(probeRoot, { recursive: true, force: true }).catch(() => {})
+  }
 }
 
 /**

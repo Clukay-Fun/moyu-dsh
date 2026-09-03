@@ -11,7 +11,7 @@
 契约: scope/plans/active/moyu-dsh-core-and-mod-platform-plan.md §2；D6 内核目录布局 / current.json。
 */
 import { existsSync } from 'node:fs'
-import { readFile, writeFile, mkdir, rename } from 'node:fs/promises'
+import { readFile, writeFile, mkdir, rename, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 
@@ -23,15 +23,15 @@ const KERNEL_MANIFEST = 'manifest.json'
 export function kernelsDir(userDataDir) {
   return join(userDataDir, 'kernels')
 }
-function currentFile(userDataDir) {
+export function currentFile(userDataDir) {
   return join(kernelsDir(userDataDir), 'current.json')
 }
-function kernelRoot(userDataDir, version) {
+export function kernelRoot(userDataDir, version) {
   return join(kernelsDir(userDataDir), version)
 }
 
 function emptyCurrent() {
-  return { version: CURRENT_VERSION, active: null, previous: null, lastAttempt: null, healthy: [], failed: {} }
+  return { version: CURRENT_VERSION, active: null, previous: null, activeProbe: null, lastAttempt: null, healthy: [], failed: {} }
 }
 
 async function readCurrent(userDataDir) {
@@ -42,6 +42,7 @@ async function readCurrent(userDataDir) {
         version: CURRENT_VERSION,
         active: typeof parsed.active === 'string' ? parsed.active : null,
         previous: typeof parsed.previous === 'string' ? parsed.previous : null,
+        activeProbe: parsed.activeProbe && typeof parsed.activeProbe === 'object' ? parsed.activeProbe : null,
         lastAttempt: parsed.lastAttempt && typeof parsed.lastAttempt.version === 'string' ? parsed.lastAttempt : null,
         healthy: Array.isArray(parsed.healthy) ? parsed.healthy.filter((v) => typeof v === 'string') : [],
         failed: parsed.failed && typeof parsed.failed === 'object' ? parsed.failed : {},
@@ -51,7 +52,7 @@ async function readCurrent(userDataDir) {
   return emptyCurrent()
 }
 
-async function writeCurrent(userDataDir, state) {
+export async function writeCurrent(userDataDir, state) {
   const dir = kernelsDir(userDataDir)
   await mkdir(dir, { recursive: true })
   const file = currentFile(userDataDir)
@@ -61,7 +62,7 @@ async function writeCurrent(userDataDir, state) {
 }
 
 /** 读某内核目录的 manifest（C4-b 安装时写入）。缺失/损坏 → null。 */
-async function readManifest(userDataDir, version) {
+export async function readManifest(userDataDir, version) {
   try {
     const parsed = JSON.parse(await readFile(join(kernelRoot(userDataDir, version), KERNEL_MANIFEST), 'utf8'))
     if (parsed && typeof parsed === 'object') return parsed
@@ -73,7 +74,7 @@ async function readManifest(userDataDir, version) {
  * 校验一份已安装内核是否可启动。返回 { ok, reason }。
  * 只做启动期校验：完整标记 + 平台/架构 + 壳兼容；不重算 SHA（安装时已校，见 C4-b）。
  */
-function validateInstalledKernel({ root, manifest, platform, arch, shellVersion }) {
+export function validateInstalledKernel({ root, manifest, platform, arch, shellVersion }) {
   if (!existsSync(root)) return { ok: false, reason: 'missing-dir' }
   if (!existsSync(join(root, RUNTIME_COMPLETE_MARKER))) return { ok: false, reason: 'incomplete' }
   if (!manifest) return { ok: false, reason: 'missing-manifest' }
@@ -145,6 +146,12 @@ export async function resolveActiveKernel({ userDataDir, builtinRoot, builtinVer
     log(`[kernel] 上一代内核 ${bad} 未确认健康，标记失败并降级`)
   }
 
+  // 用户明确恢复内置时不得继续尝试 previous；previous 只保留给 UI 的手动回退。
+  if (state.active === BUILTIN) {
+    if (mutated) await writeCurrent(userDataDir, state)
+    return builtinDecision(builtinRoot, builtinVersion, 'selected-builtin')
+  }
+
   // 依次尝试 active → previous，跳过已失败者；都不行 → 内置。
   for (const candidate of [state.active, state.previous]) {
     if (!candidate || candidate === BUILTIN) continue
@@ -186,11 +193,96 @@ export async function markKernelHealthy({ userDataDir, version, log = () => {} }
 /** 供 UI/诊断读取当前内核状态。纯读，不改盘。 */
 export async function readKernelState({ userDataDir, builtinVersion }) {
   const state = await readCurrent(userDataDir)
+  const installed = []
+  try {
+    for (const entry of await readdir(kernelsDir(userDataDir), { withFileTypes: true })) {
+      if (!entry.isDirectory() || entry.name.startsWith('.')) continue
+      const manifest = await readManifest(userDataDir, entry.name)
+      if (!manifest) continue
+      installed.push({
+        version: entry.name,
+        dshVersion: manifest.dshVersion || entry.name,
+        channel: manifest.channel || null,
+        notes: manifest.notes || null,
+        installedAt: manifest.installedAt || null,
+        probe: manifest.probe || null,
+      })
+    }
+  } catch { /* kernels/ 不存在 → 空清单 */ }
+  installed.sort((a, b) => b.version.localeCompare(a.version, undefined, { numeric: true }))
   return {
     builtinVersion,
     active: state.active,
     previous: state.previous,
+    activeProbe: state.activeProbe,
     healthy: state.healthy,
     failed: state.failed,
+    installed,
   }
+}
+
+/** 把候选内核的兼容探针结果原子写入其 manifest；不读取或修改 current.json。 */
+export async function recordKernelProbe({ userDataDir, version, result, now = Date.now() }) {
+  const manifest = await readManifest(userDataDir, version)
+  if (!manifest) throw new Error('内核 manifest 不存在')
+  const probe = {
+    status: result?.ok ? 'passed' : 'failed',
+    reason: result?.ok ? null : String(result?.reason || 'probe-failed').slice(0, 240),
+    at: new Date(now).toISOString(),
+  }
+  const file = join(kernelRoot(userDataDir, version), KERNEL_MANIFEST)
+  const tmp = `${file}.${randomUUID()}.tmp`
+  await writeFile(tmp, JSON.stringify({ ...manifest, probe }, null, 2), 'utf8')
+  await rename(tmp, file)
+  return probe
+}
+
+async function assertSwitchable({ userDataDir, version, platform, arch, shellVersion }) {
+  const manifest = await readManifest(userDataDir, version)
+  const check = validateInstalledKernel({ root: kernelRoot(userDataDir, version), manifest, platform, arch, shellVersion })
+  if (!check.ok) throw new Error(`内核不可切换：${check.reason}`)
+  if (manifest?.probe?.status !== 'passed') throw new Error('内核尚未通过兼容探针')
+  return manifest
+}
+
+/** C4-d：仅允许切换到已安装且探针通过的候选；原子保留 previous。 */
+export async function activateKernel({ userDataDir, version, platform = process.platform, arch = process.arch, shellVersion }) {
+  if (!version || version === BUILTIN) return restoreBuiltinKernel({ userDataDir })
+  const manifest = await assertSwitchable({ userDataDir, version, platform, arch, shellVersion })
+  const state = await readCurrent(userDataDir)
+  if (state.active !== version) state.previous = state.active || BUILTIN
+  state.active = version
+  state.activeProbe = manifest.probe
+  state.lastAttempt = null
+  delete state.failed[version]
+  await writeCurrent(userDataDir, state)
+  return { active: version, previous: state.previous, restartRequired: true }
+}
+
+/** C4-d：回到 previous；previous 为 builtin 时显式选择内置。 */
+export async function rollbackKernel({ userDataDir, platform = process.platform, arch = process.arch, shellVersion }) {
+  const state = await readCurrent(userDataDir)
+  const target = state.previous || BUILTIN
+  const oldActive = state.active
+  if (target === BUILTIN) return restoreBuiltinKernel({ userDataDir, previous: oldActive })
+  const manifest = await assertSwitchable({ userDataDir, version: target, platform, arch, shellVersion })
+  state.active = target
+  state.previous = oldActive || BUILTIN
+  state.activeProbe = manifest.probe
+  state.lastAttempt = null
+  delete state.failed[target]
+  await writeCurrent(userDataDir, state)
+  return { active: target, previous: state.previous, restartRequired: true }
+}
+
+/** C4-d：恢复应用内置 Runtime；保留原用户内核作可选 previous，但启动解析不得自动选它。 */
+export async function restoreBuiltinKernel({ userDataDir, previous } = {}) {
+  const state = await readCurrent(userDataDir)
+  const oldActive = previous ?? state.active
+  if (oldActive && oldActive !== BUILTIN) state.previous = oldActive
+  state.active = BUILTIN
+  state.activeProbe = null
+  state.lastAttempt = null
+  await writeCurrent(userDataDir, state)
+  return { active: BUILTIN, previous: state.previous, restartRequired: true }
 }

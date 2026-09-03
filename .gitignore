@@ -11,6 +11,7 @@ out/
 release/
 .electron-vite/
 *.log
+scratchpad/
 
 # 本地环境与遗留运行产物
 .venv/

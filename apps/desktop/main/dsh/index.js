@@ -1,7 +1,7 @@
 // DSH 运行时的编排入口（v3.0.0 M0b B2）。
 //
 // DSH 是 v3 的正式主界面；MOYU_DSH=0 仅保留给迁移期 legacy 回归。
-import { dshHome, ensureProfile, serveDesktopBridge, serveHostServices, startHostGeneration, stopHost } from './host.js'
+import { builtinVersion, dshHome, ensureProfile, probeInstalledKernel, serveDesktopBridge, serveHostServices, startHostGeneration, stopHost } from './host.js'
 import { assertChromiumFenceEngaged, createDshSession, installHeaderInjection } from './session-policy.js'
 import { createBridgeMethods } from './bridge.js'
 import { app } from 'electron'
@@ -41,7 +41,7 @@ export async function startDsh({ onStdout, window, onExit } = {}) {
     const dshSession = createDshSession(generation)
     const fence = await assertChromiumFenceEngaged(host)
     const injected = installHeaderInjection(dshSession, host)
-    serveDesktopBridge(host, createBridgeMethods({ generation, window }))
+    serveDesktopBridge(host, createBridgeMethods({ generation, window, kernelManager: { builtinVersion, probeInstalledKernel } }))
     serveHostServices(host)
     current = { host, session: dshSession, injected, fence, generation }
     host.child.once('exit', (code, signal) => {

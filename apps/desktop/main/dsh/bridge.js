@@ -5,7 +5,7 @@
 //
 // 调用主体固定为 `dsh:<generation>`：Host 进程只经这一条进程 IPC 窄桥进来，
 // 不与 renderer / legacy / job 共用身份（§6.1）。
-import { BrowserWindow, clipboard, dialog, nativeImage, shell } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, nativeImage, shell } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
 import { basename, join } from 'node:path'
@@ -13,12 +13,22 @@ import { copyFile, mkdir, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { describeCredential, getCredential, setCredential, unsetCredential } from './secure-store.js'
 import { dshCaller } from '../caller.js'
+import { activateKernel, readKernelState, restoreBuiltinKernel, rollbackKernel } from './kernel.js'
+import { verifyAndInstallKernel } from './kernel-install.js'
+import { checkKernelFeed, downloadKernelPackage } from './kernel-feed.js'
+import { MOYU_KERNEL_PUBLIC_KEY } from './kernel-trust.js'
 
 const MAX_PICK = 64
 
 function requireString(value, label) {
   if (typeof value !== 'string' || !value) throw new Error(`${label} 必须是非空字符串`)
   return value
+}
+
+function requireKernelVersion(value) {
+  const version = requireString(value, 'version')
+  if (!/^[0-9A-Za-z][0-9A-Za-z._-]{0,79}$/.test(version)) throw new Error('内核版本无效')
+  return version
 }
 
 /**
@@ -53,8 +63,9 @@ function createFileRegistry(subject) {
  * @param {object} context
  * @param {number} context.generation 当前 Host 代次，用于组成调用主体
  * @param {() => BrowserWindow|undefined} context.window 对话框的父窗口
+ * @param {object} context.kernelManager 内核宿主操作（显式注入，避免桥与 Host 生命周期循环依赖）
  */
-export function createBridgeMethods({ generation, window }) {
+export function createBridgeMethods({ generation, window, kernelManager = {} }) {
   const subject = dshCaller(generation).id
   const parent = () => window?.() ?? BrowserWindow.getFocusedWindow() ?? undefined
   const registry = createFileRegistry(subject)
@@ -79,6 +90,63 @@ export function createBridgeMethods({ generation, window }) {
 
     async 'desktop.ping'() {
       return 'desktop.pong'
+    },
+
+    async 'desktop.kernel.status'() {
+      return readKernelState({ userDataDir: app.getPath('userData'), builtinVersion: kernelManager.builtinVersion?.() ?? null })
+    },
+
+    async 'desktop.kernel.installLocal'() {
+      const selected = await dialog.showOpenDialog(parent(), {
+        title: '选择 MOYU 内核包目录',
+        properties: ['openDirectory'],
+      })
+      if (selected.canceled || !selected.filePaths[0]) return { canceled: true }
+      return verifyAndInstallKernel({
+        packageDir: selected.filePaths[0],
+        userDataDir: app.getPath('userData'),
+        publicKeyPem: MOYU_KERNEL_PUBLIC_KEY,
+        shellVersion: app.getVersion(),
+        log: (message) => console.error(message),
+      })
+    },
+
+    async 'desktop.kernel.probe'(payload = {}) {
+      const version = requireKernelVersion(payload.version)
+      if (typeof kernelManager.probeInstalledKernel !== 'function') throw new Error('内核探针不可用')
+      return kernelManager.probeInstalledKernel({ userDataDir: app.getPath('userData'), version })
+    },
+
+    async 'desktop.kernel.activate'(payload = {}) {
+      return activateKernel({ userDataDir: app.getPath('userData'), version: requireKernelVersion(payload.version), shellVersion: app.getVersion() })
+    },
+
+    async 'desktop.kernel.rollback'() {
+      return rollbackKernel({ userDataDir: app.getPath('userData'), shellVersion: app.getVersion() })
+    },
+
+    async 'desktop.kernel.restoreBuiltin'() {
+      return restoreBuiltinKernel({ userDataDir: app.getPath('userData') })
+    },
+
+    async 'desktop.kernel.checkFeed'(payload = {}) {
+      return checkKernelFeed({ channel: payload.channel === 'beta' ? 'beta' : 'stable' })
+    },
+
+    async 'desktop.kernel.downloadInstall'(payload = {}) {
+      return downloadKernelPackage({
+        release: payload.release,
+        install: (packageDir) => verifyAndInstallKernel({
+          packageDir, userDataDir: app.getPath('userData'), publicKeyPem: MOYU_KERNEL_PUBLIC_KEY,
+          shellVersion: app.getVersion(), log: (message) => console.error(message),
+        }),
+      })
+    },
+
+    async 'desktop.kernel.restartApp'() {
+      // 先让 desktop-result 经 IPC 返回，再退出；新进程会重新解析 current.json。
+      setTimeout(() => { app.relaunch(); app.exit(0) }, 250)
+      return { restarting: true }
     },
 
     async 'desktop.pickFiles'(payload = {}) {
