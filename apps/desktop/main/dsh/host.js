@@ -11,6 +11,7 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { dispatchBridgeCall } from './bridge.js'
 import { createHostServiceClient } from './service-bridge.js'
+import { applyModsToProfile, seedPreinstalledMods } from './mods.js'
 
 const READY_TIMEOUT_MS = 30_000
 const RUNTIME_COMPLETE_MARKER = '.complete.json'
@@ -74,6 +75,35 @@ export function dshHome() {
  * 运行期不跑 npm/pnpm：既要联网，也和 §9「不在用户机器上动态替换核心」冲突。
  * 已存在则原样保留，不覆盖用户的会话与设置。
  */
+/** 用户可安装 Mod 目录（A3）。与内核 kernels/ 同级，位于 userData 下、可写；测试可用 MOYU_MODS_HOME 覆盖。 */
+export function modsHome() {
+  return process.env.MOYU_MODS_HOME || join(app.getPath('userData'), 'mods')
+}
+
+/** C2-b：把出厂预装 Mod 播种到 userData/mods（首个版本一次），尊重用户后续状态。失败不阻塞启动。 */
+async function ensurePreinstalledMods() {
+  try {
+    const preinstalledDir = join(runtimeRoot(), 'preinstalled-mods')
+    const res = await seedPreinstalledMods({ preinstalledDir, modsDir: modsHome() })
+    if (res.seeded.length) console.log('[moyu-mods] 预装 Mod 已播种：', res.seeded.join(', '))
+  } catch (e) {
+    console.error('[moyu-mods] 预装 Mod 播种失败（不阻塞启动）：', e?.message ?? e)
+  }
+}
+
+/**
+ * C1/C2：把已启用 Mod 注入 profile composition（compose patch + 复制 package 进闭包）。
+ * 空注册表 → no-op（启动行为与今日一致）；单 Mod 失败只跳过并告警，不阻塞启动。
+ */
+async function applyEnabledMods(profileDir) {
+  try {
+    const result = await applyModsToProfile({ modsDir: modsHome(), profileDir })
+    for (const s of result.skipped) console.error(`[moyu-mods] 跳过 ${s.id}/${s.name}: ${s.reason}`)
+  } catch (e) {
+    console.error('[moyu-mods] 应用 Mod 失败，回退纯核心 composition：', e?.message ?? e)
+  }
+}
+
 export async function ensureProfile(profileName) {
   const home = dshHome()
   const profileDir = join(home, 'profiles', profileName)
@@ -86,6 +116,9 @@ export async function ensureProfile(profileName) {
   }
   await mkdir(join(home, 'profiles'), { recursive: true })
 
+  // C2-b：先播种出厂预装 Mod（写 userData/mods + 注册表），再由 applyEnabledMods 注入 composition
+  await ensurePreinstalledMods()
+
   // 同步内置 agent-presets 模板到 DSH_HOME/.agent-presets（干净安装与升级均必须同步）
   const sourcePresets = join(template, '.agent-presets')
   const targetPresets = join(home, '.agent-presets')
@@ -96,6 +129,7 @@ export async function ensureProfile(profileName) {
 
   if (!existsSync(profileDir)) {
     await cp(source, profileDir, { recursive: true, dereference: false })
+    await applyEnabledMods(profileDir)
     return profileDir
   }
 
@@ -111,6 +145,7 @@ export async function ensureProfile(profileName) {
   await rm(installedModules, { recursive: true, force: true })
   await cp(sourceModules, installedModules, { recursive: true, dereference: false })
 
+  await applyEnabledMods(profileDir)
   return profileDir
 }
 

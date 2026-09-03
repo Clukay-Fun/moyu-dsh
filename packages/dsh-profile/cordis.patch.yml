@@ -98,8 +98,7 @@
       name: '@moyu/dsh-plugin-screenshot'
     - id: tool-ask-user
       name: '@deepseek-ai/dsh-tool-ask-user'
-    - id: moyu-session-export
-      name: '@moyu/dsh-plugin-session-export'
+    # moyu-session-export 已剥离为预装 Mod（C2 试点），经 Mod 层加载，不再静态注入
     - id: moyu-scheduled-tasks
       name: '@moyu/dsh-plugin-scheduled-tasks'
     - id: moyu-media

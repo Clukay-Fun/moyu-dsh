@@ -12,6 +12,10 @@ import { existsSync } from 'node:fs'
 import { cp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { packMod } from './pack-mod.mjs'
+
+// C2 试点：出厂预装的 Mod（业务从静态 composition 移出后，以预装 Mod 形态默认在场、可卸载）。
+const PREINSTALLED_MODS = ['dsh-plugin-session-export']
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const target = join(root, 'build', 'dsh-runtime')
@@ -30,7 +34,9 @@ const SURFACE_BUNDLE = '@deepseek-ai/dsh-web-app'
 const MOYU_PLUGINS = {
   '@moyu/dsh-credentials-desktop': 'dsh-credentials-desktop',
   '@moyu/dsh-host-directory-picker-native': 'dsh-host-directory-picker-native',
-  '@moyu/dsh-plugin-session-export': 'dsh-plugin-session-export',
+  // 已剥离为预装 Mod（C2 试点）：session-export，见 PREINSTALLED_MODS。
+  // image / pdf 暂缓迁移：它们卷入守卫 PRESET_REQUIRED_TOOLS 与跨插件“白名单==composition”
+  // 漂移检查，需先按契约 §1.3 解耦（见 C2 计划 §8），故仍留静态 composition。
   '@moyu/dsh-plugin-image': 'dsh-plugin-image',
   '@moyu/dsh-plugin-pdf': 'dsh-plugin-pdf',
   '@moyu/dsh-plugin-screenshot': 'dsh-plugin-screenshot',
@@ -100,6 +106,7 @@ async function main() {
   console.log(`闭包就绪：@deepseek-ai/* ${scoped.length} 个包，必需包全部在场`)
 
   await buildProfileTemplate()
+  await buildPreinstalledMods()
   await writeFile(
     join(target, COMPLETE_MARKER),
     `${JSON.stringify({
@@ -308,6 +315,21 @@ function collectDependencyClosure(lock, roots) {
     }
   }
   return [...collected].sort((a, b) => a.localeCompare(b))
+}
+
+async function buildPreinstalledMods() {
+  const outDir = join(target, 'preinstalled-mods')
+  await rm(outDir, { recursive: true, force: true })
+  await mkdir(outDir, { recursive: true })
+  for (const dir of PREINSTALLED_MODS) {
+    const pluginDir = join(root, 'packages', dir)
+    // 确保 lib/ 就绪：若声明了 bundle/build 脚本则先跑一次
+    const pkg = JSON.parse(await readFile(join(pluginDir, 'package.json'), 'utf8'))
+    const script = pkg.scripts?.bundle ? 'bundle' : (pkg.scripts?.build ? 'build' : null)
+    if (script) execFileSync('npm', ['run', script, '--prefix', pluginDir], { stdio: 'inherit', cwd: root })
+    const r = await packMod(pluginDir, outDir)
+    console.log(`预装 Mod 就绪：${r.id}`)
+  }
 }
 
 await main()
