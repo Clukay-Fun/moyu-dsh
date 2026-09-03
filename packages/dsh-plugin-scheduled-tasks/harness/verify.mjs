@@ -114,11 +114,12 @@ function reset() {
 const mod = await import(PLUGIN)
 await reset()
 
-await mod.apply(mockCtx)
+const applyPromise = mod.apply(mockCtx)
 const runNow = captured.find((t) => t.name === 'moyu_schedule_run_now')
 const createTool = captured.find((t) => t.name === 'moyu_schedule_create')
-assert.ok(runNow && createTool, 'both tools registered after load')
-console.log('PASS: tools registered after load (race fixed)')
+assert.ok(runNow && createTool, 'both tool schemas registered synchronously during apply')
+console.log('PASS: tool schemas registered synchronously before service readiness')
+await applyPromise
 
 const r1 = await runNow.execute({ title: 't1', prompt: 'hi', cwd: '/tmp' })
 assert.equal(calls.create.length, 1)

@@ -1,7 +1,7 @@
 {
   "name": "moyu-dsh",
   "version": "0.1.0",
-  "description": "MOYU 是一款基于 DeepSeek Harness 的原生桌面应用。",
+  "description": "MOYU DSH 是一款基于 DeepSeek Harness 的原生桌面应用。",
   "author": "Clukay",
   "private": true,
   "type": "module",
@@ -88,10 +88,10 @@
         }
       ],
       "artifactName": "MOYU-v${version}-macOS-${arch}.${ext}",
-      "icon": "build/macos/app-icon.png",
+      "icon": "assets/app-icon.png",
       "category": "public.app-category.productivity",
       "extendInfo": {
-        "NSScreenCaptureUsageDescription": "MOYU 需要读取屏幕以完成区域截图。"
+        "NSScreenCaptureUsageDescription": "MOYU DSH 需要读取屏幕以完成区域截图。"
       },
       "extraResources": [
         {

@@ -1,4 +1,4 @@
-// Idempotent upstream DSH -> MOYU brand cleanup for the running runtime closure.
+// Idempotent upstream DSH -> MOYU DSH brand cleanup for the running runtime closure.
 // Run AFTER apply-codex-web-overlay (and after build:dsh-runtime on a real build).
 // Only touches user-visible DSH *product* branding; never the DeepSeek provider/model names.
 import fs from "fs";
@@ -7,7 +7,7 @@ import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Patch BOTH the runtime closure and the dev node_modules tree: the running
 // app (dev/launch) loads plugins from node_modules, while a packaged build
-// loads from build/dsh-runtime. Both must carry the MOYU brand.
+// loads from build/dsh-runtime. Both must carry the MOYU DSH brand.
 const roots = [
   path.resolve(__dirname, "../node_modules/@deepseek-ai"),
   path.resolve(__dirname, "../build/dsh-runtime/node_modules/@deepseek-ai"),
@@ -32,11 +32,11 @@ let changed = 0;
 
 // 1. Document title + manifest (dsh-web-frontend dist)
 changed += patchFile("dsh-web-frontend/dist/index.html", (t) =>
-  t.replace("<title>DeepSeek Harness</title>", "<title>MOYU</title>")
+  t.replace(/<title>(?:DeepSeek Harness|MOYU)<\/title>/g, "<title>MOYU DSH</title>")
 );
 changed += patchFile("dsh-web-frontend/dist/manifest.webmanifest", (t) =>
-  t.replace(/"name":\s*"DeepSeek Harness"/g, '"name": "MOYU"')
-   .replace(/"short_name":\s*"DeepSeek Harness"/g, '"short_name": "MOYU"')
+  t.replace(/"name":\s*"(?:DeepSeek Harness|MOYU)"/g, '"name": "MOYU DSH"')
+   .replace(/"short_name":\s*"(?:DeepSeek Harness|MOYU)"/g, '"short_name": "MOYU DSH"')
 );
 
 // 2. Welcome-notice (first-launch internal-testing notice): blank copy AND
@@ -58,13 +58,13 @@ changed += patchFile("dsh-client-ui-settings-models/lib/client.js", (t) =>
 
 // 3. Tool/env description referencing the DSH Web GUI
 changed += patchFile("dsh-web-app/lib/index.js", (t) =>
-  t.replace(/DeepSeek Harness Web GUI/g, "MOYU")
-   .replace(/Serve the DeepSeek Harness browser UI\./g, "Serve the MOYU desktop app.")
+  t.replace(/DeepSeek Harness Web GUI|MOYU Web GUI/g, "MOYU DSH")
+   .replace(/Serve the (?:DeepSeek Harness browser UI|MOYU desktop app)\./g, "Serve the MOYU DSH desktop app.")
 );
 
 // 4. Renderer product title (window title + about fallback)
 changed += patchFile("dsh-client-ui-renderer/lib/client.js", (t) =>
-  t.replace(/const productTitle = "DeepSeek Harness";/, 'const productTitle = "MOYU";')
+  t.replace(/const productTitle = "(?:DeepSeek Harness|MOYU)";/, 'const productTitle = "MOYU DSH";')
 );
 
 console.log(changed > 0 ? `upstream brand patch applied (${changed} file(s) changed)` : "upstream brand already clean");

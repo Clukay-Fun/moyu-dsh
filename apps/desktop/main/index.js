@@ -11,6 +11,7 @@ import {
   desktopCapturer,
   dialog,
   ipcMain,
+  Menu,
   nativeImage,
   screen,
   shell
@@ -24,8 +25,46 @@ import { fileURLToPath } from 'node:url'
 import { currentDsh, logStartup, startDsh, stopDsh } from './dsh/index.js'
 import { installNavigationPolicy, installSessionPolicy } from './dsh/session-policy.js'
 
+const APP_RUNTIME_NAME = 'Moyu'
+const APP_DISPLAY_NAME = 'MOYU DSH'
+// C3-a 只改显示名：先锁定现有 userData，避免 app.setName() 提前触发 C3-b 数据目录迁移。
+const existingUserDataPath = app.getPath('userData')
+app.setName(APP_RUNTIME_NAME)
+app.setPath('userData', existingUserDataPath)
+
 const __dirname = dirname(fileURLToPath(import.meta.url))
 let mainWindow = null
+
+function installApplicationBrand() {
+  app.setAboutPanelOptions({
+    applicationName: APP_DISPLAY_NAME,
+    applicationVersion: app.getVersion(),
+    copyright: '© 2026 Clukay',
+    credits: '基于 DeepSeek Harness\n作者：Clukay'
+  })
+
+  if (process.platform !== 'darwin') return
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    {
+      label: APP_RUNTIME_NAME,
+      submenu: [
+        { role: 'about', label: `关于 ${APP_DISPLAY_NAME}` },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide', label: `隐藏 ${APP_RUNTIME_NAME}` },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit', label: `退出 ${APP_RUNTIME_NAME}` }
+      ]
+    },
+    { role: 'fileMenu' },
+    { role: 'editMenu' },
+    { role: 'viewMenu' },
+    { role: 'windowMenu' }
+  ]))
+}
 
 function resolveWindowIcon() {
   const candidates = app.isPackaged
@@ -52,6 +91,7 @@ function resolveWindowIcon() {
  */
 function createWindow({ url, session, policyOrigin } = {}) {
   mainWindow = new BrowserWindow({
+    title: APP_DISPLAY_NAME,
     width: 1200,
     height: 800,
     minWidth: 720,
@@ -65,6 +105,9 @@ function createWindow({ url, session, policyOrigin } = {}) {
       sandbox: true
     }
   })
+
+  // DSH 页面可以更新 document.title，但桌面壳的窗口标题始终使用产品名。
+  mainWindow.on('page-title-updated', (event) => event.preventDefault())
 
   if (policyOrigin) {
     installNavigationPolicy(mainWindow, {
@@ -95,11 +138,11 @@ function showDshFallback(error) {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.destroy()
   const reason = String(error?.message || error || '未知错误').replace(/[<>&]/g, '')
   const html = `<!doctype html><meta charset="utf-8"><meta name="color-scheme" content="light dark">
-    <title>应用启动失败</title><style>
+    <title>${APP_DISPLAY_NAME} 启动失败</title><style>
     body{margin:0;min-height:100vh;display:grid;place-items:center;font:15px system-ui;background:#f4f5f8;color:#20222a}
     main{width:min(560px,calc(100vw - 64px));padding:32px;border:1px solid #d9dce5;border-radius:18px;background:#fff;box-shadow:0 18px 60px #10182818}
     h1{font-size:22px;margin:0 0 12px}p{line-height:1.65;color:#555b6b}code{display:block;padding:12px;border-radius:10px;background:#f2f3f6;word-break:break-word}
-    </style><main><h1>DSH 暂时无法启动</h1><p>应用已安全停止本次 Host，不会显示未认证页面。请退出后重新打开；诊断记录保存在用户数据目录。</p><code>${reason}</code></main>`
+    </style><main><h1>${APP_DISPLAY_NAME} 暂时无法启动</h1><p>应用已安全停止本次 Host，不会显示未认证页面。请退出后重新打开；诊断记录保存在用户数据目录。</p><code>${reason}</code></main>`
   const win = createWindow({})
   void win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
   win.show()
@@ -637,6 +680,7 @@ export async function selectScreenshotRegionForDsh(payload = {}) {
 // ── 应用生命周期 ────────────────────────────────────────────────
 
 app.whenReady().then(async () => {
+  installApplicationBrand()
   // macOS 首次截图若在点击后才编译 ScreenCaptureKit 侧车，会额外等待约一秒。
   // 启动后后台预热；失败时 promise 会自行复位，真正截图仍会重试并给出明确错误。
   if (process.platform === 'darwin') {

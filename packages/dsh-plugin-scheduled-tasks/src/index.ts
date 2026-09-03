@@ -1294,116 +1294,120 @@ export function apply(ctx: Context): Promise<void> {
     }),
   )
 
-  return svc.ready.then(() => {
-    ctx.tools.register(
-      defineTool({
-        name: 'moyu_schedule_run_now',
-        description:
-          'Moyu 安排任务：立即用给定提示词在指定工作区创建一个新会话并自动执行（无人值守，单次）。默认 runMode=standalone，不继承前台会话临时授权。',
-        parameters: {
-          title: { type: 'string', required: true },
-          prompt: { type: 'string', required: true },
-          cwd: { type: 'string', required: true },
-          workspaceId: { type: 'string' },
-          preset: { type: 'string' },
-          runMode: { type: 'string' },
-          continuationSessionId: { type: 'string' },
-        },
-        output: {
-          schema: {
-            type: 'object',
-            additionalProperties: false,
-            properties: {
-              taskId: { type: 'string' },
-              runId: { type: 'string' },
-              sessionId: { type: 'string' },
-              status: { type: 'string' },
-            },
+  // Tool schema 必须在 apply 阶段同步可见，否则 Host-ready 工具面审计会与
+  // 存储初始化竞态。业务执行仍等待 svc.ready，不放宽数据就绪条件。
+  ctx.tools.register(
+    defineTool({
+      name: 'moyu_schedule_run_now',
+      description:
+        'Moyu 安排任务：立即用给定提示词在指定工作区创建一个新会话并自动执行（无人值守，单次）。默认 runMode=standalone，不继承前台会话临时授权。',
+      parameters: {
+        title: { type: 'string', required: true },
+        prompt: { type: 'string', required: true },
+        cwd: { type: 'string', required: true },
+        workspaceId: { type: 'string' },
+        preset: { type: 'string' },
+        runMode: { type: 'string' },
+        continuationSessionId: { type: 'string' },
+      },
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            taskId: { type: 'string' },
+            runId: { type: 'string' },
+            sessionId: { type: 'string' },
+            status: { type: 'string' },
           },
-          render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
         },
-        execute: async (args: {
-          title: string
-          prompt: string
-          cwd: string
-          workspaceId?: string
-          preset?: string
-          runMode?: string
-          continuationSessionId?: string
-        }) => {
-          const task = await svc.createTask({
-            title: args.title,
-            prompt: args.prompt,
-            cwd: args.cwd,
-            workspaceId: args.workspaceId,
-            enabled: false,
-            preset: args.preset,
-            runMode: args.runMode === 'continuation' ? 'continuation' : 'standalone',
-            continuationSessionId: args.continuationSessionId,
-          })
-          const run = await svc.runTaskNow(task.id)
-          return {
-            taskId: task.id,
-            runId: run.id,
-            sessionId: run.sessionId ?? '',
-            status: run.status,
-          }
-        },
-      }),
-    )
+        render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
+      },
+      execute: async (args: {
+        title: string
+        prompt: string
+        cwd: string
+        workspaceId?: string
+        preset?: string
+        runMode?: string
+        continuationSessionId?: string
+      }) => {
+        await svc.ready
+        const task = await svc.createTask({
+          title: args.title,
+          prompt: args.prompt,
+          cwd: args.cwd,
+          workspaceId: args.workspaceId,
+          enabled: false,
+          preset: args.preset,
+          runMode: args.runMode === 'continuation' ? 'continuation' : 'standalone',
+          continuationSessionId: args.continuationSessionId,
+        })
+        const run = await svc.runTaskNow(task.id)
+        return {
+          taskId: task.id,
+          runId: run.id,
+          sessionId: run.sessionId ?? '',
+          status: run.status,
+        }
+      },
+    }),
+  )
 
-    ctx.tools.register(
-      defineTool({
-        name: 'moyu_schedule_create',
-        description:
-          'Moyu 安排任务：创建一个定时任务（单次 runAt 为未来毫秒时间戳）。自媒体待发布/库存不足提醒请用 runMode=standalone（默认），每次独立会话报告。',
-        parameters: {
-          title: { type: 'string', required: true },
-          prompt: { type: 'string', required: true },
-          cwd: { type: 'string', required: true },
-          runAt: { type: 'number', required: true },
-          workspaceId: { type: 'string' },
-          preset: { type: 'string' },
-          runMode: { type: 'string' },
-          continuationSessionId: { type: 'string' },
+  ctx.tools.register(
+    defineTool({
+      name: 'moyu_schedule_create',
+      description:
+        'Moyu 安排任务：创建一个定时任务（单次 runAt 为未来毫秒时间戳）。自媒体待发布/库存不足提醒请用 runMode=standalone（默认），每次独立会话报告。',
+      parameters: {
+        title: { type: 'string', required: true },
+        prompt: { type: 'string', required: true },
+        cwd: { type: 'string', required: true },
+        runAt: { type: 'number', required: true },
+        workspaceId: { type: 'string' },
+        preset: { type: 'string' },
+        runMode: { type: 'string' },
+        continuationSessionId: { type: 'string' },
+      },
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: { taskId: { type: 'string' }, nextRunAt: { type: 'number' } },
         },
-        output: {
-          schema: {
-            type: 'object',
-            additionalProperties: false,
-            properties: { taskId: { type: 'string' }, nextRunAt: { type: 'number' } },
-          },
-          render: (_a, v) => [{ type: 'text', text: JSON.stringify(v) }],
-        },
-        execute: async (args: {
-          title: string
-          prompt: string
-          cwd: string
-          runAt: number
-          workspaceId?: string
-          preset?: string
-          runMode?: string
-          continuationSessionId?: string
-        }) => {
-          if (!Number.isFinite(args.runAt) || args.runAt <= Date.now()) {
-            throw new Error('runAt must be a finite future timestamp in milliseconds')
-          }
-          const task = await svc.createTask({
-            title: args.title,
-            prompt: args.prompt,
-            cwd: args.cwd,
-            workspaceId: args.workspaceId,
-            enabled: true,
-            runAt: args.runAt,
-            preset: args.preset,
-            runMode: args.runMode === 'continuation' ? 'continuation' : 'standalone',
-            continuationSessionId: args.continuationSessionId,
-          })
-          return { taskId: task.id, nextRunAt: task.nextRunAt ?? 0 }
-        },
-      }),
-    )
-  })
+        render: (_a, v) => [{ type: 'text', text: JSON.stringify(v) }],
+      },
+      execute: async (args: {
+        title: string
+        prompt: string
+        cwd: string
+        runAt: number
+        workspaceId?: string
+        preset?: string
+        runMode?: string
+        continuationSessionId?: string
+      }) => {
+        await svc.ready
+        if (!Number.isFinite(args.runAt) || args.runAt <= Date.now()) {
+          throw new Error('runAt must be a finite future timestamp in milliseconds')
+        }
+        const task = await svc.createTask({
+          title: args.title,
+          prompt: args.prompt,
+          cwd: args.cwd,
+          workspaceId: args.workspaceId,
+          enabled: true,
+          runAt: args.runAt,
+          preset: args.preset,
+          runMode: args.runMode === 'continuation' ? 'continuation' : 'standalone',
+          continuationSessionId: args.continuationSessionId,
+        })
+        return { taskId: task.id, nextRunAt: task.nextRunAt ?? 0 }
+      },
+    }),
+  )
+
+  return svc.ready
 }
 
 export default { name: PLUGIN_ID, inject, apply }

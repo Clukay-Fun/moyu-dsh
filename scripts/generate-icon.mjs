@@ -62,8 +62,8 @@ async function main() {
   const sha = createHash('sha256').update(source).digest('hex')
   console.log(`源：assets/app-icon.png  ${meta.width}×${meta.height}  alpha=${meta.hasAlpha}`)
   console.log(`    SHA-256 ${sha}`)
-  if (meta.width !== 256 || meta.height !== 256) {
-    throw new Error(`源图应为 256×256，实际 ${meta.width}×${meta.height}`)
+  if (meta.width !== meta.height || meta.width < 256) {
+    throw new Error(`源图应为不小于 256×256 的正方形，实际 ${meta.width}×${meta.height}`)
   }
   if (!meta.hasAlpha) throw new Error('源图缺少透明通道')
 
