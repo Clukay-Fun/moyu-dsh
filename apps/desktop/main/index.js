@@ -24,13 +24,30 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { currentDsh, logStartup, startDsh, stopDsh } from './dsh/index.js'
 import { installNavigationPolicy, installSessionPolicy } from './dsh/session-policy.js'
+import { migrateUserData } from './dsh/userdata-migrate.mjs'
 
-const APP_RUNTIME_NAME = 'Moyu'
+const APP_RUNTIME_NAME = 'MOYU DSH'
 const APP_DISPLAY_NAME = 'MOYU DSH'
-// C3-a 只改显示名：先锁定现有 userData，避免 app.setName() 提前触发 C3-b 数据目录迁移。
-const existingUserDataPath = app.getPath('userData')
+
+// C3-c 身份切换 + userData 迁移。改应用名（旧 MOYU/Moyu → MOYU DSH）会让 OS 派生新的 userData
+// 路径；必须在建窗口、写日志、读凭据、启动 DSH **之前**，把旧目录安全迁到新目录。迁移模块保证
+// 不丢数据、原子发布、失败保底用旧目录、绝不进空白环境（详见 dsh/userdata-migrate.mjs）。
+// 显式传入 --user-data-dir（dev / 测试 / 隔离启动）时，userData 由启动方控制：不迁移、不强制路径。
+const explicitUserDataDir = process.argv.some((a) => a === '--user-data-dir' || a.startsWith('--user-data-dir='))
 app.setName(APP_RUNTIME_NAME)
-app.setPath('userData', existingUserDataPath)
+if (!explicitUserDataDir) {
+  const appDataRoot = process.env.MOYU_APPDATA_OVERRIDE || app.getPath('appData')
+  const NEW_USERDATA = join(appDataRoot, 'MOYU DSH')
+  // 旧候选：正式旧发行 productName(MOYU) 与 C3-a 运行时名(Moyu)。取第一个有数据的迁移。
+  const OLD_USERDATA_CANDIDATES = ['MOYU', 'Moyu'].map((n) => join(appDataRoot, n)).filter((d) => d !== NEW_USERDATA)
+  let chosenUserData = NEW_USERDATA
+  for (const oldDir of OLD_USERDATA_CANDIDATES) {
+    const r = await migrateUserData({ oldDir, newDir: NEW_USERDATA, log: (m) => process.stderr.write(`${m}\n`) })
+    if (r.status === 'failed') { chosenUserData = oldDir; break } // 复制失败：保底继续用旧目录，不进空白环境
+    if (r.status !== 'no-source') break // migrated / already / conflict → 用新目录
+  }
+  app.setPath('userData', chosenUserData)
+}
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 let mainWindow = null

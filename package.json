@@ -39,8 +39,8 @@
     "verify-overlay-applied": "node tests/verify-overlay-applied.mjs"
   },
   "build": {
-    "appId": "com.clukay.moyutools",
-    "productName": "MOYU",
+    "appId": "com.clukay.moyu-dsh",
+    "productName": "MOYU DSH",
     "asar": true,
     "asarUnpack": [
       "node_modules/sharp/**/*",
@@ -87,7 +87,7 @@
           ]
         }
       ],
-      "artifactName": "MOYU-v${version}-macOS-${arch}.${ext}",
+      "artifactName": "moyu-dsh-${version}-macos-${arch}.${ext}",
       "icon": "assets/app-icon.png",
       "category": "public.app-category.productivity",
       "extendInfo": {
