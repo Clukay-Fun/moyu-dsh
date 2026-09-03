@@ -11,7 +11,8 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { dispatchBridgeCall } from './bridge.js'
 import { createHostServiceClient } from './service-bridge.js'
-import { applyModsToProfile, seedPreinstalledMods } from './mods.js'
+import { applyModsToProfile, seedPreinstalledMods, resolveActiveModManifests, buildEffectiveToolPolicy } from './mods.js'
+import { writeFile as writeFileAsync } from 'node:fs/promises'
 
 const READY_TIMEOUT_MS = 30_000
 const RUNTIME_COMPLETE_MARKER = '.complete.json'
@@ -80,6 +81,26 @@ export function modsHome() {
   return process.env.MOYU_MODS_HOME || join(app.getPath('userData'), 'mods')
 }
 
+/** C2-g 第一层：工具面策略启动快照路径（绝对路径经 MOYU_TOOL_POLICY_PATH 传给 Host）。 */
+export function toolPolicyPath() {
+  return join(modsHome(), 'effective-tool-policy.json')
+}
+
+/**
+ * C2-g 第一层：Host 启动前生成不可变工具面策略快照。
+ * 从同一份 registry 解析 active Mod（校验/兼容/完整性），与核心内置台账汇聚出 globalExpected。
+ * 冲突（同名 Tool / Mod 声明与核心台账冲突）=安全不变量损坏，抛错阻止启动。
+ */
+async function writeToolPolicy(env) {
+  const modsDir = modsHome()
+  const { active, skipped } = await resolveActiveModManifests(modsDir, env)
+  for (const s of skipped) console.log(`[moyu-mods] 策略快照跳过 ${s.id}: ${s.reason}`)
+  const policy = buildEffectiveToolPolicy(active) // 冲突时抛错 → 阻止启动
+  await mkdir(modsDir, { recursive: true })
+  await writeFileAsync(toolPolicyPath(), `${JSON.stringify(policy, null, 2)}\n`, 'utf8')
+  return policy
+}
+
 /** C2-b：把出厂预装 Mod 播种到 userData/mods（首个版本一次），尊重用户后续状态。失败不阻塞启动。 */
 async function ensurePreinstalledMods() {
   try {
@@ -130,6 +151,7 @@ export async function ensureProfile(profileName) {
   if (!existsSync(profileDir)) {
     await cp(source, profileDir, { recursive: true, dereference: false })
     await applyEnabledMods(profileDir)
+    await writeToolPolicy()
     return profileDir
   }
 
@@ -146,6 +168,7 @@ export async function ensureProfile(profileName) {
   await cp(sourceModules, installedModules, { recursive: true, dereference: false })
 
   await applyEnabledMods(profileDir)
+  await writeToolPolicy()
   return profileDir
 }
 
@@ -168,7 +191,7 @@ export async function startHostGeneration(generation, { onStdout, profile } = {}
     // 模型路径的截图确认由主进程的原生对话框（desktop.requestScreenCapture，
     // 带「本次会话内允许」复选框）单独负责。DSH 自带的审批层（permission /
     // ui-permission）由用户在设置里自行选择策略（含 full access），不在主进程钉死。
-    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', DSH_HOME: dshHome(), MOYU_DSH_HOME: dshHome() },
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', DSH_HOME: dshHome(), MOYU_DSH_HOME: dshHome(), MOYU_TOOL_POLICY_PATH: toolPolicyPath() },
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     serialization: 'advanced'
   })

@@ -298,6 +298,41 @@ export async function seedPreinstalledMods({ preinstalledDir, modsDir, env }) {
 
 //#region C2-g 第一层：全局注册完整性（单一工作台）
 
+/**
+读取已启用且通过校验/兼容/完整性的 Mod 的 manifest（active 集合）。
+Manifest 文件是声明正本；registry 只提供启停状态。返回 { active:[manifest], skipped:[{id,reason}] }。
+*/
+export async function resolveActiveModManifests(modsDir, env) {
+  const registry = await readRegistry(modsDir)
+  const active = []
+  const skipped = []
+  for (const mod of Object.values(registry.mods)) {
+    if (!mod.enabled) { skipped.push({ id: mod.id, reason: 'disabled' }); continue }
+    let manifest
+    try {
+      manifest = JSON.parse(await readFile(join(modsDir, mod.id, 'manifest.json'), 'utf8'))
+    } catch (e) {
+      skipped.push({ id: mod.id, reason: `manifest 读取失败: ${e.message}` }); continue
+    }
+    const v = validateManifest(manifest)
+    if (!v.ok) { skipped.push({ id: mod.id, reason: `manifest 非法: ${v.errors.join('; ')}` }); continue }
+    if (env) {
+      const c = checkCompat(manifest, env)
+      if (!c.ok) { skipped.push({ id: mod.id, reason: `不兼容: ${c.reasons.join('; ')}` }); continue }
+    }
+    // 完整性：INSTALLED 记录的 sha256 与 package 现状一致
+    try {
+      const recorded = (await readFile(join(modsDir, mod.id, 'INSTALLED'), 'utf8')).trim()
+      const actual = await sha256Dir(join(modsDir, mod.id, 'package'))
+      if (recorded !== actual) { skipped.push({ id: mod.id, reason: '完整性校验失败(tampered)' }); continue }
+    } catch (e) {
+      skipped.push({ id: mod.id, reason: `完整性校验错误: ${e.message}` }); continue
+    }
+    active.push(manifest)
+  }
+  return { active, skipped }
+}
+
 // 迁移期核心内置 **root-global** Tool 台账（transitional）。
 // 重要（g2a 实测，c2g §7.2）：全局审计在 root scope 读 schemas；`moyu_schedule_*` 等是
 // **agent-scoped**、不出现在 root，故不进本台账（它们是内置系统功能，不受 Mod 全局审计约束）。
