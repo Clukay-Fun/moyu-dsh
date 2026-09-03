@@ -3,7 +3,6 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { randomUUID } from 'node:crypto'
 import { rm } from 'node:fs/promises'
 import { basename, join } from 'node:path'
-import { assertMoyuToolSurface } from '@moyu/dsh-profile'
 
 export const name = 'moyu-image'
 export const inject = ['webServer', 'tools']
@@ -237,9 +236,7 @@ export function apply(ctx) {
     execute: operate
   }))
 
-  ctx.on('session/created', (session) => {
-    assertMoyuToolSurface(ctx, session)
-  }, { global: true })
+  // C2-g g5：per-session per-preset 守卫已移除；工具面完整性由 host-ready 全局审计接管（dsh-plugin-tool-audit）。
 
   ctx.effect(() => () => {
     for (const job of jobs.values()) {

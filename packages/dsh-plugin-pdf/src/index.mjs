@@ -7,7 +7,6 @@ import { randomUUID } from 'node:crypto'
 import { readFile, rm, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { Worker } from 'node:worker_threads'
-import { assertMoyuToolSurface } from '@moyu/dsh-profile'
 
 export const name = 'moyu-pdf'
 export const inject = ['webServer', 'tools']
@@ -607,9 +606,7 @@ export function apply(ctx) {
     execute: operate
   }))
 
-  ctx.on('session/created', (session) => {
-    assertMoyuToolSurface(ctx, session)
-  }, { global: true })
+  // C2-g g5：per-session per-preset 守卫已移除；工具面完整性由 host-ready 全局审计接管（dsh-plugin-tool-audit）。
 
   ctx.effect(() => () => {
     for (const job of jobs.values()) {
