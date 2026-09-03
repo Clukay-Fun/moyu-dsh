@@ -41,6 +41,7 @@ const MOYU_PLUGINS = {
   '@moyu/dsh-plugin-screenshot': 'dsh-plugin-screenshot',
   '@moyu/dsh-plugin-scheduled-tasks': 'dsh-plugin-scheduled-tasks',
   '@moyu/dsh-plugin-mods-api': 'dsh-plugin-mods-api', // C3-d Mods 管理路由 /moyu/mods
+  '@moyu/dsh-plugin-shell': 'dsh-plugin-shell', // C3-d 应用壳设置分区（Mods/内核/更新）
   '@moyu/dsh-plugin-tool-audit': 'dsh-plugin-tool-audit' // C2-g host-audit：root composition 最后一项
   // dsh-plugin-media 已移除（2026-09-03 单一工作台，自媒体工作台归档）
 }

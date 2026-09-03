@@ -101,6 +101,8 @@
       name: '@moyu/dsh-plugin-scheduled-tasks'
     - id: moyu-mods-api
       name: '@moyu/dsh-plugin-mods-api'
+    - id: moyu-shell
+      name: '@moyu/dsh-plugin-shell'
     # C2-g host-audit：必须是 insert 最后一项（root composition 末尾）
     - id: moyu-tool-audit
       name: '@moyu/dsh-plugin-tool-audit'
