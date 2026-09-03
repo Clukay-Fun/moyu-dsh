@@ -5,22 +5,49 @@
 import { app } from 'electron'
 import { fork as forkChild } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { cp, mkdir, rm } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { dispatchBridgeCall } from './bridge.js'
 import { createHostServiceClient } from './service-bridge.js'
 import { applyModsToProfile, seedPreinstalledMods, resolveActiveModManifests, buildEffectiveToolPolicy } from './mods.js'
-import { writeFile as writeFileAsync } from 'node:fs/promises'
+import { resolveActiveKernel, markKernelHealthy } from './kernel.js'
+import { writeFile as writeFileAsync, readFile as readFileAsync } from 'node:fs/promises'
 
 const READY_TIMEOUT_MS = 30_000
 const RUNTIME_COMPLETE_MARKER = '.complete.json'
 
-function runtimeRoot() {
+// 内置只读回退内核（出厂版，永远可用）。C4：用户目录可切换内核经 kernel.js 解析。
+function builtinRuntimeRoot() {
   return app.isPackaged
     ? join(process.resourcesPath, 'dsh-runtime')
     : join(app.getAppPath(), 'build', 'dsh-runtime')
+}
+
+function builtinVersion() {
+  try {
+    return JSON.parse(readFileSync(join(builtinRuntimeRoot(), RUNTIME_COMPLETE_MARKER), 'utf8')).dshVersion || null
+  } catch { return null }
+}
+
+// 本代激活内核（C4-a）。首次解析后缓存，供 runtimeRoot()/resolveDshEntry() 同步读。
+let activeKernel = null
+export async function ensureActiveKernel() {
+  if (activeKernel) return activeKernel
+  activeKernel = await resolveActiveKernel({
+    userDataDir: app.getPath('userData'),
+    builtinRoot: builtinRuntimeRoot(),
+    builtinVersion: builtinVersion(),
+    shellVersion: app.getVersion(),
+    log: (m) => console.error(m),
+  })
+  return activeKernel
+}
+
+// 解析后同步读取本代内核根；未解析时保守回内置。
+function runtimeRoot() {
+  return activeKernel?.root || builtinRuntimeRoot()
 }
 
 function assertRuntimeComplete(root) {
@@ -45,6 +72,16 @@ function workerPath() {
  * main 打进 asar，从这里解析才能命中生产依赖。
  */
 export function resolveDshEntry() {
+  // C4-a：激活的是用户目录内核时，从内核闭包解析入口（打包与 dev 一致）。
+  if (activeKernel?.source === 'user') {
+    const root = runtimeRoot()
+    assertRuntimeComplete(root)
+    const entry = join(root, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
+    if (!existsSync(entry)) {
+      throw new Error(`DSH 用户内核闭包缺失：${entry}`)
+    }
+    return entry
+  }
   // 打包后走 asar 外的独立运行闭包：DSH 的 profile loader 会建指向安装闭包的
   // 包级 symlink，链接指进 app.asar 时外部 profile 的 ESM import 无法回穿。
   if (app.isPackaged) {
@@ -126,6 +163,8 @@ async function applyEnabledMods(profileDir) {
 }
 
 export async function ensureProfile(profileName) {
+  // C4-a：在任何 runtimeRoot() 消费者之前解析本代激活内核（含失败自愈降级）。
+  await ensureActiveKernel()
   const home = dshHome()
   const profileDir = join(home, 'profiles', profileName)
   const root = runtimeRoot()
@@ -227,6 +266,12 @@ export async function startHostGeneration(generation, { onStdout, profile } = {}
           return
         }
         if (message?.type !== 'host-ready') return
+        // C4-a：本代 Host 抵达 host-ready → 若跑的是用户内核，确认其健康，
+        // 清除 lastAttempt，避免下代把它误判为"上一代崩溃"而降级。
+        if (activeKernel?.source === 'user') {
+          markKernelHealthy({ userDataDir: app.getPath('userData'), version: activeKernel.version, log: (m) => console.error(m) })
+            .catch((e) => console.error('[kernel] 健康确认失败：', e?.message ?? e))
+        }
         finish(resolve, message.url)
       }
       child.on('message', onMessage)
