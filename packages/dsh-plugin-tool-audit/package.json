@@ -1,0 +1,20 @@
+{
+  "name": "@moyu/dsh-plugin-tool-audit",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./lib/index.mjs",
+  "exports": {
+    ".": "./lib/index.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib"
+  ],
+  "scripts": {
+    "bundle": "mkdir -p lib && cp src/index.mjs lib/index.mjs"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.0.1"
+  }
+}

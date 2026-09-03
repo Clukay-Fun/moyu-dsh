@@ -334,17 +334,23 @@ export async function resolveActiveModManifests(modsDir, env) {
 }
 
 // 迁移期核心内置 **root-global** Tool 台账（transitional）。
-// 重要（g2a 实测，c2g §7.2）：全局审计在 root scope 读 schemas；`moyu_schedule_*` 等是
-// **agent-scoped**、不出现在 root，故不进本台账（它们是内置系统功能，不受 Mod 全局审计约束）。
-// 本台账只列 root-global Tool：mod 也在 root 注册（image_convert/pdf_process 在 root 可见），
-// 故 root 审计能抓住 Mod 偷偷注册的未声明 Tool。
+// 重要（g3 真实 ready 闸门实测校正）：在 `dsh web:` 就绪时点（比 g2a 的 t50ms 探针晚，
+// 是应用真正可用的时点）root scope 有 6 个 Tool——`moyu_schedule_*` **也是 root-global**
+// （t50ms 时尚未注册完，被误判为 agent-scoped；ready 闸门审计抓出真相）。
+// 本台账列全部 root-global Tool；mod 也在 root 注册，故 root 审计能抓住 Mod 偷偷注册的未声明 Tool。
 // 每把一个业务插件迁为 Mod，必须在同一提交从此处移除该 Tool 并由 Mod Manifest 的 provides.tools 接管。
 export const CORE_BUILTIN_TOOLS = Object.freeze([
-  'ask_user_question',   // tool-ask-user（内置，root-global）
-  'screenshot_capture',  // screenshot（内置系统功能，root-global）
-  'image_convert',       // 迁移前在静态 composition；迁为 image Mod 后从此移除
-  'pdf_process',         // 迁移前在静态 composition；迁为 pdf Mod 后从此移除
+  'ask_user_question',     // tool-ask-user（内置）
+  'screenshot_capture',    // screenshot（内置系统功能）
+  'moyu_schedule_create',  // scheduled-tasks（内置系统功能，ready 时点 root-global）
+  'moyu_schedule_run_now', // scheduled-tasks（内置）
+  'image_convert',         // 迁移前在静态 composition；迁为 image Mod 后从此移除
+  'pdf_process',           // 迁移前在静态 composition；迁为 pdf Mod 后从此移除
 ])
+
+// 核心内置 agent-scoped-only Tool 台账。g3 实测：ready 闸门下 root 已含全部 6 个，
+// 无 agent-scoped-only 工具，故为空；第二层「最终可见面」审计因此与全局审计等价（保留结构备用）。
+export const CORE_SCOPED_TOOLS = Object.freeze([])
 
 /**
 从核心内置台账 + 已启用 Mod manifest 汇聚出第一层策略快照（单一工作台，无 per-preset）。
@@ -356,7 +362,7 @@ export const CORE_BUILTIN_TOOLS = Object.freeze([
   - 两个 Mod 声明同名 Tool；
   - Mod 声明的 Tool 与核心内置台账同名（迁移时未从核心移除）。
 */
-export function buildEffectiveToolPolicy(activeManifests, coreBuiltinTools = CORE_BUILTIN_TOOLS) {
+export function buildEffectiveToolPolicy(activeManifests, coreBuiltinTools = CORE_BUILTIN_TOOLS, coreScopedTools = CORE_SCOPED_TOOLS) {
   const owners = {}
   for (const name of coreBuiltinTools) {
     if (owners[name]) throw new Error(`核心内置台账重复 Tool: ${name}`)
@@ -376,11 +382,19 @@ export function buildEffectiveToolPolicy(activeManifests, coreBuiltinTools = COR
   }
   const globalExpected = Object.keys(owners).sort()
   activeMods.sort((a, b) => a.id.localeCompare(b.id))
+  // 最终可见面（单一工作台）= 全局 + agent-scoped 内置。用于会话发布前精确审计。
+  const finalVisibleExpected = [...new Set([...globalExpected, ...coreScopedTools])].sort()
+  for (const name of coreScopedTools) {
+    if (owners[name]) throw new Error(`scoped 台账 [${name}] 与已有 owner [${owners[name]}] 冲突`)
+    owners[name] = 'core-scoped'
+  }
   return {
     schemaVersion: 1,
     activeMods,
     coreBuiltinTools: [...coreBuiltinTools].sort(),
+    coreScopedTools: [...coreScopedTools].sort(),
     globalExpected,
+    finalVisibleExpected,
     owners,
   }
 }

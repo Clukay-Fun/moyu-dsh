@@ -40,7 +40,8 @@ const MOYU_PLUGINS = {
   '@moyu/dsh-plugin-image': 'dsh-plugin-image',
   '@moyu/dsh-plugin-pdf': 'dsh-plugin-pdf',
   '@moyu/dsh-plugin-screenshot': 'dsh-plugin-screenshot',
-  '@moyu/dsh-plugin-scheduled-tasks': 'dsh-plugin-scheduled-tasks'
+  '@moyu/dsh-plugin-scheduled-tasks': 'dsh-plugin-scheduled-tasks',
+  '@moyu/dsh-plugin-tool-audit': 'dsh-plugin-tool-audit' // C2-g host-audit：root composition 最后一项
   // dsh-plugin-media 已移除（2026-09-03 单一工作台，自媒体工作台归档）
 }
 

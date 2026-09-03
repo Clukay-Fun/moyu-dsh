@@ -152,6 +152,22 @@ console.log = (...args) => {
   process.stdout.write(`[HOST LOG] ${args.map(String).join(' ')}\n`)
   const match = args.map(String).join(' ').match(/^dsh web: (http:\/\/127\.0\.0\.1:\d+)/)
   if (!match) return
+  // C2-g 就绪闸门：`dsh web:` 在 Loader settled 之后打印（boot 保证所有 entry active、Tool 注册完），
+  // 是现成可靠的审计时点。发 host-ready 前**同步**审计 root-global 工具面；不达标发 host-error 并终止本代。
+  const audit = globalThis.__moyuToolAudit
+  if (typeof audit !== 'function') {
+    send({ type: 'host-error', generation: auth.generation, message: 'C2-g 工具面审计缺失：host-audit 插件未挂载 __moyuToolAudit（安全不变量损坏，拒绝启动）' })
+    process.exit(1)
+    return
+  }
+  let result
+  try { result = audit() } catch (e) { result = { ok: false, reason: `审计异常: ${e?.message || e}` } }
+  if (!result || result.ok !== true) {
+    const detail = result?.reason || `undeclared=[${(result?.undeclared || []).join(', ')}] missing=[${(result?.missing || []).join(', ')}]`
+    send({ type: 'host-error', generation: auth.generation, message: `C2-g 全局工具面审计失败（拒绝启动本代 Host）：${detail}` })
+    process.exit(1)
+    return
+  }
   fence.setOrigin(match[1])
   send({
     type: 'host-ready',
