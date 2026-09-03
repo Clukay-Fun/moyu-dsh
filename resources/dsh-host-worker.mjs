@@ -186,7 +186,8 @@ try {
   // shell / 文件 / subagent / 动态插件工具（§4 唯一 Moyu profile）。
   if (!auth.profile) throw new Error('未指定 Moyu profile，拒绝以上游默认 profile 启动')
   // 只绑 loopback，端口交给 OS 指派（上游只接受 127.0.0.1 或 0.0.0.0，后者禁止）。
-  process.argv = [process.execPath, auth.dshBin, '--profile', auth.profile, '--port', '0']
+  // UI 由 Electron 主窗口承载；禁止 DSH 同时唤起系统默认浏览器。
+  process.argv = [process.execPath, auth.dshBin, '--profile', auth.profile, '--port', '0', '--no-open']
   await import(auth.dshBin)
 } catch (error) {
   send({
