@@ -1311,27 +1311,7 @@ window.__ModuleLoader__.load({
 		* build — they are not part of the three-tool product surface.
 		*/
 		function SurfaceNavigation({ wide, surface, selectSurface, t, startSession }) {
-			const mode = useMoyuMode();
-			// UI-F02: Media 模式下换成 Media 专用导航——视频库为一级入口，
-			// 不再作为会话顶部的 conversation.view tab。
-			const items = mode === "media" ? [
-				{
-					id: "media-library",
-					label: "视频库",
-					icon: (0, react_jsx_runtime.jsx)(moyuBlocks, { size: 18 })
-				},
-				{
-					id: "conversation",
-					label: t("surface.conversation"),
-					icon: (0, react_jsx_runtime.jsx)(moyuSquarePen, { size: 18 }),
-					create: true
-				},
-				{
-					id: "scheduled",
-					label: t("surface.scheduled"),
-					icon: (0, react_jsx_runtime.jsx)(moyuListTodo, { size: 18 })
-				}
-			] : [
+			const items = [
 				{
 					id: "conversation",
 					label: t("surface.conversation"),
@@ -1368,58 +1348,6 @@ window.__ModuleLoader__.load({
 						children: [item.icon, wide && (0, react_jsx_runtime.jsx)("span", { children: item.label })]
 					})
 				}, item.id))
-			});
-		}
-		/**
-		* MOYU F01/F02: 当前工作台模式（moyu = Chat / media = Media）。真源是
-		* window.__moyuActivePreset，广播 moyu-preset-changed；会话隔离由 sessionVisible 消费。
-		*/
-		function useMoyuMode() {
-			const readMode = () => (typeof window !== "undefined" && window.__moyuActivePreset === "media") ? "media" : "moyu";
-			const [mode, setMode] = react.useState(readMode);
-			react.useEffect(() => {
-				const onChange = () => setMode(readMode());
-				window.addEventListener("moyu-preset-changed", onChange);
-				return () => window.removeEventListener("moyu-preset-changed", onChange);
-			}, []);
-			return mode;
-		}
-		/** 切换模式并联动默认入口：Media 落到视频库 surface，Chat 回到 conversation。 */
-		function setMoyuMode(next, selectSurface) {
-			try { window.__moyuActivePreset = next; } catch {}
-			try { window.dispatchEvent(new CustomEvent("moyu-preset-changed", { detail: next })); } catch {}
-			if (typeof selectSurface === "function") selectSurface(next === "media" ? "media-library" : "conversation");
-		}
-		/**
-		* MOYU F01: 侧边栏顶部品牌模式切换器（MOYU Chat / MOYU Media）。
-		*/
-		function MoyuModeSwitcher({ wide, selectSurface }) {
-			const mode = useMoyuMode();
-			const toggle = () => setMoyuMode(mode === "moyu" ? "media" : "moyu", selectSurface);
-			const isMedia = mode === "media";
-			const label = isMedia ? "MOYU Media" : "MOYU Chat";
-			return (0, react_jsx_runtime.jsx)("div", {
-				style: { padding: wide ? "10px 12px 4px" : "10px 0 4px", display: "flex", justifyContent: wide ? "flex-start" : "center" },
-				children: (0, react_jsx_runtime.jsxs)("button", {
-					type: "button",
-					onClick: toggle,
-					title: isMedia ? "切换到 MOYU Chat" : "切换到 MOYU Media",
-					"aria-label": label,
-					style: {
-						display: "inline-flex", alignItems: "center", gap: 8,
-						padding: wide ? "6px 10px" : "6px", borderRadius: 8,
-						border: "1px solid var(--ds-border-subtle, rgba(128,128,128,0.28))",
-						background: isMedia ? "rgba(45,106,79,0.14)" : "transparent",
-						color: "inherit", cursor: "pointer", font: "inherit", fontWeight: 600, lineHeight: 1.2,
-					},
-					children: [
-						(0, react_jsx_runtime.jsx)("span", {
-							"aria-hidden": "true",
-							style: { width: 8, height: 8, borderRadius: 999, background: isMedia ? "#2d6a4f" : "#4f6bed", flex: "0 0 auto" },
-						}),
-						wide && (0, react_jsx_runtime.jsx)("span", { children: label }),
-					],
-				}),
 			});
 		}
 		/**
@@ -2331,7 +2259,6 @@ window.__ModuleLoader__.load({
 			return (0, react_jsx_runtime.jsxs)("div", {
 				className: clsx(WorkspaceBrowser_module_css_default.root, !wide && WorkspaceBrowser_module_css_default.rail),
 				children: [
-					(0, react_jsx_runtime.jsx)(MoyuModeSwitcher, { wide, selectSurface }),
 					(0, react_jsx_runtime.jsx)(SurfaceNavigation, {
 						wide,
 						surface,
@@ -2693,11 +2620,6 @@ window.__ModuleLoader__.load({
 		}
 		/** Render a truthful empty or handoff state for an unconfigured surface. */
 		function SurfaceView({ surface, openSettings, renderSlot, t }) {
-			// UI-F02: Media 视频库作为一级 surface（占满主内容区）。
-			if (surface === "media-library") {
-				const library = renderSlot("surface.media-library", {});
-				if (library !== null && library !== void 0) return library;
-			}
 			if (surface === "scheduled") {
 				const scheduled = renderSlot("surface.scheduled", {});
 				if (scheduled !== null && scheduled !== void 0) return scheduled;
