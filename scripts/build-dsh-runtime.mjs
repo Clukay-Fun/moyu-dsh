@@ -16,7 +16,7 @@ import { packMod } from './pack-mod.mjs'
 
 // 出厂预装的 Mod（业务从静态 composition 移出后，以预装 Mod 形态默认在场、可卸载）。
 // session-export 已改回内置系统功能（2026-09-03 单一工作台），暂无预装 Mod；image/pdf 待 C2-g 后逐个迁移。
-const PREINSTALLED_MODS = []
+const PREINSTALLED_MODS = ['dsh-plugin-image']
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const target = join(root, 'build', 'dsh-runtime')
@@ -36,8 +36,8 @@ const MOYU_PLUGINS = {
   '@moyu/dsh-credentials-desktop': 'dsh-credentials-desktop',
   '@moyu/dsh-host-directory-picker-native': 'dsh-host-directory-picker-native',
   '@moyu/dsh-plugin-session-export': 'dsh-plugin-session-export',
-  // image / pdf 待 C2-g 解耦后逐个迁移为 Mod；scheduled-tasks / screenshot / session-export 为内置系统功能。
-  '@moyu/dsh-plugin-image': 'dsh-plugin-image',
+  // image 已迁为预装 Mod（C2-f，见 PREINSTALLED_MODS）；pdf 待下一片。
+  // scheduled-tasks / screenshot / session-export 为内置系统功能。
   '@moyu/dsh-plugin-pdf': 'dsh-plugin-pdf',
   '@moyu/dsh-plugin-screenshot': 'dsh-plugin-screenshot',
   '@moyu/dsh-plugin-scheduled-tasks': 'dsh-plugin-scheduled-tasks',

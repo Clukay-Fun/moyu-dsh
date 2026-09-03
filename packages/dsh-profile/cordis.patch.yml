@@ -90,8 +90,7 @@
       name: '@moyu/dsh-host-directory-picker-native'
     - id: moyu-directory-picker-native-client
       name: '@deepseek-ai/dsh-client-ui-directory-picker-native'
-    - id: moyu-image
-      name: '@moyu/dsh-plugin-image'
+    # moyu-image 已迁为预装 Mod（C2-f），经 Mod 层加载
     - id: moyu-pdf
       name: '@moyu/dsh-plugin-pdf'
     - id: moyu-screenshot

@@ -344,7 +344,7 @@ export const CORE_BUILTIN_TOOLS = Object.freeze([
   'screenshot_capture',    // screenshot（内置系统功能）
   'moyu_schedule_create',  // scheduled-tasks（内置系统功能，ready 时点 root-global）
   'moyu_schedule_run_now', // scheduled-tasks（内置）
-  'image_convert',         // 迁移前在静态 composition；迁为 image Mod 后从此移除
+  // image_convert 已迁为 image Mod（C2-f），由 mod.json provides.tools 接管，从核心台账移除
   'pdf_process',           // 迁移前在静态 composition；迁为 pdf Mod 后从此移除
 ])
 
