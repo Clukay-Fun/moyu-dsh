@@ -1,0 +1,12 @@
+{
+  "id": "moyu-image",
+  "displayName": "图片转换",
+  "author": "Clukay",
+  "requires": { "core": ["host-route", "file-token"], "shell": ">=0.1.0", "kernel": "*" },
+  "provides": {
+    "plugins": [{ "id": "moyu-image", "name": "@moyu/dsh-plugin-image" }],
+    "tools": [{ "name": "image_convert", "presets": ["moyu"], "required": true }]
+  },
+  "permissions": [],
+  "platforms": ["darwin", "win32"]
+}

@@ -1,0 +1,12 @@
+{
+  "id": "moyu-pdf",
+  "displayName": "PDF 处理",
+  "author": "Clukay",
+  "requires": { "core": ["host-route", "file-token"], "shell": ">=0.1.0", "kernel": "*" },
+  "provides": {
+    "plugins": [{ "id": "moyu-pdf", "name": "@moyu/dsh-plugin-pdf" }],
+    "tools": [{ "name": "pdf_process", "presets": ["moyu"], "required": true }]
+  },
+  "permissions": [],
+  "platforms": ["darwin", "win32"]
+}
