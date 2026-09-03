@@ -69,6 +69,22 @@ export function validateManifest(raw) {
       }
     }
   }
+  // C2-g：provides.tools 声明该 Mod 注册的 Tool 及其 preset 作用域（供工具面策略汇聚）。
+  // 可选（如 session-export 无 Tool）；声明时每项需 { name, presets[], required? }。
+  if (provides.tools !== undefined) {
+    if (!Array.isArray(provides.tools)) errors.push('provides.tools 必须是数组')
+    else for (const t of provides.tools) {
+      if (!t || typeof t !== 'object' || typeof t.name !== 'string' || !t.name) {
+        errors.push('provides.tools 每项需 { name, presets }'); break
+      }
+      if (!Array.isArray(t.presets) || t.presets.length === 0 || !t.presets.every((p) => typeof p === 'string')) {
+        errors.push(`provides.tools[${t.name}].presets 必须是非空字符串数组`); break
+      }
+      if (t.required !== undefined && typeof t.required !== 'boolean') {
+        errors.push(`provides.tools[${t.name}].required 必须是布尔`); break
+      }
+    }
+  }
 
   if (m.permissions !== undefined && !Array.isArray(m.permissions)) errors.push('permissions 必须是数组')
   if (m.platforms !== undefined) {
