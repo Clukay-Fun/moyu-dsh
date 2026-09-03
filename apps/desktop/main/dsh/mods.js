@@ -26,6 +26,11 @@ export const CORE_CAPABILITIES = new Set([
   'host-route', 'client-slot', 'settings', 'scheduler',
 ])
 const KNOWN_PLATFORMS = new Set(['darwin', 'win32', 'linux'])
+// C2-g1b：Tool 命名与作用域收紧
+const TOOL_NAME_RE = /^[a-z][a-z0-9_]*$/
+const RESERVED_TOOL_NAMES = new Set(['run_code'])
+// v1 只允许两个 policy surface（≠ Preset 目录名，见 c2g 计划 §3.3）
+export const KNOWN_POLICY_SURFACES = new Set(['moyu', 'media'])
 
 //#region C1-a Manifest 校验
 
@@ -69,19 +74,37 @@ export function validateManifest(raw) {
       }
     }
   }
-  // C2-g：provides.tools 声明该 Mod 注册的 Tool 及其 preset 作用域（供工具面策略汇聚）。
+  // C2-g：provides.tools 声明该 Mod 注册的 Tool 及其 policy surface 作用域（供工具面策略汇聚）。
   // 可选（如 session-export 无 Tool）；声明时每项需 { name, presets[], required? }。
+  // g1b 收紧：命名规则、保留名、已知 surface、去重、v1 拒绝 required:false。
   if (provides.tools !== undefined) {
     if (!Array.isArray(provides.tools)) errors.push('provides.tools 必须是数组')
-    else for (const t of provides.tools) {
-      if (!t || typeof t !== 'object' || typeof t.name !== 'string' || !t.name) {
-        errors.push('provides.tools 每项需 { name, presets }'); break
-      }
-      if (!Array.isArray(t.presets) || t.presets.length === 0 || !t.presets.every((p) => typeof p === 'string')) {
-        errors.push(`provides.tools[${t.name}].presets 必须是非空字符串数组`); break
-      }
-      if (t.required !== undefined && typeof t.required !== 'boolean') {
-        errors.push(`provides.tools[${t.name}].required 必须是布尔`); break
+    else {
+      const seenToolNames = new Set()
+      for (const t of provides.tools) {
+        if (!t || typeof t !== 'object' || typeof t.name !== 'string' || !t.name) {
+          errors.push('provides.tools 每项需 { name, presets }'); continue
+        }
+        if (!TOOL_NAME_RE.test(t.name)) errors.push(`provides.tools[${t.name}].name 非法（需小写字母开头，仅小写字母/数字/下划线）`)
+        if (RESERVED_TOOL_NAMES.has(t.name)) errors.push(`provides.tools 含保留 Tool 名: ${t.name}`)
+        if (seenToolNames.has(t.name)) errors.push(`provides.tools 重复 Tool 名: ${t.name}`)
+        seenToolNames.add(t.name)
+        if (!Array.isArray(t.presets) || t.presets.length === 0) {
+          errors.push(`provides.tools[${t.name}].presets 必须是非空数组`)
+        } else {
+          const seenPresets = new Set()
+          for (const p of t.presets) {
+            if (typeof p !== 'string' || !KNOWN_POLICY_SURFACES.has(p)) {
+              errors.push(`provides.tools[${t.name}].presets 含未知 policy surface: ${p}（v1 仅 moyu / media）`)
+            } else if (seenPresets.has(p)) {
+              errors.push(`provides.tools[${t.name}].presets 重复: ${p}`)
+            }
+            seenPresets.add(p)
+          }
+        }
+        if (t.required !== undefined && t.required !== true) {
+          errors.push(`provides.tools[${t.name}].required 在 v1 必须为 true（暂不支持 required:false）`)
+        }
       }
     }
   }

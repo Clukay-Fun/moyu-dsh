@@ -14,8 +14,9 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { packMod } from './pack-mod.mjs'
 
-// C2 试点：出厂预装的 Mod（业务从静态 composition 移出后，以预装 Mod 形态默认在场、可卸载）。
-const PREINSTALLED_MODS = ['dsh-plugin-session-export']
+// 出厂预装的 Mod（业务从静态 composition 移出后，以预装 Mod 形态默认在场、可卸载）。
+// session-export 已改回内置系统功能（2026-09-03 单一工作台），暂无预装 Mod；image/pdf 待 C2-g 后逐个迁移。
+const PREINSTALLED_MODS = []
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const target = join(root, 'build', 'dsh-runtime')
@@ -34,14 +35,13 @@ const SURFACE_BUNDLE = '@deepseek-ai/dsh-web-app'
 const MOYU_PLUGINS = {
   '@moyu/dsh-credentials-desktop': 'dsh-credentials-desktop',
   '@moyu/dsh-host-directory-picker-native': 'dsh-host-directory-picker-native',
-  // 已剥离为预装 Mod（C2 试点）：session-export，见 PREINSTALLED_MODS。
-  // image / pdf 暂缓迁移：它们卷入守卫 PRESET_REQUIRED_TOOLS 与跨插件“白名单==composition”
-  // 漂移检查，需先按契约 §1.3 解耦（见 C2 计划 §8），故仍留静态 composition。
+  '@moyu/dsh-plugin-session-export': 'dsh-plugin-session-export',
+  // image / pdf 待 C2-g 解耦后逐个迁移为 Mod；scheduled-tasks / screenshot / session-export 为内置系统功能。
   '@moyu/dsh-plugin-image': 'dsh-plugin-image',
   '@moyu/dsh-plugin-pdf': 'dsh-plugin-pdf',
   '@moyu/dsh-plugin-screenshot': 'dsh-plugin-screenshot',
-  '@moyu/dsh-plugin-scheduled-tasks': 'dsh-plugin-scheduled-tasks',
-  '@moyu/dsh-plugin-media': 'dsh-plugin-media'
+  '@moyu/dsh-plugin-scheduled-tasks': 'dsh-plugin-scheduled-tasks'
+  // dsh-plugin-media 已移除（2026-09-03 单一工作台，自媒体工作台归档）
 }
 
 const RUNTIME_DEPENDENCIES = {
@@ -249,34 +249,8 @@ async function buildProfileTemplate() {
 `
   )
 
-  // 为 agent-presets 提供 media preset 模板
-  const mediaPresetDir = join(home, '.agent-presets', 'media')
-  await mkdir(mediaPresetDir, { recursive: true })
-  await writeFile(join(mediaPresetDir, 'preset.yml'), 'name: MOYU Media\ndescription: MOYU 自媒体内容创作工作台\n')
-  const personaSrc = await readFile(join(root, 'packages/dsh-plugin-media/src/media-prompt.ts'), 'utf8')
-  const personaMark = 'export const MEDIA_PERSONA_TEXT = `'
-  const personaStart = personaSrc.indexOf(personaMark)
-  if (personaStart < 0) throw new Error('media persona 正文缺失')
-  const personaFrom = personaStart + personaMark.length
-  const personaEnd = personaSrc.indexOf('`', personaFrom)
-  if (personaEnd < 0) throw new Error('media persona 正文未闭合')
-  const personaBlock = personaSrc.slice(personaFrom, personaEnd).split('\n').map((line) => `      ${line}`).join('\n')
-  await writeFile(
-    join(mediaPresetDir, 'agent.cordis.yml'),
-    `# 自媒体预设：自媒体内容创作工作台
-- id: agent-instructions
-  name: '@deepseek-ai/dsh-agent-instructions'
-  config:
-    maxBytes: 65536
-- id: tool-ask-user
-  name: '@deepseek-ai/dsh-tool-ask-user'
-- id: persona
-  name: '@deepseek-ai/dsh-persona'
-  config:
-    text: |
-${personaBlock}
-`
-  )
+  // media 预设已移除（2026-09-03 单一工作台）：不再生成 media agent-preset 模板。
+  // 自媒体相关能力若保留，以 Mod 形式提供，不再作为独立工作台预设。
 
   const patch = await readFile(join(profileDir, 'cordis.patch.yml'), 'utf8')
   const disabled = patch.match(/disabled: true/g)?.length ?? 0
