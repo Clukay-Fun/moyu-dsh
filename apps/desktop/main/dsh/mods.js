@@ -296,6 +296,76 @@ export async function seedPreinstalledMods({ preinstalledDir, modsDir, env }) {
 
 //#endregion
 
+//#region C2-g 第一层：全局注册完整性（单一工作台）
+
+// 迁移期核心内置 **root-global** Tool 台账（transitional）。
+// 重要（g2a 实测，c2g §7.2）：全局审计在 root scope 读 schemas；`moyu_schedule_*` 等是
+// **agent-scoped**、不出现在 root，故不进本台账（它们是内置系统功能，不受 Mod 全局审计约束）。
+// 本台账只列 root-global Tool：mod 也在 root 注册（image_convert/pdf_process 在 root 可见），
+// 故 root 审计能抓住 Mod 偷偷注册的未声明 Tool。
+// 每把一个业务插件迁为 Mod，必须在同一提交从此处移除该 Tool 并由 Mod Manifest 的 provides.tools 接管。
+export const CORE_BUILTIN_TOOLS = Object.freeze([
+  'ask_user_question',   // tool-ask-user（内置，root-global）
+  'screenshot_capture',  // screenshot（内置系统功能，root-global）
+  'image_convert',       // 迁移前在静态 composition；迁为 image Mod 后从此移除
+  'pdf_process',         // 迁移前在静态 composition；迁为 pdf Mod 后从此移除
+])
+
+/**
+从核心内置台账 + 已启用 Mod manifest 汇聚出第一层策略快照（单一工作台，无 per-preset）。
+参数：
+  - activeManifests: [{ id, version, provides:{ tools:[{name}] } }]（已通过校验/兼容/完整性的 active 集合）
+  - coreBuiltinTools: 核心内置 Tool 名数组（默认 CORE_BUILTIN_TOOLS）
+返回 { schemaVersion, activeMods, coreBuiltinTools, globalExpected, owners }。
+冲突（抛错，安全不变量损坏）：
+  - 两个 Mod 声明同名 Tool；
+  - Mod 声明的 Tool 与核心内置台账同名（迁移时未从核心移除）。
+*/
+export function buildEffectiveToolPolicy(activeManifests, coreBuiltinTools = CORE_BUILTIN_TOOLS) {
+  const owners = {}
+  for (const name of coreBuiltinTools) {
+    if (owners[name]) throw new Error(`核心内置台账重复 Tool: ${name}`)
+    owners[name] = 'core'
+  }
+  const activeMods = []
+  for (const m of activeManifests) {
+    activeMods.push({ id: m.id, version: m.version })
+    const tools = (m.provides && Array.isArray(m.provides.tools)) ? m.provides.tools : []
+    for (const t of tools) {
+      const name = t && t.name
+      if (!name) continue
+      if (owners[name] === 'core') throw new Error(`Mod [${m.id}] 声明的 Tool [${name}] 与核心内置台账冲突（迁移时须从核心台账移除）`)
+      if (owners[name] && owners[name] !== `mod:${m.id}`) throw new Error(`Tool [${name}] 被多个 Mod 声明（${owners[name]} 与 mod:${m.id}）`)
+      owners[name] = `mod:${m.id}`
+    }
+  }
+  const globalExpected = Object.keys(owners).sort()
+  activeMods.sort((a, b) => a.id.localeCompare(b.id))
+  return {
+    schemaVersion: 1,
+    activeMods,
+    coreBuiltinTools: [...coreBuiltinTools].sort(),
+    globalExpected,
+    owners,
+  }
+}
+
+/**
+将实际全局工具面与策略快照精确比对（Host 全局审计的纯逻辑）。
+返回 { ok, undeclared:[], missing:[] }。
+  - undeclared：实际出现但不在 globalExpected（未声明 Tool 偷偷注册）。
+  - missing：globalExpected 有但实际未注册（核心内置或 active Mod 声明的 Tool 缺失）。
+*/
+export function auditGlobalToolSurface(actualToolNames, policy) {
+  const expected = new Set(policy.globalExpected)
+  const actual = new Set(actualToolNames)
+  const undeclared = [...actual].filter((n) => !expected.has(n)).sort()
+  const missing = [...expected].filter((n) => !actual.has(n)).sort()
+  return { ok: undeclared.length === 0 && missing.length === 0, undeclared, missing }
+}
+
+//#endregion
+
 //#region C1-c composition 生成
 
 /**
