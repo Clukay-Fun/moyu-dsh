@@ -40,6 +40,7 @@ const MOYU_PLUGINS = {
   // scheduled-tasks / screenshot / session-export 为内置系统功能。
   '@moyu/dsh-plugin-screenshot': 'dsh-plugin-screenshot',
   '@moyu/dsh-plugin-scheduled-tasks': 'dsh-plugin-scheduled-tasks',
+  '@moyu/dsh-plugin-mods-api': 'dsh-plugin-mods-api', // C3-d Mods 管理路由 /moyu/mods
   '@moyu/dsh-plugin-tool-audit': 'dsh-plugin-tool-audit' // C2-g host-audit：root composition 最后一项
   // dsh-plugin-media 已移除（2026-09-03 单一工作台，自媒体工作台归档）
 }
