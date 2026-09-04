@@ -11,11 +11,9 @@
     "packages/dsh-plugin-session-export",
     "packages/dsh-host-directory-picker-native",
     "packages/dsh-plugin-image",
-
     "packages/dsh-plugin-pdf",
     "packages/dsh-plugin-screenshot",
     "packages/dsh-plugin-scheduled-tasks",
-    "packages/dsh-plugin-media",
     "packages/dsh-profile"
   ],
   "main": "./out/main/index.js",
