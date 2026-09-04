@@ -192,7 +192,10 @@ window.__ModuleLoader__.load({
 			(0, react.useEffect)(() => {
 				actions.setNarrow(narrow);
 			}, [actions, narrow]);
-			const sidebarCollapsed = narrow ? !panels.narrowExpanded : panels.sidebar === 0;
+			const [sidebarDragging, setSidebarDragging] = (0, react.useState)(false);
+			const [sidebarDragCollapsed, setSidebarDragCollapsed] = (0, react.useState)(false);
+			const sidebarDragCollapsedRef = (0, react.useRef)(false);
+			const sidebarCollapsed = sidebarDragCollapsed || (narrow ? !panels.narrowExpanded : panels.sidebar === 0);
 			const cols = computeColumns(viewport, sidebarCollapsed ? 0 : panels.sidebar === 0 ? 280 : panels.sidebar, surface === "conversation" && detailsSession !== void 0 ? panels.details : 0);
 			const colsRef = (0, react.useRef)(cols);
 			colsRef.current = cols;
@@ -204,6 +207,9 @@ window.__ModuleLoader__.load({
 			}, []);
 			const onSidebarStart = (0, react.useCallback)(() => {
 				sidebarBase.current = colsRef.current.sidebar;
+				sidebarDragCollapsedRef.current = false;
+				setSidebarDragCollapsed(false);
+				setSidebarDragging(true);
 				setDragging(true);
 			}, []);
 			const onDetailsStart = (0, react.useCallback)(() => {
@@ -211,7 +217,18 @@ window.__ModuleLoader__.load({
 				setDragging(true);
 			}, []);
 			const onSidebarDrag = (0, react.useCallback)((dx) => {
-				actions.setSidebar(sidebarBase.current + dx);
+				const requested = sidebarBase.current + dx;
+				const collapsed = requested <= sidebarBase.current / 2;
+				sidebarDragCollapsedRef.current = collapsed;
+				setSidebarDragCollapsed(collapsed);
+				if (!collapsed) actions.setSidebar(requested);
+			}, [actions]);
+			const onSidebarEnd = (0, react.useCallback)(() => {
+				if (sidebarDragCollapsedRef.current) actions.collapseSidebar();
+				sidebarDragCollapsedRef.current = false;
+				setSidebarDragCollapsed(false);
+				setSidebarDragging(false);
+				setDragging(false);
 			}, [actions]);
 			const onDetailsDrag = (0, react.useCallback)((dx) => {
 				actions.setDetails(detailsBase.current - dx);
@@ -238,12 +255,12 @@ window.__ModuleLoader__.load({
 						"data-shell-overlay": true,
 						children: renderSlot("shell.overlay", {})
 					}),
-					!sidebarCollapsed && (0, react_jsx_runtime.jsx)(DragHandle, {
+					(!sidebarCollapsed || sidebarDragging) && (0, react_jsx_runtime.jsx)(DragHandle, {
 						side: "sidebar",
 						left: cols.sidebar,
 						onStart: onSidebarStart,
 						onDrag: onSidebarDrag,
-						onEnd: onDragEnd
+						onEnd: onSidebarEnd
 					}),
 					cols.details > 0 && (0, react_jsx_runtime.jsx)(DragHandle, {
 						side: "details",
@@ -288,6 +305,10 @@ window.__ModuleLoader__.load({
 				actions: {
 					setSidebar: (d, px) => {
 						d.sidebar = clampWidth(px, 264, 420);
+					},
+					collapseSidebar: (d) => {
+						if (d.narrow) d.narrowExpanded = false;
+						else d.sidebar = 0;
 					},
 					setDetails: (d, px) => {
 						d.details = clampWidth(px, 300, 520);
