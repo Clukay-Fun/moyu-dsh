@@ -1071,7 +1071,7 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region \0dsh-css:/Users/clukay/Program/deepseek-harness/packages/client/ui-workspace/src/client/WorkspacePicker.module.css.mjs
-		const css$2 = ".rYNBnG_modalAction{min-width:72px}.rYNBnG_modalError,.rYNBnG_menuStatus{margin-top:8px;font-size:12px;line-height:18px}.rYNBnG_modalError{color:var(--dsw-alias-state-error-primary)}.rYNBnG_menuStatus{color:var(--dsw-alias-label-secondary)}";
+		const css$2 = ".rYNBnG_modalAction{min-width:72px}.rYNBnG_modalError,.rYNBnG_menuStatus{margin-top:8px;font-size:12px;line-height:18px}.rYNBnG_modalError{color:var(--dsw-alias-state-error-primary)}.rYNBnG_menuStatus{color:var(--dsw-alias-label-secondary)}.rYNBnG_createBody{flex-direction:column;gap:20px;display:flex}.rYNBnG_nameField{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);width:100%;height:48px;color:var(--dsw-alias-label-primary);background:0 0;border-radius:12px;outline:none;padding:0 16px;font:inherit}.rYNBnG_nameField:focus{border-color:var(--dsw-alias-state-business-primary)}.rYNBnG_sourceLabel{color:var(--dsw-alias-label-primary);font-size:14px;font-weight:600}.rYNBnG_sourceButton{box-sizing:border-box;cursor:pointer;width:100%;min-height:112px;color:var(--dsw-alias-label-secondary);background:0 0;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;justify-content:center;align-items:center;gap:8px;padding:18px;display:flex}.rYNBnG_sourceButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.rYNBnG_sourceButton:disabled{cursor:default;opacity:.55}.rYNBnG_sourcePath{word-break:break-all;color:var(--dsw-alias-label-primary);text-align:left}";
 		const tagId$2 = "@deepseek-ai/dsh-client-ui-workspace/WorkspacePicker.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$2) + "]") === null) {
 			const tag = document.createElement("style");
@@ -1081,9 +1081,14 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var WorkspacePicker_module_css_default = {
+			"createBody": "rYNBnG_createBody",
 			"menuStatus": "rYNBnG_menuStatus",
 			"modalAction": "rYNBnG_modalAction",
-			"modalError": "rYNBnG_modalError"
+			"modalError": "rYNBnG_modalError",
+			"nameField": "rYNBnG_nameField",
+			"sourceButton": "rYNBnG_sourceButton",
+			"sourceLabel": "rYNBnG_sourceLabel",
+			"sourcePath": "rYNBnG_sourcePath"
 		};
 		//#endregion
 		//#region lib/types/client/WorkspacePicker.js
@@ -1093,7 +1098,7 @@ window.__ModuleLoader__.load({
 		* @param props - owner-controlled flow props.
 		* @returns menu + dialog elements.
 		*/
-		function WorkspacePickFlow({ t, open, anchorRef, useWorkspaces, createWorkspace, useDirectoryFlow, renderDirectoryFlow, onPick, onClose, addOnly = false, side = "bottom", selectedId }) {
+		function WorkspacePickFlow({ t, open, anchorRef, useWorkspaces, createWorkspace, renameWorkspace, useDirectoryFlow, renderDirectoryFlow, onPick, onClose, addOnly = false, side = "bottom", selectedId }) {
 			const workspaceSnapshot = useWorkspaces((state) => state);
 			const workspaces = workspaceSnapshot.items;
 			const getAnchorRect = (0, react.useCallback)(() => anchorRef?.current?.getBoundingClientRect() ?? null, [anchorRef]);
@@ -1101,7 +1106,11 @@ window.__ModuleLoader__.load({
 			const [modalError, setModalError] = (0, react.useState)(null);
 			const [flowOpen, setFlowOpen] = (0, react.useState)(false);
 			const [pickingFolder, setPickingFolder] = (0, react.useState)(false);
-			const flowBusy = flowOpen || pickingFolder;
+			const [createOpen, setCreateOpen] = (0, react.useState)(false);
+			const [projectName, setProjectName] = (0, react.useState)("");
+			const [sourcePath, setSourcePath] = (0, react.useState)(null);
+			const [creating, setCreating] = (0, react.useState)(false);
+			const flowBusy = flowOpen || pickingFolder || creating;
 			const flowAvailable = useDirectoryFlow((occupied) => occupied);
 			(0, react.useEffect)(() => {
 				if (flowOpen && !flowAvailable) setFlowOpen(false);
@@ -1124,15 +1133,37 @@ window.__ModuleLoader__.load({
 				setErrorOpen(false);
 				setModalError(null);
 			};
-			/** Adopt a picked directory; failures land in the folder-error dialog (Choose again reopens the flow). */
-			const adoptDirectory = (path) => createWorkspace({ path }).then((workspace) => {
-				setFlowOpen(false);
-				onPick(workspace.workspaceId);
-			}).catch((reason) => {
-				setModalError(reason instanceof Error ? reason.message : String(reason));
-				setFlowOpen(false);
-				setErrorOpen(true);
-			});
+			const folderName = (path) => path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || path;
+			const closeCreate = () => {
+				if (flowBusy) return;
+				setCreateOpen(false);
+				setProjectName("");
+				setSourcePath(null);
+				setModalError(null);
+			};
+			const openCreate = (0, react.useCallback)(() => {
+				onClose();
+				setErrorOpen(false);
+				setModalError(null);
+				setProjectName("");
+				setSourcePath(null);
+				setCreateOpen(true);
+			}, [onClose]);
+			const confirmCreate = () => {
+				const title = projectName.trim();
+				if (creating || sourcePath === null || title === "") return;
+				setCreating(true);
+				setModalError(null);
+				createWorkspace({ path: sourcePath }).then(async (workspace) => {
+					if (renameWorkspace !== void 0 && workspace.title !== title) await renameWorkspace(workspace.workspaceId, title);
+					setCreateOpen(false);
+					onPick(workspace.workspaceId);
+				}).catch((reason) => {
+					setModalError(reason instanceof Error ? reason.message : String(reason));
+				}).finally(() => {
+					setCreating(false);
+				});
+			};
 			const openDirectoryFlow = (0, react.useCallback)(() => {
 				onClose();
 				setErrorOpen(false);
@@ -1142,12 +1173,13 @@ window.__ModuleLoader__.load({
 			const listSettled = addOnly || workspaceSnapshot.phase === "ready";
 			const addIsTheOnlyEntry = !pinAdd && listSettled && addEntries.length === 1;
 			(0, react.useEffect)(() => {
-				if (open && addIsTheOnlyEntry && !flowBusy) openDirectoryFlow();
+				if (open && addIsTheOnlyEntry && !flowBusy && !createOpen) openCreate();
 			}, [
 				open,
 				addIsTheOnlyEntry,
 				flowBusy,
-				openDirectoryFlow
+				createOpen,
+				openCreate
 			]);
 			/** Owner side of the flow conversation: adopt keeps the flow open (busy) until the Host answers. */
 			const flowOwner = {
@@ -1155,9 +1187,10 @@ window.__ModuleLoader__.load({
 				busy: pickingFolder,
 				onPicked: (path) => {
 					setPickingFolder(true);
-					adoptDirectory(path).finally(() => {
-						setPickingFolder(false);
-					});
+					setSourcePath(path);
+					setProjectName((current) => current.trim() === "" ? folderName(path) : current);
+					setFlowOpen(false);
+					setPickingFolder(false);
 				},
 				onCancel: () => {
 					setFlowOpen(false);
@@ -1165,12 +1198,11 @@ window.__ModuleLoader__.load({
 				onError: (message) => {
 					setFlowOpen(false);
 					setModalError(message);
-					setErrorOpen(true);
 				}
 			};
 			const handleSelect = (id) => {
 				if (id === ADD_WORKSPACE) {
-					openDirectoryFlow();
+					openCreate();
 					return;
 				}
 				onPick(id);
@@ -1194,6 +1226,51 @@ window.__ModuleLoader__.load({
 					children: t("picker.loading")
 				}),
 				renderDirectoryFlow(flowOwner),
+				(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Modal, {
+					open: createOpen,
+					onClose: closeCreate,
+					closeLabel: t("close"),
+					title: t("createProject.title"),
+					footer: (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
+						variant: "outline",
+						disabled: flowBusy,
+						onClick: closeCreate,
+						children: t("cancel")
+					}), (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
+						variant: "primary",
+						disabled: flowBusy || sourcePath === null || projectName.trim() === "",
+						onClick: confirmCreate,
+						children: t("createProject.confirm")
+					})] }),
+					children: (0, react_jsx_runtime.jsxs)("div", {
+						className: WorkspacePicker_module_css_default.createBody,
+						children: [(0, react_jsx_runtime.jsx)("input", {
+							className: WorkspacePicker_module_css_default.nameField,
+							value: projectName,
+							placeholder: t("createProject.name"),
+							"aria-label": t("createProject.name"),
+							autoFocus: true,
+							disabled: flowBusy,
+							onChange: (event) => setProjectName(event.target.value)
+						}), (0, react_jsx_runtime.jsx)("div", {
+							className: WorkspacePicker_module_css_default.sourceLabel,
+							children: t("createProject.source")
+						}), (0, react_jsx_runtime.jsxs)("button", {
+							type: "button",
+							className: WorkspacePicker_module_css_default.sourceButton,
+							disabled: flowBusy || !flowAvailable,
+							onClick: openDirectoryFlow,
+							children: [(0, react_jsx_runtime.jsx)(moyuFolderPlus, { size: 22 }), (0, react_jsx_runtime.jsx)("span", {
+								className: sourcePath === null ? void 0 : WorkspacePicker_module_css_default.sourcePath,
+								children: sourcePath ?? t("createProject.addSource")
+							})]
+						}), modalError !== null && (0, react_jsx_runtime.jsx)("div", {
+							className: WorkspacePicker_module_css_default.modalError,
+							role: "alert",
+							children: modalError
+						})]
+					})
+				}),
 				(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Modal, {
 					open: errorOpen,
 					onClose: closeModal,
@@ -1225,13 +1302,14 @@ window.__ModuleLoader__.load({
 		* @param props - empty-state slot props (owner share + injected creation callback).
 		* @returns the flow element.
 		*/
-		function WorkspacePicker({ open, anchorRef, useWorkspaces, selectedId, onPick, onClose, createWorkspace, useDirectoryFlow, renderSlot, t }) {
+		function WorkspacePicker({ open, anchorRef, useWorkspaces, selectedId, onPick, onClose, createWorkspace, renameWorkspace, useDirectoryFlow, renderSlot, t }) {
 			return (0, react_jsx_runtime.jsx)(WorkspacePickFlow, {
 				t,
 				open,
 				anchorRef,
 				useWorkspaces,
 				createWorkspace,
+				renameWorkspace,
 				useDirectoryFlow,
 				renderDirectoryFlow: (owner) => renderSlot("conversation.hero.workspace.directoryFlow", owner),
 				selectedId,
@@ -2366,6 +2444,7 @@ window.__ModuleLoader__.load({
 								anchorRef: wsPlusRef,
 								useWorkspaces,
 								createWorkspace,
+								renameWorkspace,
 								useDirectoryFlow,
 								renderDirectoryFlow: (owner) => renderSlot("sidebar.workspaces.directoryFlow", owner),
 								addOnly: true,
@@ -2677,6 +2756,11 @@ window.__ModuleLoader__.load({
 			"empty.none": "暂无会话",
 			"empty.noMatches": "无匹配结果",
 			"workspace.add": "添加工作区",
+			"createProject.title": "创建项目",
+			"createProject.name": "项目名称",
+			"createProject.source": "源文件夹",
+			"createProject.addSource": "添加 MOYU DSH 可读取和编辑的文件夹",
+			"createProject.confirm": "创建项目",
 			"search.sessions.aria": "搜索会话",
 			"search.placeholder": "搜索会话…",
 			"search.clear": "清除搜索",
@@ -2769,6 +2853,11 @@ window.__ModuleLoader__.load({
 			"empty.none": "No sessions yet",
 			"empty.noMatches": "No matches",
 			"workspace.add": "Add workspace",
+			"createProject.title": "Create project",
+			"createProject.name": "Project name",
+			"createProject.source": "Source folder",
+			"createProject.addSource": "Add a folder MOYU DSH can read and edit",
+			"createProject.confirm": "Create project",
 			"search.sessions.aria": "Search sessions",
 			"search.placeholder": "Search sessions...",
 			"search.clear": "Clear search",
@@ -2951,6 +3040,9 @@ window.__ModuleLoader__.load({
 			});
 			const pickerInjected = () => ({
 				createWorkspace: (input) => ctx.workspaces.create(input),
+				renameWorkspace: async (workspaceId, title) => {
+					await ctx.workspaces.rename(workspaceId, title);
+				},
 				hooks: { directoryFlow: pickerFlowSource }
 			});
 			const surfaceInjected = () => ({ openSettings: (sectionId) => {
