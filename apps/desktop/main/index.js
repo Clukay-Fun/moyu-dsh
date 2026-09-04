@@ -26,7 +26,7 @@ import { currentDsh, logStartup, startDsh, stopDsh } from './dsh/index.js'
 import { installNavigationPolicy, installSessionPolicy } from './dsh/session-policy.js'
 import { migrateUserData } from './dsh/userdata-migrate.mjs'
 
-const APP_RUNTIME_NAME = 'MOYU DSH'
+const APP_RUNTIME_NAME = 'Moyu'
 const APP_DISPLAY_NAME = 'MOYU DSH'
 
 // C3-c 身份切换 + userData 迁移。改应用名（旧 MOYU/Moyu → MOYU DSH）会让 OS 派生新的 userData
@@ -34,6 +34,7 @@ const APP_DISPLAY_NAME = 'MOYU DSH'
 // 不丢数据、原子发布、失败保底用旧目录、绝不进空白环境（详见 dsh/userdata-migrate.mjs）。
 // 显式传入 --user-data-dir（dev / 测试 / 隔离启动）时，userData 由启动方控制：不迁移、不强制路径。
 const explicitUserDataDir = process.argv.some((a) => a === '--user-data-dir' || a.startsWith('--user-data-dir='))
+process.title = APP_RUNTIME_NAME
 app.setName(APP_RUNTIME_NAME)
 if (!explicitUserDataDir) {
   const appDataRoot = process.env.MOYU_APPDATA_OVERRIDE || app.getPath('appData')
