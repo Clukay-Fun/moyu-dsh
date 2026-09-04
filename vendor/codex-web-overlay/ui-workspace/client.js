@@ -33,6 +33,7 @@ window.__ModuleLoader__.load({
 		const moyuPlus = (props) => (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: MOYU_LUCIDE.Plus }, props));
 		const moyuChevronRight = (props) => (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: MOYU_LUCIDE.ChevronRight }, props));
 		const moyuFolder = (props) => (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: MOYU_LUCIDE.Folder }, props));
+		const moyuFolderPlusCorner = (props) => (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: [["path", { "d": "M20 19H5a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h3.4a2 2 0 0 1 1.6.8L11.65 6H19a3 3 0 0 1 3 3v3" }], ["path", { "d": "M19 15v6" }], ["path", { "d": "M16 18h6" }]] }, props));
 		const moyuFolderOpen = (props) => (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: MOYU_LUCIDE.FolderOpen }, props));
 		const moyuFolderInput = (props) => (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: MOYU_LUCIDE.FolderInput }, props));
 		const moyuEllipsis = (props) => (0, react_jsx_runtime.jsx)(MoyuLucideIcon, Object.assign({ node: MOYU_LUCIDE.Ellipsis }, props));
@@ -1071,7 +1072,7 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region \0dsh-css:/Users/clukay/Program/deepseek-harness/packages/client/ui-workspace/src/client/WorkspacePicker.module.css.mjs
-		const css$2 = ".rYNBnG_modalAction{min-width:72px}.rYNBnG_modalError,.rYNBnG_menuStatus{margin-top:8px;font-size:12px;line-height:18px}.rYNBnG_modalError{color:var(--dsw-alias-state-error-primary)}.rYNBnG_menuStatus{color:var(--dsw-alias-label-secondary)}.rYNBnG_createDialog.rYNBnG_createDialog{width:min(520px,calc(100vw - 32px))}.rYNBnG_createBody{flex-direction:column;gap:14px;display:flex}.rYNBnG_nameField{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);width:100%;height:44px;color:var(--dsw-alias-label-primary);background:0 0;border-radius:12px;outline:none;padding:0 16px;font:inherit}.rYNBnG_nameField:focus{border-color:var(--dsw-alias-state-business-primary)}.rYNBnG_sourceLabel{color:var(--dsw-alias-label-primary);font-size:14px;font-weight:600}.rYNBnG_sourceButton{box-sizing:border-box;cursor:pointer;width:100%;min-height:88px;color:var(--dsw-alias-label-secondary);background:0 0;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;justify-content:center;align-items:center;gap:8px;padding:18px;display:flex}.rYNBnG_sourceButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.rYNBnG_sourceButton:disabled{cursor:default;opacity:.55}.rYNBnG_sourcePath{word-break:break-all;color:var(--dsw-alias-label-primary);text-align:left}";
+		const css$2 = ".rYNBnG_modalAction{min-width:72px}.rYNBnG_modalError,.rYNBnG_menuStatus{margin-top:8px;font-size:12px;line-height:18px}.rYNBnG_modalError{color:var(--dsw-alias-state-error-primary)}.rYNBnG_menuStatus{color:var(--dsw-alias-label-secondary)}.rYNBnG_createDialog.rYNBnG_createDialog{width:min(520px,calc(100vw - 32px))}.rYNBnG_createTitle{font-size:24px;font-weight:650;line-height:32px;letter-spacing:-.02em}.rYNBnG_createBody{flex-direction:column;gap:14px;margin-top:-6px;display:flex}.rYNBnG_nameControl{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);width:100%;height:44px;color:var(--dsw-alias-label-primary);background:0 0;border-radius:12px;align-items:center;display:flex;overflow:hidden}.rYNBnG_nameControl:focus-within{border-color:var(--dsw-alias-state-business-primary)}.rYNBnG_nameIcon{width:44px;height:100%;color:var(--dsw-alias-label-primary);border-right:1px solid var(--dsw-alias-border-l2);flex:none;justify-content:center;align-items:center;display:flex}.rYNBnG_nameField{box-sizing:border-box;border:0;min-width:0;height:100%;color:var(--dsw-alias-label-primary);background:0 0;outline:none;flex:1;padding:0 14px;font:inherit}.rYNBnG_sourceLabel{color:var(--dsw-alias-label-primary);font-size:14px;font-weight:600}.rYNBnG_sourceButton{box-sizing:border-box;cursor:pointer;width:100%;min-height:96px;color:var(--dsw-alias-label-secondary);background:0 0;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;justify-content:center;align-items:center;gap:10px;padding:18px;display:flex}.rYNBnG_sourceButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.rYNBnG_sourceButton:disabled{cursor:default;opacity:.55}.rYNBnG_sourcePath{word-break:break-all;color:var(--dsw-alias-label-primary);text-align:left}";
 		const tagId$2 = "@deepseek-ai/dsh-client-ui-workspace/WorkspacePicker.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$2) + "]") === null) {
 			const tag = document.createElement("style");
@@ -1083,10 +1084,13 @@ window.__ModuleLoader__.load({
 		var WorkspacePicker_module_css_default = {
 			"createBody": "rYNBnG_createBody",
 			"createDialog": "rYNBnG_createDialog",
+			"createTitle": "rYNBnG_createTitle",
 			"menuStatus": "rYNBnG_menuStatus",
 			"modalAction": "rYNBnG_modalAction",
 			"modalError": "rYNBnG_modalError",
+			"nameControl": "rYNBnG_nameControl",
 			"nameField": "rYNBnG_nameField",
+			"nameIcon": "rYNBnG_nameIcon",
 			"sourceButton": "rYNBnG_sourceButton",
 			"sourceLabel": "rYNBnG_sourceLabel",
 			"sourcePath": "rYNBnG_sourcePath"
@@ -1231,7 +1235,7 @@ window.__ModuleLoader__.load({
 					open: createOpen,
 					onClose: closeCreate,
 					closeLabel: t("close"),
-					title: t("createProject.title"),
+					title: (0, react_jsx_runtime.jsx)("span", { className: WorkspacePicker_module_css_default.createTitle, children: t("createProject.title") }),
 					className: WorkspacePicker_module_css_default.createDialog,
 					footer: (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
 						variant: "outline",
@@ -1246,14 +1250,17 @@ window.__ModuleLoader__.load({
 					})] }),
 					children: (0, react_jsx_runtime.jsxs)("div", {
 						className: WorkspacePicker_module_css_default.createBody,
-						children: [(0, react_jsx_runtime.jsx)("input", {
-							className: WorkspacePicker_module_css_default.nameField,
-							value: projectName,
-							placeholder: t("createProject.name"),
-							"aria-label": t("createProject.name"),
-							autoFocus: true,
-							disabled: flowBusy,
-							onChange: (event) => setProjectName(event.target.value)
+						children: [(0, react_jsx_runtime.jsxs)("div", {
+							className: WorkspacePicker_module_css_default.nameControl,
+							children: [(0, react_jsx_runtime.jsx)("span", { className: WorkspacePicker_module_css_default.nameIcon, children: (0, react_jsx_runtime.jsx)(moyuFolder, { size: 18 }) }), (0, react_jsx_runtime.jsx)("input", {
+								className: WorkspacePicker_module_css_default.nameField,
+								value: projectName,
+								placeholder: t("createProject.name"),
+								"aria-label": t("createProject.name"),
+								autoFocus: true,
+								disabled: flowBusy,
+								onChange: (event) => setProjectName(event.target.value)
+							})]
 						}), (0, react_jsx_runtime.jsx)("div", {
 							className: WorkspacePicker_module_css_default.sourceLabel,
 							children: t("createProject.source")
@@ -1262,7 +1269,7 @@ window.__ModuleLoader__.load({
 							className: WorkspacePicker_module_css_default.sourceButton,
 							disabled: flowBusy || !flowAvailable,
 							onClick: openDirectoryFlow,
-							children: [(0, react_jsx_runtime.jsx)(moyuFolderPlus, { size: 22 }), (0, react_jsx_runtime.jsx)("span", {
+							children: [(0, react_jsx_runtime.jsx)(moyuFolderPlusCorner, { size: 22 }), (0, react_jsx_runtime.jsx)("span", {
 								className: sourcePath === null ? void 0 : WorkspacePicker_module_css_default.sourcePath,
 								children: sourcePath ?? t("createProject.addSource")
 							})]
