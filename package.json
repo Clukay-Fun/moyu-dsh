@@ -23,7 +23,7 @@
     "node": ">=22.12"
   },
   "scripts": {
-    "dev": "node scripts/prepare-macos-dev-brand.mjs && electron-vite dev",
+    "dev": "node scripts/run-dev.mjs",
     "build": "electron-vite build",
     "build:icon": "node scripts/generate-icon.mjs",
     "build:native:mac": "node scripts/build-macos-native.mjs",
