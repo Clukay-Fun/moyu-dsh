@@ -199,7 +199,7 @@ window.__ModuleLoader__.load({
 				children: [
 					(0, react_jsx_runtime.jsxs)("div", {
 						className: SidebarRoot_module_css_default.logoRow,
-						children: [!collapsed && (0, react_jsx_runtime.jsx)("span", { style: { fontWeight: 600, letterSpacing: "0.04em", fontSize: 18, lineHeight: 1, color: "inherit" }, children: "MOYU DSH" }), (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
+						children: [!collapsed && (0, react_jsx_runtime.jsx)("span", { style: { fontWeight: 600, letterSpacing: "0.04em", fontSize: 16, lineHeight: 1, color: "inherit" }, children: "MOYU DSH" }), (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
 							label: collapsed ? t("toggle.open") : t("toggle.collapse"),
 							delayMs: 500,
 							children: (0, react_jsx_runtime.jsxs)("button", {
