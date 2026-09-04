@@ -14,6 +14,8 @@
     "packages/dsh-plugin-pdf",
     "packages/dsh-plugin-screenshot",
     "packages/dsh-plugin-scheduled-tasks",
+    "packages/dsh-plugin-mods-api",
+    "packages/dsh-plugin-shell",
     "packages/dsh-profile"
   ],
   "main": "./out/main/index.js",
