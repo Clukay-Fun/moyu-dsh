@@ -152,14 +152,48 @@ const WEEKDAY_OPTIONS = [
 // Scoped CSS so button sizing / hover / focus / danger states are consistent
 // without touching the host page's global styles.
 const STYLE = `
-.moyu-st-page { box-sizing: border-box; width: 100%; min-height: 100%; color: var(--dsw-alias-label-primary, var(--fg, #111)); background: var(--dsw-alias-bg-base, var(--bg, #fff)); overflow: auto; }
-.moyu-st-shell { box-sizing: border-box; width: min(100%, 1040px); margin: 0 auto; padding: 56px 40px 72px; }
+.moyu-st-page { box-sizing: border-box; width: 100%; height: 100%; min-height: 0; color: var(--dsw-alias-label-primary, var(--fg, #111)); background: var(--dsw-alias-bg-base, var(--bg, #fff)); overflow: hidden; position: relative; }
+.moyu-st-main { height: 100%; overflow: auto; transition: margin-right 180ms ease-out; }
+.moyu-st-main[data-drawer="true"] { margin-right: min(520px, 38vw); }
+.moyu-st-shell { box-sizing: border-box; width: min(100%, 980px); margin: 0 auto; padding: 46px 34px 72px; }
 .moyu-st-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
-.moyu-st-heading { margin: 0; font-size: 30px; font-weight: 560; line-height: 1.25; letter-spacing: -0.02em; }
-.moyu-st-subtitle { margin: 8px 0 0; color: var(--dsw-alias-label-secondary, #6b7280); font-size: 14px; line-height: 22px; }
-.moyu-st-search { box-sizing: border-box; width: 100%; height: 40px; margin-top: 28px; padding: 0 14px; color: inherit; background: transparent; border: 1px solid var(--dsw-alias-border-l2, var(--border, #ccd)); border-radius: 20px; font: inherit; outline: none; }
+.moyu-st-heading { margin: 0; font-size: 31px; font-weight: 560; line-height: 1.2; letter-spacing: -0.025em; }
+.moyu-st-subtitle { margin: 10px 0 0; color: var(--dsw-alias-label-secondary, #777b82); font-size: 15px; line-height: 22px; }
+.moyu-st-primary { min-width: 76px; height: 38px; border: 0; border-radius: 11px; color: #fff; background: #17191b; font: inherit; font-weight: 550; cursor: pointer; transition: transform 140ms ease-out, background-color 140ms ease-out; }
+.moyu-st-primary:active { transform: scale(.97); }
+.moyu-st-primary:disabled { background: #a8aaad; cursor: not-allowed; }
+.moyu-st-search-wrap { position: relative; margin-top: 28px; }
+.moyu-st-search-icon { position: absolute; left: 15px; top: 50%; width: 17px; height: 17px; transform: translateY(-50%); color: #7c8188; pointer-events: none; }
+.moyu-st-search { box-sizing: border-box; width: 100%; height: 42px; padding: 0 16px 0 42px; color: inherit; background: transparent; border: 1px solid var(--dsw-alias-border-l2, #d9dadd); border-radius: 22px; font: inherit; outline: none; }
 .moyu-st-search:focus { border-color: var(--dsw-alias-state-business-primary, var(--accent, #3b82f6)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--dsw-alias-state-business-primary, #3b82f6) 18%, transparent); }
-.moyu-st-list { list-style: none; margin: 28px 0 0; padding: 0; }
+.moyu-st-tabs { display: flex; gap: 24px; margin-bottom: 22px; }
+.moyu-st-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.moyu-st-toolbar .moyu-st-tabs { margin-bottom: 0; }
+.moyu-st-tab { padding: 4px 10px; border: 0; border-radius: 9px; color: #74787e; background: transparent; font: inherit; cursor: pointer; }
+.moyu-st-tab[data-active="true"] { color: inherit; background: #f0f1f2; font-weight: 600; }
+.moyu-st-section-title { margin: 30px 0 12px 12px; color: #70747a; font-size: 15px; font-weight: 560; }
+.moyu-st-list { list-style: none; margin: 24px 0 0; padding: 0; }
+.moyu-st-row { position: relative; display: flex; align-items: flex-start; gap: 12px; min-height: 62px; padding: 13px 52px 12px 16px; border-radius: 13px; cursor: pointer; transition: background-color 140ms ease-out; }
+.moyu-st-row[data-selected="true"], .moyu-st-row:hover { background: #f2f2f3; }
+.moyu-st-state-dot { flex: none; width: 15px; height: 15px; margin-top: 3px; border: 1.5px solid #8f9499; border-radius: 50%; box-sizing: border-box; }
+.moyu-st-state-dot[data-running="true"] { border-color: #377dff; box-shadow: inset 0 0 0 3px #fff; background: #377dff; }
+.moyu-st-row-copy { min-width: 0; }
+.moyu-st-row-title { font-size: 15px; font-weight: 600; line-height: 20px; }
+.moyu-st-row-meta { margin-top: 2px; color: #85898f; font-size: 14px; line-height: 20px; }
+.moyu-st-more { position: absolute; top: 10px; right: 10px; width: 34px; height: 34px; border: 0; border-radius: 10px; background: transparent; color: #72767c; font-size: 20px; cursor: pointer; }
+.moyu-st-more:hover, .moyu-st-more[data-open="true"] { background: #e7e7e8; }
+.moyu-st-menu { position: absolute; z-index: 15; top: 45px; right: 10px; width: 174px; padding: 6px; border: 1px solid #dedfe1; border-radius: 14px; background: var(--bg, #fff); box-shadow: 0 12px 34px rgba(0,0,0,.12); transform-origin: top right; }
+.moyu-st-menu[data-visible="false"] { display: none; }
+.moyu-st-menu button { display: block; width: 100%; height: 36px; padding: 0 12px; border: 0; border-radius: 8px; color: inherit; background: transparent; text-align: left; font: inherit; cursor: pointer; }
+.moyu-st-menu button:hover { background: #f3f3f4; }
+.moyu-st-menu button[data-danger="true"] { color: #ef4444; }
+.moyu-st-suggestions { list-style: none; margin: 0; padding: 0; }
+.moyu-st-suggestion { display: flex; gap: 14px; min-height: 66px; padding: 12px 16px; border-radius: 12px; cursor: pointer; }
+.moyu-st-suggestion:hover { background: #f3f3f4; }
+.moyu-st-suggestion-icon { width: 18px; color: #8b5cf6; font-size: 21px; line-height: 20px; }
+.moyu-st-suggestion-title { font-weight: 600; }
+.moyu-st-suggestion-time { margin-left: 8px; color: #85898f; font-weight: 400; }
+.moyu-st-suggestion-desc { margin-top: 4px; color: #777b82; font-size: 14px; }
 .moyu-st-empty { margin-top: 28px; color: var(--dsw-alias-label-secondary, #6b7280); }
 .moyu-st-btn { font: inherit; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border, #ccd); background: var(--bg, #fff); color: var(--fg, #111); cursor: pointer; }
 .moyu-st-btn:hover:not(:disabled) { background: var(--hover, #f0f0f0); }
@@ -173,7 +207,34 @@ const STYLE = `
 .moyu-st-bad { color: var(--danger, #c0392b); }
 .moyu-st-notice { border: 1px solid var(--border, #ccd); border-radius: 8px; padding: 10px 12px; margin-top: 12px; background: var(--notice-bg, #f7f9ff); }
 .moyu-st-notice-item { display: flex; justify-content: space-between; gap: 8px; align-items: center; padding: 4px 0; }
-@media (max-width: 720px) { .moyu-st-shell { padding: 32px 20px 48px; } .moyu-st-heading { font-size: 26px; } .moyu-st-header { gap: 16px; } }
+.moyu-st-drawer { position: absolute; z-index: 30; inset: 0 0 0 auto; box-sizing: border-box; width: min(520px, 38vw); min-width: 390px; padding: 24px 26px 84px; overflow: auto; border-left: 1px solid #e5e5e6; background: var(--bg, #fff); box-shadow: -8px 0 24px rgba(0,0,0,.025); transition: transform 180ms ease-out, opacity 140ms ease-out; }
+.moyu-st-drawer-head { display: flex; align-items: center; justify-content: space-between; color: #7c8086; font-size: 14px; }
+.moyu-st-close { width: 32px; height: 32px; border: 0; border-radius: 8px; color: #666b70; background: transparent; font-size: 25px; line-height: 1; cursor: pointer; }
+.moyu-st-close:hover { background: #f2f2f3; }
+.moyu-st-drawer-title { margin: 14px 0 22px; font-size: 20px; font-weight: 620; }
+.moyu-st-field-label { margin: 24px 4px 8px; color: #8a8e94; font-size: 14px; }
+.moyu-st-text, .moyu-st-textarea { box-sizing: border-box; width: 100%; border: 1px solid #e0e1e3; border-radius: 16px; background: transparent; color: inherit; font: inherit; outline: none; }
+.moyu-st-text { height: 48px; padding: 0 16px; }
+.moyu-st-textarea { height: 92px; padding: 15px 16px; resize: vertical; }
+.moyu-st-text:focus, .moyu-st-textarea:focus { border-color: #4d83f7; box-shadow: 0 0 0 2px rgba(77,131,247,.12); }
+.moyu-st-card { overflow: hidden; border: 1px solid #e1e2e4; border-radius: 16px; }
+.moyu-st-setting { display: grid; grid-template-columns: 112px minmax(0,1fr); align-items: center; min-height: 50px; padding: 0 16px; border-top: 1px solid #ececee; }
+.moyu-st-setting:first-child { border-top: 0; }
+.moyu-st-setting > span { font-weight: 550; }
+.moyu-st-setting select, .moyu-st-setting input { min-width: 0; width: 100%; border: 0; outline: 0; color: inherit; background: transparent; text-align: right; font: inherit; }
+.moyu-st-drawer-footer { position: absolute; right: 0; bottom: 0; left: 0; display: flex; justify-content: flex-end; gap: 10px; padding: 14px 26px; border-top: 1px solid #ececee; background: var(--bg, #fff); }
+.moyu-st-secondary { height: 38px; padding: 0 18px; border: 1px solid #dddfe1; border-radius: 11px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.moyu-st-detail-prompt { padding: 17px 18px; border: 1px solid #e1e2e4; border-radius: 16px; line-height: 1.55; white-space: pre-wrap; }
+.moyu-st-status { color: #3478f6; font-weight: 600; }
+.moyu-st-overlay { position: fixed; z-index: 1000; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.18); }
+.moyu-st-confirm { box-sizing: border-box; width: 520px; max-width: calc(100vw - 40px); padding: 26px; border: 1px solid #e2e2e3; border-radius: 18px; background: var(--bg, #fff); box-shadow: 0 18px 50px rgba(0,0,0,.14); }
+.moyu-st-confirm h2 { margin: 0; font-size: 20px; }
+.moyu-st-confirm p { margin: 8px 0 24px; color: #888c92; }
+.moyu-st-confirm-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.moyu-st-delete { height: 38px; padding: 0 18px; border: 0; border-radius: 10px; color: #ef4444; background: #fee9e9; font: inherit; font-weight: 600; cursor: pointer; }
+@media (max-width: 980px) { .moyu-st-main[data-drawer="true"] { margin-right: 0; } .moyu-st-drawer { width: min(520px, 100%); min-width: 0; box-shadow: -16px 0 40px rgba(0,0,0,.12); } }
+@media (max-width: 720px) { .moyu-st-shell { padding: 32px 20px 48px; } .moyu-st-heading { font-size: 27px; } .moyu-st-header { gap: 16px; } }
+@media (prefers-reduced-motion: reduce) { .moyu-st-main, .moyu-st-drawer { transition: opacity 120ms ease-out; } }
 `
 function btn(
   label: string,
@@ -240,162 +301,32 @@ function EditorModal(props: {
     ? COMMON_TIMEZONES
     : [draft.timeZone, ...COMMON_TIMEZONES]
   return React.createElement(
-    'div',
-    { style: overlayStyle },
+    'aside',
+    { className: 'moyu-st-drawer', 'aria-label': isEdit ? '编辑任务' : '新建任务' },
+    React.createElement('div', { className: 'moyu-st-drawer-head' }, React.createElement('span', null, isEdit ? '编辑任务' : '新建任务'), React.createElement('button', { className: 'moyu-st-close', onClick: props.onCancel, 'aria-label': '关闭' }, '×')),
+    React.createElement('h2', { className: 'moyu-st-drawer-title' }, isEdit ? '编辑已安排任务' : '已安排任务标题'),
+    React.createElement('input', { className: 'moyu-st-text', value: draft.title, maxLength: 80, placeholder: '输入任务名称', onChange: (e: React.ChangeEvent<HTMLInputElement>) => set({ title: e.target.value }) }),
+    React.createElement('textarea', { className: 'moyu-st-textarea', value: draft.prompt, maxLength: 20000, placeholder: '描述 MOYU 应该做什么', style: { marginTop: 12 }, onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => set({ prompt: e.target.value }) }),
+    React.createElement('div', { className: 'moyu-st-field-label' }, '详情'),
     React.createElement(
       'div',
-      { style: modalStyle },
-      React.createElement('h4', { style: { margin: '0 0 12px' } }, isEdit ? '编辑任务' : '新建任务'),
-      field(
-        '任务名称',
-        React.createElement('input', {
-          value: draft.title, maxLength: 80,
-          onChange: (e: React.ChangeEvent<HTMLInputElement>) => set({ title: e.target.value }),
-          style: inputStyle,
-        }),
-      ),
-      field(
-        '任务内容',
-        React.createElement('textarea', {
-          value: draft.prompt, maxLength: 20000,
-          onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => set({ prompt: e.target.value }),
-          style: { ...inputStyle, height: 120, resize: 'vertical' },
-        }),
-      ),
-      field(
-        '工作区',
-        React.createElement(
-          'select',
-          {
-            value: draft.workspaceId,
-            onChange: (e: React.ChangeEvent<HTMLSelectElement>) => set({ workspaceId: e.target.value }),
-            style: inputStyle,
-          },
-          React.createElement('option', { value: '' }, '— 选择工作区 —'),
-          ...props.workspaces.map((w) =>
-            React.createElement('option', { key: w.id, value: w.id }, w.title),
-          ),
-        ),
-      ),
-      field(
-        '运行方式',
-        React.createElement(
-          'select',
-          {
-            value: draft.runMode || 'standalone',
-            onChange: (e: React.ChangeEvent<HTMLSelectElement>) => set({ runMode: e.target.value === 'continuation' ? 'continuation' : 'standalone' }),
-            style: inputStyle,
-          },
-          React.createElement('option', { value: 'standalone' }, '独立会话（每次新建）'),
-          React.createElement('option', { value: 'continuation' }, '续写当前会话'),
-        ),
-      ),
-      field(
-        '重复',
-        React.createElement(
-          'select',
-          {
-            value: draft.recurrence,
-            onChange: (e: React.ChangeEvent<HTMLSelectElement>) => set({ recurrence: e.target.value as RecurrenceMode }),
-            style: inputStyle,
-          },
-          React.createElement('option', { value: 'once' }, '一次性'),
-          React.createElement('option', { value: 'daily' }, '每天'),
-          React.createElement('option', { value: 'weekday' }, '工作日'),
-          React.createElement('option', { value: 'weekly' }, '每周'),
-          React.createElement('option', { value: 'monthly' }, '每月'),
-        ),
-      ),
-      isRecurring
-        ? field(
-            '时间',
-            React.createElement('input', {
-              type: 'time',
-              value: draft.timeOfDay,
-              onChange: (e: React.ChangeEvent<HTMLInputElement>) => set({ timeOfDay: e.target.value }),
-              style: inputStyle,
-            }),
-          )
-        : field(
-            '执行时间',
-            React.createElement('input', {
-              type: 'datetime-local',
-              value: draft.runAtLocal,
-              onChange: (e: React.ChangeEvent<HTMLInputElement>) => set({ runAtLocal: e.target.value }),
-              style: inputStyle,
-            }),
-          ),
-      isRecurring && draft.recurrence === 'weekly'
-        ? field(
-            '星期',
-            React.createElement(
-              'select',
-              {
-                value: String(draft.weekday),
-                onChange: (e: React.ChangeEvent<HTMLSelectElement>) => set({ weekday: Number(e.target.value) }),
-                style: inputStyle,
-              },
-              ...WEEKDAY_OPTIONS.map((w) =>
-                React.createElement('option', { key: w.value, value: String(w.value) }, w.label),
-              ),
-            ),
-          )
-        : null,
-      isRecurring && draft.recurrence === 'monthly'
-        ? field(
-            '日期',
-            React.createElement(
-              'select',
-              {
-                value: String(draft.dayOfMonth),
-                onChange: (e: React.ChangeEvent<HTMLSelectElement>) => set({ dayOfMonth: Number(e.target.value) }),
-                style: inputStyle,
-              },
-              ...Array.from({ length: 31 }, (_, i) =>
-                React.createElement('option', { key: i + 1, value: String(i + 1) }, `${i + 1} 日`),
-              ),
-            ),
-          )
-        : null,
-      isRecurring
-        ? field(
-            '时区',
-            React.createElement(
-              'select',
-              {
-                value: draft.timeZone,
-                onChange: (e: React.ChangeEvent<HTMLSelectElement>) => set({ timeZone: e.target.value }),
-                style: inputStyle,
-              },
-              ...tzOptions.map((z) => React.createElement('option', { key: z, value: z }, z)),
-            ),
-          )
-        : null,
-      isRecurring
-        ? React.createElement(
-            'div',
-            { style: { fontSize: 12, opacity: 0.7, margin: '4px 0 8px' } },
-            `下次运行：${nextRun ? fmtTime(nextRun) : '时间无效'}${nextRun && previewSpec ? `（${tzOf(previewSpec)}）` : ''}`,
-          )
-        : null,
-      React.createElement(
-        'label',
-        { style: { display: 'flex', alignItems: 'center', gap: 6, margin: '8px 0' } },
-        React.createElement('input', {
-          type: 'checkbox',
-          checked: draft.enabled,
-          onChange: (e: React.ChangeEvent<HTMLInputElement>) => set({ enabled: e.target.checked }),
-        }),
-        '启用（到点自动执行）',
-      ),
-      React.createElement(
-        'div',
-        { style: { marginTop: 12, display: 'flex', gap: 8 } },
-        btn('保存', () => props.onSave(draft)),
-        btn('保存并立即运行', () => props.onRunNow(draft)),
-        btn('取消', () => props.onCancel()),
-      ),
+      { className: 'moyu-st-card' },
+      React.createElement('label', { className: 'moyu-st-setting' }, React.createElement('span', null, '运行位置'), React.createElement('select', { value: draft.workspaceId, onChange: (e: React.ChangeEvent<HTMLSelectElement>) => set({ workspaceId: e.target.value }) }, React.createElement('option', { value: '' }, '选择项目'), ...props.workspaces.map((w) => React.createElement('option', { key: w.id, value: w.id }, w.title)))),
+      React.createElement('label', { className: 'moyu-st-setting' }, React.createElement('span', null, '运行于'), React.createElement('select', { value: draft.runMode || 'standalone', onChange: (e: React.ChangeEvent<HTMLSelectElement>) => set({ runMode: e.target.value === 'continuation' ? 'continuation' : 'standalone' }) }, React.createElement('option', { value: 'standalone' }, '每次新建会话'), React.createElement('option', { value: 'continuation' }, '续写当前会话'))),
     ),
+    React.createElement('div', { className: 'moyu-st-field-label' }, '频率'),
+    React.createElement(
+      'div',
+      { className: 'moyu-st-card' },
+      React.createElement('label', { className: 'moyu-st-setting' }, React.createElement('span', null, '重复'), React.createElement('select', { value: draft.recurrence, onChange: (e: React.ChangeEvent<HTMLSelectElement>) => set({ recurrence: e.target.value as RecurrenceMode }) }, React.createElement('option', { value: 'once' }, '一次'), React.createElement('option', { value: 'daily' }, '每天'), React.createElement('option', { value: 'weekday' }, '工作日'), React.createElement('option', { value: 'weekly' }, '每周'), React.createElement('option', { value: 'monthly' }, '每月'))),
+      isRecurring && draft.recurrence === 'weekly' ? React.createElement('label', { className: 'moyu-st-setting' }, React.createElement('span', null, '开启'), React.createElement('select', { value: String(draft.weekday), onChange: (e: React.ChangeEvent<HTMLSelectElement>) => set({ weekday: Number(e.target.value) }) }, ...WEEKDAY_OPTIONS.map((w) => React.createElement('option', { key: w.value, value: String(w.value) }, w.label)))) : null,
+      isRecurring && draft.recurrence === 'monthly' ? React.createElement('label', { className: 'moyu-st-setting' }, React.createElement('span', null, '日期'), React.createElement('select', { value: String(draft.dayOfMonth), onChange: (e: React.ChangeEvent<HTMLSelectElement>) => set({ dayOfMonth: Number(e.target.value) }) }, ...Array.from({ length: 31 }, (_, i) => React.createElement('option', { key: i + 1, value: String(i + 1) }, `${i + 1} 日`)))) : null,
+      React.createElement('label', { className: 'moyu-st-setting' }, React.createElement('span', null, isRecurring ? '时间' : '执行时间'), React.createElement('input', { type: isRecurring ? 'time' : 'datetime-local', value: isRecurring ? draft.timeOfDay : draft.runAtLocal, onChange: (e: React.ChangeEvent<HTMLInputElement>) => isRecurring ? set({ timeOfDay: e.target.value }) : set({ runAtLocal: e.target.value }) })),
+      isRecurring ? React.createElement('label', { className: 'moyu-st-setting' }, React.createElement('span', null, '时区'), React.createElement('select', { value: draft.timeZone, onChange: (e: React.ChangeEvent<HTMLSelectElement>) => set({ timeZone: e.target.value }) }, ...tzOptions.map((z) => React.createElement('option', { key: z, value: z }, z)))) : null,
+      React.createElement('label', { className: 'moyu-st-setting' }, React.createElement('span', null, '通知'), React.createElement('select', { value: draft.enabled ? 'enabled' : 'disabled', onChange: (e: React.ChangeEvent<HTMLSelectElement>) => set({ enabled: e.target.value === 'enabled' }) }, React.createElement('option', { value: 'enabled' }, '所有运行'), React.createElement('option', { value: 'disabled' }, '暂停任务'))),
+    ),
+    isRecurring ? React.createElement('div', { style: { margin: '10px 4px', color: '#85898f', fontSize: 12 } }, `下次运行：${nextRun ? fmtTime(nextRun) : '时间无效'}`) : null,
+    React.createElement('div', { className: 'moyu-st-drawer-footer' }, React.createElement('button', { style: { display: 'none' }, onClick: () => props.onSave(draft) }, '保存'), React.createElement('button', { className: 'moyu-st-secondary', onClick: () => props.onRunNow(draft) }, '保存并立即运行'), React.createElement('button', { className: 'moyu-st-primary', disabled: !draft.title.trim() || !draft.prompt.trim() || !draft.workspaceId, onClick: () => props.onSave(draft) }, isEdit ? '保存更改' : '创建')),
   )
 }
 
@@ -452,6 +383,9 @@ function ScheduledTasksPanel(props: {
   const [editing, setEditing] = React.useState<{ taskId?: string; draft: Draft } | null>(null)
   const [confirmDelete, setConfirmDelete] = React.useState<string | null>(null)
   const [selected, setSelected] = React.useState<string | null>(null)
+  const [selectedDetail, setSelectedDetail] = React.useState<Record<string, any> | null>(null)
+  const [openMenu, setOpenMenu] = React.useState<string | null>(null)
+  const [filter, setFilter] = React.useState<'all' | 'enabled' | 'paused' | 'completed'>('all')
   const [runs, setRuns] = React.useState<RunSummary[] | null>(null)
   const [runsError, setRunsError] = React.useState<string | null>(null)
   const [query, setQuery] = React.useState('')
@@ -522,9 +456,13 @@ function ScheduledTasksPanel(props: {
   React.useEffect(() => {
     if (!selected) {
       setRuns(null)
+      setSelectedDetail(null)
       return
     }
     loadRuns(selected)
+    void props.request({ operation: 'detail', taskId: selected })
+      .then((value) => setSelectedDetail((value && value.detail) || null))
+      .catch((e) => setRunsError(e instanceof Error ? e.message : String(e)))
     return () => {
       if (pollRef.current) pollRef.current.cancel()
     }
@@ -731,102 +669,54 @@ function ScheduledTasksPanel(props: {
   const normalizedQuery = query.trim().toLocaleLowerCase()
   const visibleTasks = (tasks || []).filter((t) => {
     if (taskPresetOf(t) !== activePreset) return false
-    return normalizedQuery === '' || t.title.toLocaleLowerCase().includes(normalizedQuery)
+    if (normalizedQuery !== '' && !t.title.toLocaleLowerCase().includes(normalizedQuery)) return false
+    if (filter === 'enabled' && (!t.enabled || t.lastRunStatus === 'succeeded' && !t.nextRunAt)) return false
+    if (filter === 'paused' && t.enabled) return false
+    if (filter === 'completed' && (t.nextRunAt || t.running || t.lastRunStatus !== 'succeeded')) return false
+    return true
   })
   const rows = visibleTasks.map((t) => {
-    const actions: React.ReactNode[] = [
-      btn('立即运行', () => void runTask(t.id), { disabled: t.running }),
-      t.running ? btn('取消', () => void cancelTask(t.id)) : null,
-      btn('编辑', () => void openEditor(t.id)),
-      btn(t.enabled && t.nextRunAt ? '暂停' : '恢复', () => void togglePause(t.id, t.enabled)),
-      btn('删除', () => setConfirmDelete(t.id), { danger: true }),
-      btn(selected === t.id ? '收起运行' : '运行历史', () => setSelected(selected === t.id ? null : t.id)),
-    ]
     return React.createElement(
       'li',
-      { key: t.id, style: { padding: '8px 0', borderBottom: '1px solid var(--border, #eee)' } },
-      React.createElement(
-        'div',
-        { style: { display: 'flex', justifyContent: 'space-between', gap: 8 } },
-        React.createElement('strong', { className: 'moyu-st-title' }, t.title),
-        React.createElement('span', { style: { fontSize: 12, opacity: 0.7, whiteSpace: 'nowrap' } }, taskStateLabel(t)),
+      { key: t.id, className: 'moyu-st-row', 'data-selected': selected === t.id, onClick: () => { setSelected(t.id); setEditing(null); setOpenMenu(null) } },
+      React.createElement('span', { className: 'moyu-st-state-dot', 'data-running': t.running }),
+      React.createElement('div', { className: 'moyu-st-row-copy' }, React.createElement('div', { className: 'moyu-st-row-title' }, t.title), React.createElement('div', { className: 'moyu-st-row-meta' }, `${describeSchedule(t.schedule)}${t.nextRunAt ? ` · 下次运行 ${fmtTime(t.nextRunAt)}` : ''}`)),
+      React.createElement('button', { className: 'moyu-st-more', 'data-open': openMenu === t.id, 'aria-label': `${t.title}更多操作`, onClick: (e: React.MouseEvent) => { e.stopPropagation(); setOpenMenu(openMenu === t.id ? null : t.id) } }, '•••'),
+      React.createElement('div', { className: 'moyu-st-menu', 'data-visible': openMenu === t.id, onClick: (e: React.MouseEvent) => e.stopPropagation() },
+        React.createElement('button', { disabled: t.running, onClick: () => { setOpenMenu(null); void runTask(t.id) } }, '▷　立即运行'),
+        t.running ? React.createElement('button', { onClick: () => { setOpenMenu(null); void cancelTask(t.id) } }, '□　取消运行') : null,
+        React.createElement('button', { onClick: () => { setOpenMenu(null); void togglePause(t.id, t.enabled) } }, t.enabled ? 'Ⅱ　暂停' : '▷　恢复'),
+        React.createElement('button', { onClick: () => { setOpenMenu(null); setEditing(null); setSelected(t.id) } }, '运行历史'),
+        React.createElement('button', { 'data-danger': 'true', onClick: () => { setOpenMenu(null); setConfirmDelete(t.id) } }, '删除'),
       ),
-      React.createElement(
-        'div',
-        { style: { fontSize: 12, opacity: 0.7, marginTop: 2 } },
-        `目标：${t.title}　模式：${t.runMode === 'continuation' ? '续写会话' : '独立会话'}　计划：${describeSchedule(t.schedule)}　下次：${fmtTime(t.nextRunAt)}（${tzOf(t.schedule)}）　上次：${fmtTime(t.lastRunAt)}` +
-          (t.lastRunStatus ? `（${t.lastRunStatus}）` : '') +
-          (t.unreadCount > 0 ? `　未读：${t.unreadCount}` : ''),
-      ),
-      React.createElement('div', { style: { display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' } }, ...actions.filter(Boolean)),
-      selected === t.id
-        ? React.createElement(
-            'div',
-            { style: { marginTop: 8 } },
-            runsError
-              ? React.createElement('div', { className: 'moyu-st-err' }, runsError)
-              : runs == null
-                ? React.createElement('div', { style: { fontSize: 12, opacity: 0.6 } }, '加载运行记录…')
-                : runs.length === 0
-                  ? React.createElement('div', { style: { fontSize: 12, opacity: 0.6 } }, '暂无运行记录')
-                  : React.createElement(
-                      'ul',
-                      { style: { margin: 0, paddingLeft: 16 } },
-                      ...runs.map((r) =>
-                        React.createElement(
-                          'li',
-                          { key: r.runId, style: { fontSize: 12, margin: '4px 0' } },
-                          React.createElement('span', { className: runStatusClass(r.status) }, `${fmtTime(r.startedAt)} · ${runStatusText(r.status)}`),
-                          r.unread ? '（未读）' : '',
-                          ' ',
-                          btn('打开对话', () => openRun(r.sessionId), { disabled: !r.sessionId }),
-                          (r.status === 'failed' || r.status === 'interrupted' || r.status === 'missed')
-                            ? btn('重新运行', () => void runTask(t.id))
-                            : '',
-                          r.unread
-                            ? btn('标记已读', () =>
-                                void props
-                                  .request({ operation: 'mark-run-read', runId: r.runId })
-                                  .then(() => loadRuns(t.id)),
-                              )
-                            : '',
-                          r.errorMessage
-                            ? React.createElement('div', { className: 'moyu-st-err', style: { marginTop: 2 } }, r.errorMessage)
-                            : '',
-                        ),
-                      ),
-                    ),
-          )
-        : null,
     )
   })
+
+  const selectedTask = (tasks || []).find((task) => task.id === selected) || null
+  const hasDrawer = Boolean(editing || selectedTask)
+  const suggestions = [
+    ['＋', '每日简报', '工作日 8:00', '汇总项目进展和今天最需要关注的事项'],
+    ['▣', '每周回顾', '星期五 16:00', '将最近的工作整理成简明的状态更新'],
+    ['⌕', '跟进监控', '工作日 9:00', '检查项目变化，并标记需要你关注的事项'],
+  ]
 
   return React.createElement(
     'main',
     { className: 'moyu-st-page', 'data-surface': 'scheduled' },
     React.createElement('style', null, STYLE),
-    React.createElement(
-      'div',
-      { className: 'moyu-st-shell' },
-      React.createElement(
+    React.createElement('div', { className: 'moyu-st-main', 'data-drawer': hasDrawer }, React.createElement('div', { className: 'moyu-st-shell' },
+      (tasks || []).length > 0 ? React.createElement('div', { className: 'moyu-st-toolbar' }, React.createElement('div', { className: 'moyu-st-tabs' }, ...([['all', '全部'], ['enabled', '已开启'], ['paused', '已暂停'], ['completed', '已完成']] as const).map(([value, label]) => React.createElement('button', { key: value, className: 'moyu-st-tab', 'data-active': filter === value, onClick: () => setFilter(value) }, label))), React.createElement('button', { className: 'moyu-st-primary', onClick: () => { setSelected(null); void openEditor() } }, '创建⌄')) : React.createElement(
         'div',
         { className: 'moyu-st-header' },
         React.createElement(
           'div',
           null,
           React.createElement('h1', { className: 'moyu-st-heading' }, '已安排的任务'),
-          React.createElement('p', { className: 'moyu-st-subtitle' }, '让 MOYU 定时执行任务、生成会话并汇报运行结果'),
+          React.createElement('p', { className: 'moyu-st-subtitle' }, '让 MOYU 安排任务、设置提醒或监测更新'),
         ),
-        btn('创建', () => void openEditor()),
+        React.createElement('button', { className: 'moyu-st-primary', onClick: () => { setSelected(null); void openEditor() } }, '创建⌄'),
       ),
-      React.createElement('input', {
-        className: 'moyu-st-search',
-        type: 'search',
-        value: query,
-        placeholder: '搜索已安排任务',
-        'aria-label': '搜索已安排任务',
-        onChange: (event: React.ChangeEvent<HTMLInputElement>) => setQuery(event.target.value),
-      }),
+      React.createElement('div', { className: 'moyu-st-search-wrap' }, React.createElement('span', { className: 'moyu-st-search-icon' }, '⌕'), React.createElement('input', { className: 'moyu-st-search', type: 'search', value: query, placeholder: '搜索已安排任务', 'aria-label': '搜索已安排任务', onChange: (event: React.ChangeEvent<HTMLInputElement>) => setQuery(event.target.value) })),
       error ? React.createElement('div', { className: 'moyu-st-err', style: { marginTop: 16 } }, error) : null,
       sessionError
         ? React.createElement('div', { className: 'moyu-st-err', style: { marginTop: 16 } }, `打开对话失败：${sessionError}`)
@@ -840,25 +730,20 @@ function ScheduledTasksPanel(props: {
         : visibleTasks.length === 0 && (tasks || []).length > 0
           ? React.createElement('div', { className: 'moyu-st-empty', 'data-preset-empty': activePreset }, '当前工作台没有安排任务')
         : tasks.length === 0
-          ? React.createElement('div', { className: 'moyu-st-empty' }, '暂无已安排任务')
+          ? React.createElement(React.Fragment, null, React.createElement('div', { className: 'moyu-st-section-title' }, '建议'), React.createElement('ul', { className: 'moyu-st-suggestions' }, ...suggestions.map(([icon, title, time, desc]) => React.createElement('li', { key: title, className: 'moyu-st-suggestion', onClick: () => void openEditor() }, React.createElement('span', { className: 'moyu-st-suggestion-icon' }, icon), React.createElement('div', null, React.createElement('div', { className: 'moyu-st-suggestion-title' }, title, React.createElement('span', { className: 'moyu-st-suggestion-time' }, time)), React.createElement('div', { className: 'moyu-st-suggestion-desc' }, desc))))))
           : rows.length === 0
             ? React.createElement('div', { className: 'moyu-st-empty' }, '没有匹配的任务')
             : React.createElement('ul', { className: 'moyu-st-list' }, ...rows),
-    ),
+    )),
     confirmDelete
       ? React.createElement(
           'div',
           { style: overlayStyle },
           React.createElement(
-            'div',
-            { style: modalStyle },
-            React.createElement('p', null, '确定删除该任务？此操作不可撤销，且不会删除已生成的对话。'),
-            React.createElement(
-              'div',
-              { style: { display: 'flex', gap: 8, marginTop: 12 } },
-              btn('删除', () => void doDelete(confirmDelete), { danger: true }),
-              btn('取消', () => setConfirmDelete(null)),
-            ),
+          'div', { className: 'moyu-st-confirm' },
+            React.createElement('h2', null, `删除 ${tasks?.find((t) => t.id === confirmDelete)?.title || '已安排任务'}？`),
+            React.createElement('p', null, '这将永久删除已安排的任务，并停止今后的运行'),
+            React.createElement('div', { className: 'moyu-st-confirm-actions' }, React.createElement('button', { className: 'moyu-st-secondary', onClick: () => setConfirmDelete(null) }, '取消'), React.createElement('button', { className: 'moyu-st-delete', onClick: () => void doDelete(confirmDelete) }, '删除')),
           ),
         )
       : null,
@@ -869,8 +754,23 @@ function ScheduledTasksPanel(props: {
           onSave: (d: Draft) => void saveEditor(d, false),
           onRunNow: (d: Draft) => void saveEditor(d, true),
           onCancel: () => setEditing(null),
-        })
+      })
       : null,
+    !editing && selectedTask ? React.createElement('aside', { className: 'moyu-st-drawer', 'aria-label': '任务详情' },
+      React.createElement('div', { className: 'moyu-st-drawer-head' }, React.createElement('span', { className: 'moyu-st-status' }, taskStateLabel(selectedTask)), React.createElement('button', { className: 'moyu-st-close', onClick: () => setSelected(null), 'aria-label': '关闭' }, '×')),
+      React.createElement('h2', { className: 'moyu-st-drawer-title' }, selectedTask.title),
+      React.createElement('div', { className: 'moyu-st-detail-prompt' }, selectedDetail?.prompt || '加载任务内容…'),
+      React.createElement('div', { className: 'moyu-st-field-label' }, '详情'),
+      React.createElement('div', { className: 'moyu-st-card' },
+        React.createElement('div', { className: 'moyu-st-setting' }, React.createElement('span', null, '运行于'), React.createElement('div', { style: { textAlign: 'right' } }, selectedTask.runMode === 'continuation' ? '续写当前会话' : '每次新建会话')),
+        React.createElement('div', { className: 'moyu-st-setting' }, React.createElement('span', null, '项目'), React.createElement('div', { style: { textAlign: 'right' } }, workspaces.find((w) => w.id === selectedDetail?.workspaceId)?.title || '—')),
+      ),
+      React.createElement('div', { className: 'moyu-st-field-label' }, '频率'),
+      React.createElement('div', { className: 'moyu-st-card' }, React.createElement('div', { className: 'moyu-st-setting' }, React.createElement('span', null, '重复'), React.createElement('div', { style: { textAlign: 'right' } }, describeSchedule(selectedTask.schedule))), React.createElement('div', { className: 'moyu-st-setting' }, React.createElement('span', null, '通知'), React.createElement('div', { style: { textAlign: 'right' } }, selectedTask.enabled ? '所有运行' : '已暂停'))),
+      React.createElement('div', { className: 'moyu-st-field-label' }, '运行记录'),
+      runsError ? React.createElement('div', { className: 'moyu-st-err' }, runsError) : runs == null ? React.createElement('div', { className: 'moyu-st-empty' }, '加载运行记录…') : runs.length === 0 ? React.createElement('div', { className: 'moyu-st-empty' }, '暂无运行记录') : React.createElement('ul', { className: 'moyu-st-list' }, ...runs.map((r) => React.createElement('li', { key: r.runId, style: { marginBottom: 10, fontSize: 13 } }, React.createElement('span', { className: runStatusClass(r.status) }, `${fmtTime(r.startedAt)} · ${runStatusText(r.status)}`), ' ', btn('打开对话', () => openRun(r.sessionId), { disabled: !r.sessionId })))),
+      React.createElement('div', { className: 'moyu-st-drawer-footer' }, React.createElement('button', { className: 'moyu-st-secondary', onClick: () => void openEditor(selectedTask.id) }, '编辑'), React.createElement('button', { className: 'moyu-st-primary', disabled: selectedTask.running, onClick: () => void runTask(selectedTask.id) }, '立即运行')),
+    ) : null,
   )
 }
 
