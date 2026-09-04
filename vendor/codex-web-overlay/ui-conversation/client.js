@@ -6946,12 +6946,13 @@ window.__ModuleLoader__.load({
 		//#endregion
 		//#region \0dsh-css:/Users/clukay/Program/deepseek-harness/packages/client/ui-conversation/src/client/skeleton/HeroShell.module.css.mjs
 		const css$7 = ".tpxdlq_root{justify-content:center;align-items:center;min-width:0;height:100%;padding:0 24px;display:flex}.tpxdlq_stack{width:100%;max-width:var(--dsh-composer-card-max-width);flex-direction:column;align-items:stretch;gap:12px;display:flex;overflow:visible}.tpxdlq_headline{color:var(--dsw-alias-label-primary);justify-content:center;align-items:center;flex-direction:column;gap:14px;display:flex}.tpxdlq_brandRow{display:inline-flex;align-items:center;gap:10px}.tpxdlq_brandWord{font-size:20px;font-weight:600;letter-spacing:0.04em;line-height:1}.tpxdlq_headlineText{font-size:30px;font-weight:600;line-height:1.2;text-align:center}.tpxdlq_body{flex-direction:column;gap:12px;min-width:0;display:flex;position:relative;overflow:visible}.tpxdlq_body>*{z-index:1;position:relative}.tpxdlq_body>.tpxdlq_workspaceRow{z-index:10;align-items:center;min-width:0;padding-left:8px;display:flex}.tpxdlq_workspace{max-width:min(100%,360px);min-height:28px;color:var(--dsw-alias-label-primary);cursor:pointer;background:0 0;border:none;border-radius:16px;align-items:center;gap:4px;padding:0 8px;font-size:13px;font-weight:500;line-height:20px;display:inline-flex}.tpxdlq_workspace:not(:disabled):hover,.tpxdlq_workspace[aria-expanded=true]{background:var(--dsw-alias-interactive-bg-hover)}.tpxdlq_workspace:disabled{cursor:default}.tpxdlq_folder{color:var(--dsw-alias-label-primary);flex:none}.tpxdlq_workspaceLabel{text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.tpxdlq_chevron{color:var(--dsw-alias-label-caption);flex:none}.tpxdlq_modalInput{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);width:100%;height:44px;color:var(--dsw-alias-label-primary);background:0 0;border-radius:22px;outline:none;padding:7px 14px;font-size:14px;font-weight:400;line-height:22px}.tpxdlq_modalInput::placeholder{color:var(--dsw-alias-label-caption)}.tpxdlq_modalInput:disabled{color:var(--dsw-alias-label-dimmed)}.tpxdlq_modalAction{min-width:72px}.tpxdlq_modalError{color:var(--dsw-alias-state-error-primary);margin-top:8px;font-size:12px;line-height:18px}";
+		const css$7Glow = ".tpxdlq_headline{z-index:0;isolation:isolate;width:fit-content;max-width:100%;position:relative}.tpxdlq_glow{z-index:-1;aspect-ratio:1051/468;pointer-events:none;width:calc(100% + 96px);position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)}";
 		const tagId$7 = "@deepseek-ai/dsh-client-ui-conversation/HeroShell.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$7) + "]") === null) {
 			const tag = document.createElement("style");
 			tag.dataset.plugin = "@deepseek-ai/dsh-client-ui-conversation";
 			tag.dataset.pluginCss = tagId$7;
-			tag.textContent = css$7;
+			tag.textContent = css$7 + css$7Glow;
 			document.head.appendChild(tag);
 		}
 		var HeroShell_module_css_default = {
@@ -6962,6 +6963,7 @@ window.__ModuleLoader__.load({
 			"folder": "tpxdlq_folder",
 			"headline": "tpxdlq_headline",
 			"headlineText": "tpxdlq_headlineText",
+			"glow": "tpxdlq_glow",
 				"brandRow": "tpxdlq_brandRow",
 				"brandWord": "tpxdlq_brandWord",
 			"hero-fish-swim": "tpxdlq_hero-fish-swim",
@@ -7091,6 +7093,7 @@ window.__ModuleLoader__.load({
 					children: [(0, react_jsx_runtime.jsxs)("div", {
 						className: HeroShell_module_css_default.headline,
 									children: [
+										(0, react_jsx_runtime.jsx)(HeroGlow, { className: HeroShell_module_css_default.glow }),
 										(0, react_jsx_runtime.jsx)("div", {
 											className: HeroShell_module_css_default.headlineText,
 								children: t("hero.headline")
@@ -7236,7 +7239,6 @@ window.__ModuleLoader__.load({
 			const composerBar = (0, react_jsx_runtime.jsxs)("div", {
 				className: clsx(ConversationRoot_module_css_default.composerStack, hero && ConversationRoot_module_css_default.composerHero),
 				children: [
-					hero && (0, react_jsx_runtime.jsx)(HeroGlow, { className: ConversationRoot_module_css_default.heroGlow }),
 					hero && (0, react_jsx_runtime.jsx)(HeroShell, {
 						t,
 						renderSlot
