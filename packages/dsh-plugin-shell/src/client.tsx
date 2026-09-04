@@ -41,15 +41,454 @@ async function kernelRequest(payload: Record<string, unknown>): Promise<any> {
   return value
 }
 
-const CARD: React.CSSProperties = {
-  padding: 16,
-  border: '1px solid rgba(127,127,127,0.24)',
-  borderRadius: 12,
-  margin: '12px 0',
+// --- MOYU 设置页重构：模态壳 + 章节 + 动效 ---
+// 一层叠加 CSS，直接覆盖上游 ui-settings-general 的 obfuscated class（vendored 快照下类名稳定）。
+// tokens 全部 currentColor + color-mix，深/浅自动适配。动效遵 Emil：进出场 ease-out，模态 origin=center。
+// 加载顺序上 MOYU shell 插件在 upstream 之后 → 同权重规则由 MOYU 胜出，无需 !important。
+const MOYU_SETTINGS_CSS = `
+:root {
+  --moyu-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --moyu-ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --moyu-radius-xl: 20px;
+  --moyu-radius-lg: 12px;
+  --moyu-radius-md: 8px;
+  --moyu-radius-sm: 6px;
+  --moyu-hairline: color-mix(in oklab, currentColor 14%, transparent);
+  --moyu-hairline-soft: color-mix(in oklab, currentColor 8%, transparent);
+  --moyu-fill-subtle: color-mix(in oklab, currentColor 5%, transparent);
+  --moyu-fill-hover: color-mix(in oklab, currentColor 9%, transparent);
+  --moyu-fill-active: color-mix(in oklab, currentColor 13%, transparent);
+  --moyu-text-dim: color-mix(in oklab, currentColor 62%, transparent);
+  --moyu-text-mute: color-mix(in oklab, currentColor 42%, transparent);
+  --moyu-danger: color-mix(in oklab, #e05252 92%, currentColor);
+  --moyu-warn: color-mix(in oklab, #d69220 92%, currentColor);
+  --moyu-ok: color-mix(in oklab, #22a565 92%, currentColor);
+  --moyu-accent: color-mix(in oklab, #4a89ff 88%, currentColor);
 }
-const HINT: React.CSSProperties = { fontSize: 12, opacity: 0.7, marginTop: 4 }
 
-/** Mods 管理：读 /moyu/mods，启停/卸载写 registry，改动"下次重启生效"。 */
+/* ===== 模态壳（覆盖 FGywRq_*） ===== */
+.FGywRq_overlay {
+  padding: 32px;
+  animation: moyu-overlay-in 220ms var(--moyu-ease-out);
+}
+@keyframes moyu-overlay-in { from { opacity: 0; } }
+
+.FGywRq_mask {
+  background: color-mix(in oklab, canvas 40%, transparent);
+  backdrop-filter: blur(18px) saturate(1.1);
+  -webkit-backdrop-filter: blur(18px) saturate(1.1);
+}
+
+.FGywRq_panel {
+  width: min(920px, 100vw - 64px);
+  height: min(720px, 100vh - 64px);
+  border-radius: var(--moyu-radius-xl);
+  border: 1px solid var(--moyu-hairline-soft);
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, currentColor 4%, transparent),
+    0 24px 64px -12px color-mix(in oklab, currentColor 28%, transparent),
+    0 8px 24px -8px color-mix(in oklab, currentColor 18%, transparent);
+  animation: moyu-panel-enter 260ms var(--moyu-ease-out);
+  transform-origin: center;
+}
+@keyframes moyu-panel-enter {
+  from { opacity: 0; transform: scale(0.985); }
+}
+
+/* ===== 导航栏 ===== */
+.FGywRq_nav {
+  width: 208px;
+  padding: 22px 12px 12px;
+  gap: 20px;
+  border-right: 1px solid var(--moyu-hairline-soft);
+  background: var(--moyu-fill-subtle);
+}
+.FGywRq_navTitle {
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--moyu-text-mute);
+  line-height: 1.5;
+}
+.FGywRq_navList { gap: 2px; }
+.FGywRq_navCell {
+  height: 34px;
+  padding: 0 12px;
+  gap: 10px;
+  border-radius: var(--moyu-radius-md);
+  color: var(--moyu-text-dim);
+  font-size: 13.5px;
+  font-weight: 500;
+  transition: background 140ms ease, color 140ms ease, transform 140ms var(--moyu-ease-out);
+  position: relative;
+}
+.FGywRq_navCell:hover {
+  background: var(--moyu-fill-hover);
+  color: inherit;
+}
+.FGywRq_navCell:active:not(.FGywRq_active) {
+  transform: scale(0.985);
+}
+.FGywRq_navCell.FGywRq_active {
+  background: var(--moyu-fill-active);
+  color: inherit;
+  font-weight: 600;
+}
+.FGywRq_navCell.FGywRq_active::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: 2px;
+  background: currentColor;
+  opacity: 0.7;
+}
+.FGywRq_navIcon { opacity: 0.72; }
+.FGywRq_navCell.FGywRq_active .FGywRq_navIcon { opacity: 1; }
+
+/* ===== 内容区 ===== */
+.FGywRq_content { background: transparent; }
+.FGywRq_header {
+  height: 60px;
+  padding: 20px 24px 8px;
+  border-bottom: 1px solid var(--moyu-hairline-soft);
+}
+.FGywRq_close {
+  width: 30px; height: 30px;
+  border-radius: 999px;
+  transition: background 140ms ease, transform 140ms var(--moyu-ease-out);
+}
+.FGywRq_close:hover { background: var(--moyu-fill-hover); }
+.FGywRq_close:active { transform: scale(0.94); }
+
+.FGywRq_options {
+  padding: 24px 40px 40px;
+  scrollbar-gutter: stable;
+}
+.FGywRq_options > * {
+  animation: moyu-section-in 220ms var(--moyu-ease-out) both;
+}
+@keyframes moyu-section-in {
+  from { opacity: 0; transform: translateY(4px); }
+}
+
+/* ===== 上游 EnterBehaviorRow 一致化（oqKHGa_*） ===== */
+.oqKHGa_row {
+  border-bottom: 1px solid var(--moyu-hairline-soft);
+  padding: 14px 0;
+  gap: 16px;
+}
+.oqKHGa_rowText { gap: 4px; padding-right: 24px; }
+.oqKHGa_title { font-size: 14px; font-weight: 500; }
+.oqKHGa_desc { color: var(--moyu-text-dim); font-size: 12.5px; line-height: 1.55; }
+.oqKHGa_selector {
+  background: var(--moyu-fill-subtle);
+  border: 1px solid var(--moyu-hairline);
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  transition: background 140ms ease, border-color 140ms ease, transform 140ms var(--moyu-ease-out);
+}
+.oqKHGa_selector:hover { background: var(--moyu-fill-hover); }
+.oqKHGa_selector:active { transform: scale(0.97); }
+
+/* ===== 触发按钮：sidebar 底部齿轮 ===== */
+.FGywRq_trigger { transition: background 140ms ease, transform 140ms var(--moyu-ease-out); }
+.FGywRq_trigger:active { transform: scale(0.94); }
+
+/* ===== reduced-motion ===== */
+@media (prefers-reduced-motion: reduce) {
+  .FGywRq_overlay, .FGywRq_panel, .FGywRq_options > *,
+  .moyu-panel, .moyu-status, .moyu-switch, .moyu-switch::before {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* ===== MOYU section 内容（去掉外框；模态就是框） ===== */
+.moyu-panel {
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: transparent;
+  animation: moyu-panel-fade 260ms var(--moyu-ease-out);
+}
+@keyframes moyu-panel-fade {
+  from { opacity: 0; }
+}
+.moyu-panel + .moyu-panel { margin-top: 32px; }
+.moyu-panel-title {
+  font-weight: 600;
+  font-size: 22px;
+  letter-spacing: -0.015em;
+  margin: 0;
+  line-height: 1.3;
+}
+.moyu-panel-hint {
+  font-size: 13px;
+  color: var(--moyu-text-dim);
+  margin-top: 8px;
+  line-height: 1.6;
+  max-width: 62ch;
+}
+.moyu-group {
+  margin-top: 28px;
+}
+.moyu-group-title {
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--moyu-text-mute);
+  margin: 0 0 12px;
+}
+.moyu-current {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin: 20px 0 4px;
+  padding: 14px 16px;
+  border-radius: var(--moyu-radius-lg);
+  background: var(--moyu-fill-subtle);
+  border: 1px solid var(--moyu-hairline-soft);
+}
+.moyu-current-label { font-size: 12px; color: var(--moyu-text-dim); flex: none; }
+.moyu-current-value { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.moyu-current-aux { font-size: 12px; color: var(--moyu-text-dim); margin-left: auto; }
+
+.moyu-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+}
+.moyu-row + .moyu-row { border-top: 1px solid var(--moyu-hairline-soft); }
+.moyu-row-main { flex: 1; min-width: 0; }
+.moyu-row-title { font-weight: 500; font-variant-numeric: tabular-nums; }
+.moyu-row-meta { font-size: 12px; color: var(--moyu-text-dim); margin-top: 2px; line-height: 1.5; }
+.moyu-row-actions { display: flex; gap: 6px; flex: none; }
+
+.moyu-btn {
+  font: inherit;
+  padding: 5px 12px;
+  border-radius: var(--moyu-radius-md);
+  border: 1px solid var(--moyu-hairline);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, transform 140ms var(--moyu-ease-out), opacity 140ms ease, color 140ms ease;
+}
+.moyu-btn:hover:not(:disabled) { background: var(--moyu-fill-hover); }
+.moyu-btn:active:not(:disabled) { transform: scale(0.97); background: var(--moyu-fill-active); }
+.moyu-btn:disabled { opacity: 0.42; cursor: default; }
+.moyu-btn:focus-visible { outline: 2px solid color-mix(in oklab, currentColor 42%, transparent); outline-offset: 2px; }
+.moyu-btn--primary { background: var(--moyu-fill-subtle); border-color: var(--moyu-hairline); }
+.moyu-btn--primary:hover:not(:disabled) { background: var(--moyu-fill-active); }
+.moyu-btn--danger { color: var(--moyu-danger); border-color: color-mix(in oklab, var(--moyu-danger) 42%, transparent); }
+.moyu-btn--danger:hover:not(:disabled) { background: color-mix(in oklab, var(--moyu-danger) 12%, transparent); }
+.moyu-btn--ghost { border-color: transparent; }
+.moyu-btn--ghost:hover:not(:disabled) { background: var(--moyu-fill-hover); }
+
+.moyu-btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; align-items: center; }
+.moyu-btn-row .moyu-spacer { flex: 1; }
+
+.moyu-select {
+  font: inherit;
+  padding: 5px 10px;
+  border-radius: var(--moyu-radius-md);
+  border: 1px solid var(--moyu-hairline);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+.moyu-select:hover { background: var(--moyu-fill-hover); }
+.moyu-select:focus-visible { outline: 2px solid color-mix(in oklab, currentColor 42%, transparent); outline-offset: 2px; }
+
+.moyu-switch {
+  position: relative;
+  width: 34px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--moyu-fill-hover);
+  border: 1px solid var(--moyu-hairline);
+  cursor: pointer;
+  padding: 0;
+  transition: background 180ms ease;
+  flex: none;
+}
+.moyu-switch::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.72;
+  transition: transform 220ms var(--moyu-ease-out), opacity 160ms ease;
+}
+.moyu-switch[data-on="true"] { background: color-mix(in oklab, var(--moyu-ok) 55%, transparent); border-color: color-mix(in oklab, var(--moyu-ok) 30%, transparent); }
+.moyu-switch[data-on="true"]::before { transform: translateX(14px); opacity: 1; }
+.moyu-switch:disabled { opacity: 0.42; cursor: default; }
+.moyu-switch:active:not(:disabled)::before { transform: scale(0.88); }
+.moyu-switch[data-on="true"]:active:not(:disabled)::before { transform: translateX(14px) scale(0.88); }
+.moyu-switch:focus-visible { outline: 2px solid color-mix(in oklab, currentColor 42%, transparent); outline-offset: 2px; }
+
+.moyu-status {
+  font-size: 13px;
+  padding: 8px 12px;
+  border-radius: var(--moyu-radius-sm);
+  margin-top: 10px;
+  background: var(--moyu-fill-subtle);
+  animation: moyu-status-in 180ms var(--moyu-ease-out);
+  line-height: 1.5;
+}
+.moyu-status--err { background: color-mix(in oklab, var(--moyu-danger) 12%, transparent); color: var(--moyu-danger); }
+.moyu-status--ok { background: color-mix(in oklab, var(--moyu-ok) 12%, transparent); color: var(--moyu-ok); }
+.moyu-status--warn { background: color-mix(in oklab, var(--moyu-warn) 14%, transparent); color: var(--moyu-warn); }
+@keyframes moyu-status-in {
+  from { opacity: 0; transform: translateY(-2px); }
+}
+
+.moyu-tag {
+  display: inline-block;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--moyu-hairline);
+  color: var(--moyu-text-dim);
+  vertical-align: 2px;
+  margin-left: 6px;
+}
+.moyu-tag--ok { color: var(--moyu-ok); border-color: color-mix(in oklab, var(--moyu-ok) 34%, transparent); }
+.moyu-tag--err { color: var(--moyu-danger); border-color: color-mix(in oklab, var(--moyu-danger) 34%, transparent); }
+
+.moyu-divider { border: 0; border-top: 1px solid var(--moyu-hairline-soft); margin: 20px 0 0; }
+
+.moyu-menu-wrap { position: relative; }
+.moyu-menu-btn {
+  width: 24px; height: 24px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.55;
+  transition: background 140ms ease, opacity 140ms ease;
+}
+.moyu-menu-btn:hover { background: var(--moyu-fill-hover); opacity: 1; }
+.moyu-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  min-width: 140px;
+  padding: 4px;
+  border-radius: var(--moyu-radius-md);
+  border: 1px solid var(--moyu-hairline);
+  background: var(--dsw-alias-background, color-mix(in oklab, currentColor 6%, canvas));
+  box-shadow: 0 8px 24px color-mix(in oklab, currentColor 18%, transparent);
+  z-index: 10;
+  animation: moyu-menu-in 140ms var(--moyu-ease-out);
+  transform-origin: top right;
+}
+@keyframes moyu-menu-in {
+  from { opacity: 0; transform: scale(0.96); }
+}
+.moyu-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  padding: 6px 10px;
+  border-radius: var(--moyu-radius-sm);
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.moyu-menu-item:hover { background: var(--moyu-fill-hover); }
+.moyu-menu-item--danger { color: var(--moyu-danger); }
+.moyu-menu-item--danger:hover { background: color-mix(in oklab, var(--moyu-danger) 12%, transparent); }
+`
+
+function injectStyle(): void {
+  if (typeof document === 'undefined') return
+  const id = 'moyu-settings-style'
+  if (document.getElementById(id)) return
+  const el = document.createElement('style')
+  el.id = id
+  el.setAttribute('data-moyu-plugin', 'shell')
+  el.textContent = MOYU_SETTINGS_CSS
+  document.head.appendChild(el)
+}
+
+// --- primitives ---
+
+type BtnProps = React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'default' | 'primary' | 'danger' | 'ghost' }
+function Btn({ variant = 'default', className, ...rest }: BtnProps): React.ReactElement {
+  const cls = ['moyu-btn', variant !== 'default' && `moyu-btn--${variant}`, className].filter(Boolean).join(' ')
+  return React.createElement('button', { type: 'button', ...rest, className: cls })
+}
+
+function Switch({ on, disabled, onChange, label }: { on: boolean; disabled?: boolean; onChange: () => void; label: string }): React.ReactElement {
+  return React.createElement('button', {
+    type: 'button',
+    role: 'switch',
+    'aria-checked': on,
+    'aria-label': label,
+    'data-on': on ? 'true' : 'false',
+    className: 'moyu-switch',
+    disabled,
+    onClick: onChange,
+  })
+}
+
+function OverflowMenu({ items }: { items: Array<{ label: string; onClick: () => void; danger?: boolean; disabled?: boolean }> }): React.ReactElement {
+  const [open, setOpen] = React.useState(false)
+  const ref = React.useRef<HTMLDivElement | null>(null)
+  React.useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent): void => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onEsc = (e: KeyboardEvent): void => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onEsc)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      document.removeEventListener('keydown', onEsc)
+    }
+  }, [open])
+  return React.createElement('div', { className: 'moyu-menu-wrap', ref },
+    React.createElement('button', {
+      type: 'button', className: 'moyu-menu-btn', 'aria-label': '更多操作', 'aria-haspopup': 'menu', 'aria-expanded': open,
+      onClick: () => setOpen((v) => !v),
+    }, '⋯'),
+    open && React.createElement('div', { className: 'moyu-menu', role: 'menu' },
+      ...items.map((item, i) => React.createElement('button', {
+        key: i, type: 'button', role: 'menuitem', disabled: item.disabled,
+        className: `moyu-menu-item${item.danger ? ' moyu-menu-item--danger' : ''}`,
+        onClick: () => { setOpen(false); item.onClick() },
+      }, item.label)),
+    ),
+  )
+}
+
+function Status({ kind, text }: { kind: 'ok' | 'err' | 'warn' | 'info'; text: string }): React.ReactElement {
+  const cls = kind === 'info' ? 'moyu-status' : `moyu-status moyu-status--${kind}`
+  return React.createElement('div', { className: cls, role: kind === 'err' ? 'alert' : 'status' }, text)
+}
+
+// --- Mods panel ---
+
 function ModsPanel(): React.ReactElement {
   const [mods, setMods] = React.useState<Mod[] | null>(null)
   const [error, setError] = React.useState('')
@@ -58,12 +497,8 @@ function ModsPanel(): React.ReactElement {
 
   const refresh = React.useCallback(async () => {
     setError('')
-    try {
-      const r = await modsRequest({ operation: 'list' })
-      setMods(r.mods as Mod[])
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    }
+    try { setMods((await modsRequest({ operation: 'list' })).mods as Mod[]) }
+    catch (e) { setError(e instanceof Error ? e.message : String(e)) }
   }, [])
 
   React.useEffect(() => { void refresh() }, [refresh])
@@ -74,9 +509,8 @@ function ModsPanel(): React.ReactElement {
     try {
       const r = await modsRequest({ operation: 'set-enabled', id, enabled })
       setMods(r.mods as Mod[]); setDirty(true)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally { setBusy('') }
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+    finally { setBusy('') }
   }
 
   const uninstall = async (id: string, name: string): Promise<void> => {
@@ -86,64 +520,48 @@ function ModsPanel(): React.ReactElement {
     try {
       const r = await modsRequest({ operation: 'uninstall', id })
       setMods(r.mods as Mod[]); setDirty(true)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally { setBusy('') }
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+    finally { setBusy('') }
   }
 
-  const rows = (mods || []).map((m) => React.createElement('div', {
-    key: m.id,
-    style: {
-      display: 'flex', alignItems: 'center', gap: 12,
-      padding: '10px 0', borderTop: '1px solid rgba(127,127,127,0.14)',
-    },
-  },
-    React.createElement('div', { style: { flex: 1, minWidth: 0 } },
-      React.createElement('div', { style: { fontWeight: 600 } }, m.displayName),
-      React.createElement('div', { style: HINT },
-        `${m.id} · v${m.version}` + (m.integrity !== 'ok' ? ` · ⚠ ${m.integrity}` : '')),
+  const rows = (mods || []).map((m) => React.createElement('div', { key: m.id, className: 'moyu-row' },
+    React.createElement('div', { className: 'moyu-row-main' },
+      React.createElement('div', { className: 'moyu-row-title' },
+        m.displayName,
+        m.integrity !== 'ok' && React.createElement('span', { className: 'moyu-tag moyu-tag--err' }, m.integrity),
+      ),
+      React.createElement('div', { className: 'moyu-row-meta' }, `${m.id} · v${m.version}`),
     ),
-    React.createElement('button', {
-      type: 'button',
-      disabled: !!busy,
-      onClick: () => void setEnabled(m.id, !m.enabled),
-      style: { padding: '4px 12px', borderRadius: 8, cursor: busy ? 'default' : 'pointer' },
-    }, m.enabled ? '已启用' : '已禁用'),
-    React.createElement('button', {
-      type: 'button',
-      disabled: !!busy,
-      onClick: () => void uninstall(m.id, m.displayName),
-      style: { padding: '4px 12px', borderRadius: 8, cursor: busy ? 'default' : 'pointer', color: '#c0392b' },
-    }, '卸载'),
+    React.createElement('div', { className: 'moyu-row-actions' },
+      React.createElement(Switch, {
+        on: m.enabled, disabled: !!busy, label: `${m.enabled ? '禁用' : '启用'} ${m.displayName}`,
+        onChange: () => void setEnabled(m.id, !m.enabled),
+      }),
+      React.createElement(OverflowMenu, { items: [
+        { label: '卸载', danger: true, disabled: !!busy, onClick: () => void uninstall(m.id, m.displayName) },
+      ] }),
+    ),
   ))
 
-  return React.createElement('section', { style: CARD },
-    React.createElement('div', { style: { fontWeight: 700, fontSize: 15 } }, 'Mods 管理'),
-    React.createElement('div', { style: HINT }, '启用 / 禁用 / 卸载已安装的 Mod。改动将在下次重启 MOYU DSH 后生效。'),
-    dirty && React.createElement('div', {
-      style: { ...HINT, color: '#b8860b', marginTop: 8 },
-    }, '⟳ 有改动待生效，请重启应用。'),
-    error && React.createElement('div', { style: { ...HINT, color: '#c0392b' } }, error),
-    mods === null
-      ? React.createElement('div', { style: HINT }, '加载中…')
-      : mods.length === 0
-        ? React.createElement('div', { style: HINT }, '尚未安装任何 Mod。')
-        : React.createElement('div', null, ...rows),
-    React.createElement('button', {
-      type: 'button', onClick: () => void refresh(),
-      style: { marginTop: 12, padding: '4px 12px', borderRadius: 8, cursor: 'pointer' },
-    }, '刷新'),
+  return React.createElement('section', { className: 'moyu-panel' },
+    React.createElement('h2', { className: 'moyu-panel-title' }, 'Mods'),
+    React.createElement('div', { className: 'moyu-panel-hint' }, '启用、禁用或卸载已安装的 Mod。改动将在下次重启 MOYU DSH 后生效。'),
+    dirty && React.createElement(Status, { kind: 'warn', text: '有改动待生效，请重启应用。' }),
+    error && React.createElement(Status, { kind: 'err', text: error }),
+    React.createElement('div', { className: 'moyu-group' },
+      mods === null
+        ? React.createElement('div', { className: 'moyu-panel-hint' }, '加载中…')
+        : mods.length === 0
+          ? React.createElement('div', { className: 'moyu-panel-hint' }, '尚未安装任何 Mod。')
+          : React.createElement('div', null, ...rows),
+    ),
+    React.createElement('div', { className: 'moyu-btn-row' },
+      React.createElement(Btn, { variant: 'ghost', onClick: () => void refresh() }, '刷新'),
+    ),
   )
 }
 
-/** 状态占位分区（内核 C4 / 更新 C5）：只展示状态，不放可点击的假按钮。 */
-function StatusPanel({ title, status, note }: { title: string; status: string; note: string }): React.ReactElement {
-  return React.createElement('section', { style: CARD },
-    React.createElement('div', { style: { fontWeight: 700, fontSize: 15 } }, title),
-    React.createElement('div', { style: { marginTop: 8 } }, status),
-    React.createElement('div', { style: HINT }, note),
-  )
-}
+// --- Kernel & Update panel (merged) ---
 
 function KernelPanel(): React.ReactElement {
   const [state, setState] = React.useState<KernelState | null>(null)
@@ -167,10 +585,8 @@ function KernelPanel(): React.ReactElement {
       if (message) setNotice(message)
       await refresh()
       return result
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-      return undefined
-    } finally { setBusy('') }
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); return undefined }
+    finally { setBusy('') }
   }
 
   const install = async (): Promise<void> => {
@@ -182,9 +598,7 @@ function KernelPanel(): React.ReactElement {
     const result = await run('feed', { operation: 'check-feed', channel })
     if (result) { setAvailable(result.releases || []); setNotice(`已检查 ${channel} 通道。`) }
   }
-  const restart = async (): Promise<void> => {
-    await run('restart', { operation: 'restart-app' })
-  }
+  const restart = async (): Promise<void> => { await run('restart', { operation: 'restart-app' }) }
   const downloadInstall = async (item: KernelInfo): Promise<void> => {
     if (!item.metadataUrl || !item.signatureUrl || !item.payloadUrl) return
     const release = { version: item.version, metadataUrl: item.metadataUrl, signatureUrl: item.signatureUrl, payloadUrl: item.payloadUrl }
@@ -193,36 +607,113 @@ function KernelPanel(): React.ReactElement {
     setNotice(result.status === 'installed' ? `${item.version} 已安装，请运行兼容探针。` : result.status === 'already' ? `${item.version} 已安装。` : `安装被拒绝：${result.reason}`)
   }
 
-  const active = state?.active && state.active !== 'builtin' ? state.active : `内置 ${state?.builtinVersion || '未知'}`
-  return React.createElement('section', { style: CARD },
-    React.createElement('div', { style: { fontWeight: 700, fontSize: 15 } }, 'DSH 内核'),
-    React.createElement('div', { style: { marginTop: 8 } }, `当前内核：${active}`),
-    React.createElement('div', { style: HINT }, `上一版本：${state?.previous || '无'}。只接受 MOYU 签名并通过兼容探针的内核包。`),
-    error && React.createElement('div', { style: { ...HINT, color: '#c0392b', marginTop: 8 } }, error),
-    notice && React.createElement('div', { style: { ...HINT, color: '#287a45', marginTop: 8 } }, notice),
-    React.createElement('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 } },
-      React.createElement('button', { type: 'button', disabled: !!busy, onClick: () => void install() }, '安装本地内核包'),
-      React.createElement('select', { value: channel, disabled: !!busy, onChange: (e) => setChannel(e.target.value as 'stable' | 'beta') },
-        React.createElement('option', { value: 'stable' }, '稳定通道'),
-        React.createElement('option', { value: 'beta' }, '测试通道')),
-      React.createElement('button', { type: 'button', disabled: !!busy, onClick: () => void check() }, '检查可用版本'),
-      React.createElement('button', { type: 'button', disabled: !!busy || !state?.previous, onClick: () => void run('rollback', { operation: 'rollback' }, '已选择上一内核，重启后生效。') }, '回退上一版本'),
-      React.createElement('button', { type: 'button', disabled: !!busy || state?.active === 'builtin', onClick: () => void run('builtin', { operation: 'restore-builtin' }, '已恢复内置内核，重启后生效。') }, '恢复内置版本'),
-      React.createElement('button', { type: 'button', disabled: !!busy, onClick: () => void restart() }, '重启应用')),
-    available.length > 0 && React.createElement('div', { style: { ...CARD, marginTop: 12 } },
-      React.createElement('div', { style: { fontWeight: 600 } }, '远端可用版本'),
-      ...available.map((item) => React.createElement('div', { key: item.version, style: { display: 'flex', gap: 8, alignItems: 'center', padding: '6px 0' } },
-        React.createElement('span', { style: { flex: 1 } }, `${item.version} · ${item.notes || '无更新说明'}`),
-        React.createElement('button', { type: 'button', disabled: !!busy, onClick: () => void downloadInstall(item) }, '下载并安装')))),
-    React.createElement('div', { style: { marginTop: 16, fontWeight: 600 } }, '已安装内核'),
-    ...(state?.installed || []).map((item) => React.createElement('div', {
-      key: item.version, style: { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderTop: '1px solid rgba(127,127,127,0.14)' },
-    },
-      React.createElement('div', { style: { flex: 1 } },
-        React.createElement('div', null, item.version),
-        React.createElement('div', { style: HINT }, item.probe ? `探针：${item.probe.status}${item.probe.reason ? ` · ${item.probe.reason}` : ''}` : '尚未运行兼容探针')),
-      React.createElement('button', { type: 'button', disabled: !!busy, onClick: () => void run(`probe:${item.version}`, { operation: 'probe', version: item.version }, '兼容探针完成。') }, '运行探针'),
-      React.createElement('button', { type: 'button', disabled: !!busy || item.probe?.status !== 'passed' || state?.active === item.version, onClick: () => void run(`activate:${item.version}`, { operation: 'activate', version: item.version }, '已选择该内核，重启后生效。') }, '设为当前'))),
+  const activeVersion = state?.active && state.active !== 'builtin' ? state.active : `内置 ${state?.builtinVersion || '未知'}`
+  const previous = state?.previous || null
+
+  const availableList = available.length > 0
+    ? React.createElement('div', null, ...available.map((item) => React.createElement('div', { key: item.version, className: 'moyu-row' },
+        React.createElement('div', { className: 'moyu-row-main' },
+          React.createElement('div', { className: 'moyu-row-title' }, item.version),
+          React.createElement('div', { className: 'moyu-row-meta' }, item.notes || '无更新说明'),
+        ),
+        React.createElement('div', { className: 'moyu-row-actions' },
+          React.createElement(Btn, { variant: 'primary', disabled: !!busy, onClick: () => void downloadInstall(item) }, '下载并安装'),
+        ),
+      )))
+    : null
+
+  const installedList = (state?.installed || []).length > 0
+    ? React.createElement('div', null, ...(state?.installed || []).map((item) => {
+        const isActive = state?.active === item.version
+        const passed = item.probe?.status === 'passed'
+        return React.createElement('div', { key: item.version, className: 'moyu-row' },
+          React.createElement('div', { className: 'moyu-row-main' },
+            React.createElement('div', { className: 'moyu-row-title' },
+              item.version,
+              isActive && React.createElement('span', { className: 'moyu-tag moyu-tag--ok' }, '当前'),
+              !isActive && passed && React.createElement('span', { className: 'moyu-tag moyu-tag--ok' }, '已验证'),
+              item.probe?.status === 'failed' && React.createElement('span', { className: 'moyu-tag moyu-tag--err' }, '探针失败'),
+            ),
+            React.createElement('div', { className: 'moyu-row-meta' },
+              item.probe
+                ? (item.probe.reason ? `${item.probe.status} · ${item.probe.reason}` : `探针 ${item.probe.status}`)
+                : '尚未运行兼容探针',
+            ),
+          ),
+          React.createElement('div', { className: 'moyu-row-actions' },
+            React.createElement(Btn, { disabled: !!busy, onClick: () => void run(`probe:${item.version}`, { operation: 'probe', version: item.version }, '兼容探针完成。') }, '探针'),
+            React.createElement(Btn, {
+              variant: 'primary',
+              disabled: !!busy || !passed || isActive,
+              onClick: () => void run(`activate:${item.version}`, { operation: 'activate', version: item.version }, '已选择该内核，重启后生效。'),
+            }, '设为当前'),
+          ),
+        )
+      }))
+    : React.createElement('div', { className: 'moyu-panel-hint' }, '尚未安装可切换的内核；当前正在运行内置版本。')
+
+  return React.createElement('section', { className: 'moyu-panel' },
+    React.createElement('h2', { className: 'moyu-panel-title' }, '内核与更新'),
+    React.createElement('div', { className: 'moyu-panel-hint' }, '只接受 MOYU 签名并通过兼容探针的内核包。切换后需重启生效。'),
+
+    React.createElement('div', { className: 'moyu-current' },
+      React.createElement('span', { className: 'moyu-current-label' }, '当前内核'),
+      React.createElement('span', { className: 'moyu-current-value' }, activeVersion),
+      previous && React.createElement('span', { className: 'moyu-current-aux' }, `上一版本 ${previous}`),
+    ),
+
+    error && React.createElement(Status, { kind: 'err', text: error }),
+    notice && React.createElement(Status, { kind: 'ok', text: notice }),
+
+    // 在线更新
+    React.createElement('div', { className: 'moyu-group' },
+      React.createElement('h3', { className: 'moyu-group-title' }, '在线更新'),
+      React.createElement('div', { className: 'moyu-btn-row' },
+        React.createElement('select', {
+          className: 'moyu-select', value: channel, disabled: !!busy,
+          onChange: (e: React.ChangeEvent<HTMLSelectElement>) => setChannel(e.target.value as 'stable' | 'beta'),
+        },
+          React.createElement('option', { value: 'stable' }, '稳定通道'),
+          React.createElement('option', { value: 'beta' }, '测试通道'),
+        ),
+        React.createElement(Btn, { disabled: !!busy, onClick: () => void check() }, '检查可用版本'),
+      ),
+      availableList,
+    ),
+
+    // 本地内核
+    React.createElement('div', { className: 'moyu-group' },
+      React.createElement('h3', { className: 'moyu-group-title' }, '本地内核'),
+      installedList,
+      React.createElement('div', { className: 'moyu-btn-row' },
+        React.createElement(Btn, { disabled: !!busy, onClick: () => void install() }, '安装本地内核包'),
+      ),
+    ),
+
+    // 运维
+    React.createElement('div', { className: 'moyu-group' },
+      React.createElement('h3', { className: 'moyu-group-title' }, '运维'),
+      React.createElement('div', { className: 'moyu-btn-row' },
+        React.createElement(Btn, {
+          disabled: !!busy || !previous,
+          onClick: () => void run('rollback', { operation: 'rollback' }, '已选择上一内核，重启后生效。'),
+        }, '回退上一版本'),
+        React.createElement(Btn, {
+          disabled: !!busy || state?.active === 'builtin',
+          onClick: () => void run('builtin', { operation: 'restore-builtin' }, '已恢复内置内核，重启后生效。'),
+        }, '恢复内置版本'),
+        React.createElement('span', { className: 'moyu-spacer' }),
+        React.createElement(Btn, { variant: 'primary', disabled: !!busy, onClick: () => void restart() }, '重启应用'),
+      ),
+    ),
+
+    React.createElement('hr', { className: 'moyu-divider' }),
+
+    // 应用更新（C5 前占位；等 C5 完成后从这里升级为可操作分组）
+    React.createElement('div', { className: 'moyu-group' },
+      React.createElement('h3', { className: 'moyu-group-title' }, '应用更新'),
+      React.createElement('div', { className: 'moyu-panel-hint' }, '当前为手动更新。自动检查与应用更新将在 C5 提供。'),
+    ),
   )
 }
 
@@ -230,6 +721,8 @@ export const name = 'moyu-shell-client'
 export const inject = ['slots']
 
 export function apply(ctx: ClientContext): void {
+  injectStyle()
+
   ctx.slots.inject('settings.section' as never, () => ctx.slots.register({
     name: 'settings.section',
     id: 'moyu-shell-mods',
@@ -241,17 +734,6 @@ export function apply(ctx: ClientContext): void {
     name: 'settings.section',
     id: 'moyu-shell-kernel',
     order: 30,
-    label: () => 'DSH 内核',
+    label: () => '内核与更新',
   } as never, KernelPanel as never))
-
-  ctx.slots.inject('settings.section' as never, () => ctx.slots.register({
-    name: 'settings.section',
-    id: 'moyu-shell-update',
-    order: 40,
-    label: () => '更新',
-  } as never, (() => React.createElement(StatusPanel, {
-    title: '应用更新',
-    status: '当前为手动更新。',
-    note: '自动检查与应用更新功能将在 C5 提供。',
-  })) as never))
 }
