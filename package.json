@@ -34,6 +34,7 @@
     "verify:dsh-bridge": "electron scripts/verify-dsh-bridge.mjs",
     "preview": "electron-vite preview",
     "build:dsh-runtime": "node scripts/build-dsh-runtime.mjs",
+    "package:kernel": "node scripts/package-kernel.mjs",
     "apply-codex-web-overlay": "node scripts/apply-codex-web-overlay.mjs",
     "patch-upstream-brand": "node scripts/patch-upstream-brand.mjs",
     "verify-overlay-applied": "node tests/verify-overlay-applied.mjs"

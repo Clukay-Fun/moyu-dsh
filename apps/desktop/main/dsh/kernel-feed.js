@@ -8,7 +8,7 @@ import { pipeline } from 'node:stream/promises'
 
 const MAX_FEED_BYTES = 1024 * 1024
 const MAX_PACKAGE_BYTES = 2 * 1024 * 1024 * 1024
-const ALLOWED_HOSTS = new Set(['github.com', 'objects.githubusercontent.com', 'github-releases.githubusercontent.com'])
+const ALLOWED_HOSTS = new Set(['github.com', 'objects.githubusercontent.com', 'github-releases.githubusercontent.com', 'release-assets.githubusercontent.com'])
 
 function assertAllowedUrl(value) {
   const url = new URL(value)
