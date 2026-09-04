@@ -231,8 +231,8 @@ window.__ModuleLoader__.load({
 			return byRecency(a, b);
 		}
 		/**
-		* Ordinary sessions are visible; among blank sessions, only the current one
-		* is visible. Subagent children use their parent header catalog; archived
+		* Ordinary sessions are visible; blank draft sessions never enter history,
+		* including the current provisional New Session. Subagent children use their parent header catalog; archived
 		* sessions are visible nowhere, while their accounting slots remain so
 		* unarchiving restores position.
 		*
@@ -247,7 +247,7 @@ window.__ModuleLoader__.load({
 		*/
 		function sessionVisible(session, current, archived) {
 			if (session.origin === "subagent" || archived.has(session.id)) return false;
-			if (session.blank) return session.id === current;
+			if (session.blank) return false;
 			const activePreset = typeof window !== "undefined" && window.__moyuActivePreset;
 			if (!activePreset) return true;
 			if (session.id === current) return true;
