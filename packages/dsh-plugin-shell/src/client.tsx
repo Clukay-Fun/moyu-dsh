@@ -506,6 +506,121 @@ const MOYU_SETTINGS_CSS = `
 .W1OuRW_iconButton:active:not(:disabled) { transform: scale(0.9); }
 
 /* =========================================================
+ * Composer / 新会话（_3q12Lq_*）
+ * ======================================================= */
+._3q12Lq_card {
+  transition: border-color 180ms ease, box-shadow 220ms var(--moyu-ease-out);
+}
+._3q12Lq_card:focus-within {
+  border-color: color-mix(in oklab, var(--moyu-accent) 55%, currentColor) !important;
+  box-shadow:
+    0 0 0 3px color-mix(in oklab, var(--moyu-accent) 16%, transparent),
+    var(--dsw-shadow-lv2);
+}
+._3q12Lq_add {
+  transition: background 140ms ease, transform 140ms var(--moyu-ease-out);
+}
+._3q12Lq_add:active:not(:disabled) { transform: scale(0.9); }
+._3q12Lq_add:focus-visible {
+  outline: 2px solid color-mix(in oklab, currentColor 42%, transparent);
+  outline-offset: 2px;
+}
+._3q12Lq_select {
+  transition: background-color 140ms ease, transform 140ms var(--moyu-ease-out);
+}
+._3q12Lq_select:active:not(:disabled) { transform: scale(0.97); }
+._3q12Lq_primary {
+  transition: background-color 140ms ease, transform 140ms var(--moyu-ease-out), opacity 140ms ease;
+}
+._3q12Lq_primary:active:not(:disabled) { transform: translateY(-2px) scale(0.94); }
+._3q12Lq_primary:focus-visible {
+  outline: 2px solid color-mix(in oklab, currentColor 42%, transparent);
+  outline-offset: 3px;
+}
+._3q12Lq_retry {
+  transition: background 140ms ease, border-color 140ms ease, transform 140ms var(--moyu-ease-out);
+}
+._3q12Lq_retry:hover { background: var(--moyu-fill-hover); }
+._3q12Lq_retry:active { transform: scale(0.96); }
+._3q12Lq_notice {
+  animation: moyu-composer-notice-in 200ms var(--moyu-ease-out);
+}
+@keyframes moyu-composer-notice-in {
+  from { opacity: 0; transform: translateY(-3px); }
+}
+
+/* =========================================================
+ * 会话运行视图 —— 面包屑 / 底部详情面板（AYmwxq_*）
+ * ======================================================= */
+.AYmwxq_crumb {
+  transition: background 140ms ease, color 140ms ease, transform 140ms var(--moyu-ease-out);
+}
+.AYmwxq_crumb:hover:not(.AYmwxq_crumbCurrent) {
+  background: var(--moyu-fill-hover);
+  color: inherit;
+}
+.AYmwxq_crumb:active:not(.AYmwxq_crumbCurrent) { transform: scale(0.97); }
+.AYmwxq_crumb:focus-visible {
+  outline: 2px solid color-mix(in oklab, currentColor 40%, transparent);
+  outline-offset: 1px;
+}
+
+.AYmwxq_bottomPanel {
+  border-color: var(--moyu-hairline-soft) !important;
+  animation: moyu-bp-in 240ms var(--moyu-ease-out);
+}
+@keyframes moyu-bp-in {
+  from { opacity: 0; transform: translateY(6px); }
+}
+.AYmwxq_bottomPanelHeader {
+  border-bottom-color: var(--moyu-hairline-soft) !important;
+}
+.AYmwxq_bottomPanelTab {
+  transition: background 140ms ease, color 140ms ease, transform 140ms var(--moyu-ease-out);
+  border-radius: 7px;
+}
+.AYmwxq_bottomPanelTab:hover:not(.AYmwxq_bottomPanelTabActive) {
+  background: var(--moyu-fill-hover);
+}
+.AYmwxq_bottomPanelTab:active:not(.AYmwxq_bottomPanelTabActive) { transform: scale(0.97); }
+.AYmwxq_bottomPanelClose {
+  transition: background 140ms ease, color 140ms ease, transform 140ms var(--moyu-ease-out);
+}
+.AYmwxq_bottomPanelClose:hover { background: var(--moyu-fill-hover); color: inherit; }
+.AYmwxq_bottomPanelClose:active { transform: scale(0.92); }
+
+/* =========================================================
+ * 消息气泡（OdWf6W_*）
+ * ======================================================= */
+.OdWf6W_bubble {
+  animation: moyu-bubble-in 260ms var(--moyu-ease-out);
+  transition: border-color 180ms ease;
+}
+@keyframes moyu-bubble-in {
+  from { opacity: 0; transform: translateY(4px); }
+}
+
+/* =========================================================
+ * 工具/命令行卡片（zr3SYG_*）
+ * ======================================================= */
+.zr3SYG_card {
+  animation: moyu-tool-in 240ms var(--moyu-ease-out);
+  transition: border-color 180ms ease, box-shadow 220ms var(--moyu-ease-out);
+}
+@keyframes moyu-tool-in {
+  from { opacity: 0; transform: translateY(3px); }
+}
+.zr3SYG_actionRow button, .zr3SYG_actionRow [role="button"] {
+  transition: background 140ms ease, transform 140ms var(--moyu-ease-out) !important;
+}
+.zr3SYG_actionRow button:active, .zr3SYG_actionRow [role="button"]:active { transform: scale(0.97); }
+
+/* 消息/工具卡进场在 reduced-motion 下关闭 */
+@media (prefers-reduced-motion: reduce) {
+  .OdWf6W_bubble, .zr3SYG_card, .AYmwxq_bottomPanel { animation: none !important; }
+}
+
+/* =========================================================
  * 布局框架（AgZ4Da_*）
  * ======================================================= */
 .AgZ4Da_handle {
