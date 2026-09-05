@@ -91,6 +91,7 @@
       "artifactName": "moyu-dsh-${version}-macos-${arch}.${ext}",
       "icon": "assets/app-icon.png",
       "category": "public.app-category.productivity",
+      "identity": "-",
       "extendInfo": {
         "NSScreenCaptureUsageDescription": "MOYU DSH 需要读取屏幕以完成区域截图。"
       },

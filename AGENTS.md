@@ -14,7 +14,7 @@ DSH Web UI 是唯一主界面，运行在本地 DSH origin 上。DSH Host 使用
 能力，不直接获得通用 Electron IPC。
 
 技术与范围以本机 `scope/README.md`、`scope/plans/README.md` 及当前活动子计划为准。
-`scope/` 是本地开发依据，不纳入 Git。
+`scope/plans/` 与 `tests/` 随源码纳入 Git；其他本机证据与临时产物不纳入 Git。
 
 上述范围约束的是 `dev`/`main` 与正式发布路径。实验分支
 （如 `experiment/*`）允许探索范围外的功能，但探索期间也要在本机
@@ -44,7 +44,7 @@ DSH Web UI 是唯一主界面，运行在本地 DSH origin 上。DSH Host 使用
    签名、hardened runtime、公证和干净机器启动。不使用外挂 Node runtime。
 7. 不保留未实现的可点击控件；未实现能力须明确禁用或标为预览。
 8. 不使用 CDN 作为核心运行依赖；运行资源经 npm 或 `assets/` 本地交付。
-9. 不提交缓存、构建产物、用户私有素材、凭证、本地计划文档或测试代码。
+9. 计划文档与测试代码随源码提交；不提交缓存、构建产物、用户私有素材或凭证。
 10. 正式构建只交付唯一 Moyu profile；默认禁止 shell、通用文件工具、subagent、
      运行时动态插件定义与执行（`cordis_define` / `cordis_run` 一类）和任意插件安装。
      DSH 原生的 preset 管理 / plugin inventory / 权限设置入口（agent-presets、ui-agent-preset、

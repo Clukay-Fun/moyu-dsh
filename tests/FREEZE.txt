@@ -1,0 +1,19 @@
+测试与源码对应关系
+==================
+
+自 2026-09-05 起，tests/ 随源码提交，以同一 Git commit/tag 为配套版本。
+旧的 2.1.0-beta.8 冻结说明不再适用。
+
+运行前先安装依赖并构建运行闭包和 UI：
+  npm ci
+  npm run build:dsh-runtime
+  npm run apply-codex-web-overlay
+  npm run patch-upstream-brand
+  npm run build
+  node tests/run-acceptance.mjs --node
+
+真机项：node tests/run-acceptance.mjs --live
+需模型凭据人工项：node tests/run-acceptance.mjs --manual
+以下划线开头的脚本是历史专项探针，不在默认验收清单。
+以显式清单的实际结果为准，不对所有 verify-* 文件使用通配符。
+只清理本次测试启动的进程，不全局终止其他 Electron 应用。

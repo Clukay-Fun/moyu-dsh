@@ -21,6 +21,7 @@ __pycache__/
 .env.*
 !.env.example
 
-# 本地开发依据与验证代码（不随产品源码提交）
-scope/
-tests/
+# 计划与测试随源码提交；本机截图、原型和探针输出仍不入库
+scope/*
+!scope/README.md
+!scope/plans/

@@ -10,6 +10,7 @@ export default async function afterPack(context) {
   const appName = context.packager.appInfo.productFilename
   const target = join(context.appOutDir, `${appName}.app`, 'Contents', 'Resources', 'dsh-runtime')
   await rm(target, { recursive: true, force: true })
-  await cp(source, target, { recursive: true, dereference: false })
+  // 保留 npm .bin 的相对链接，避免 cp 将其改为指向开发机的绝对路径。
+  await cp(source, target, { recursive: true, dereference: false, verbatimSymlinks: true })
   console.log(`  • copied dsh-runtime closure  target=${target}`)
 }
