@@ -47,6 +47,7 @@ async function kernelRequest(payload: Record<string, unknown>): Promise<any> {
 // 加载顺序上 MOYU shell 插件在 upstream 之后 → 同权重规则由 MOYU 胜出，无需 !important。
 const MOYU_SETTINGS_CSS = `
 :root {
+  /* MOYU 独立 tokens */
   --moyu-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --moyu-ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
   --moyu-radius-xl: 20px;
@@ -64,6 +65,11 @@ const MOYU_SETTINGS_CSS = `
   --moyu-warn: color-mix(in oklab, #d69220 92%, currentColor);
   --moyu-ok: color-mix(in oklab, #22a565 92%, currentColor);
   --moyu-accent: color-mix(in oklab, #4a89ff 88%, currentColor);
+
+  /* 覆盖上游 tokens：一改带动全 app 的动画 */
+  /* 原 Material Standard cubic-bezier(.4,0,.2,1) 起手偏慢；换更利落曲线 */
+  --ds-ease-in-out: cubic-bezier(0.5, 0, 0.15, 1);
+  --ds-transition-duration-slow: 0.24s;
 }
 
 /* ===== 模态壳（覆盖 FGywRq_*） ===== */
@@ -417,6 +423,103 @@ const MOYU_SETTINGS_CSS = `
 .moyu-menu-item:hover { background: var(--moyu-fill-hover); }
 .moyu-menu-item--danger { color: var(--moyu-danger); }
 .moyu-menu-item--danger:hover { background: color-mix(in oklab, var(--moyu-danger) 12%, transparent); }
+
+/* =========================================================
+ * 侧栏（TQ0BVq_*）
+ * ======================================================= */
+.TQ0BVq_root { padding-inline: 10px; }
+.TQ0BVq_iconButton {
+  transition: background 140ms ease, color 140ms ease, transform 140ms var(--moyu-ease-out);
+}
+.TQ0BVq_iconButton:active:not(:disabled) { transform: scale(0.92); }
+.TQ0BVq_toggle:active:not(:disabled) { transform: scale(0.92); }
+.TQ0BVq_brand {
+  transition: opacity 140ms ease, transform 140ms var(--moyu-ease-out);
+  border-radius: var(--moyu-radius-md);
+}
+.TQ0BVq_brand:hover { opacity: 0.85; }
+.TQ0BVq_brand:active { transform: scale(0.98); }
+.TQ0BVq_brand:focus-visible {
+  outline: 2px solid color-mix(in oklab, currentColor 40%, transparent);
+  outline-offset: 2px;
+}
+
+/* =========================================================
+ * 工作区 / 会话列表 / 顶部导航（IDS31W_* + W1OuRW_*）
+ * ======================================================= */
+.IDS31W_surfaceNavItem {
+  transition: background 140ms ease, color 140ms ease, transform 140ms var(--moyu-ease-out);
+  position: relative;
+}
+.IDS31W_surfaceNavItem:active:not(:disabled) { transform: scale(0.985); }
+.IDS31W_surfaceNavItem:focus-visible {
+  outline: 2px solid color-mix(in oklab, currentColor 38%, transparent);
+  outline-offset: -2px;
+}
+.IDS31W_surfaceNavItemActive::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: 2px;
+  background: currentColor;
+  opacity: 0.72;
+}
+.IDS31W_sectionLabel {
+  font-size: 11px !important;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--moyu-text-mute) !important;
+  font-weight: 600 !important;
+}
+.IDS31W_searchButton {
+  transition: background 140ms ease, transform 140ms var(--moyu-ease-out);
+}
+.IDS31W_searchButton:active:not(:disabled) { transform: scale(0.94); }
+.IDS31W_iconButton {
+  transition: background 140ms ease, color 140ms ease, transform 140ms var(--moyu-ease-out);
+}
+.IDS31W_iconButton:active:not(:disabled) { transform: scale(0.92); }
+.IDS31W_searchInput {
+  transition: background 140ms ease, border-color 140ms ease;
+}
+.IDS31W_empty {
+  color: var(--moyu-text-dim);
+  padding: 20px 12px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.IDS31W_sessionOverflowButton {
+  transition: background 140ms ease, opacity 140ms ease, transform 140ms var(--moyu-ease-out);
+}
+.IDS31W_sessionOverflowButton:active:not(:disabled) { transform: scale(0.9); }
+
+/* 会话行 / 项目行（W1OuRW_*） */
+.W1OuRW_sessionRow, .W1OuRW_projectRow, .W1OuRW_flatSessionRow {
+  transition: background 140ms ease, color 140ms ease;
+}
+.W1OuRW_iconButton {
+  transition: background 140ms ease, color 140ms ease, opacity 140ms ease, transform 140ms var(--moyu-ease-out) !important;
+}
+.W1OuRW_iconButton:active:not(:disabled) { transform: scale(0.9); }
+
+/* =========================================================
+ * 布局框架（AgZ4Da_*）
+ * ======================================================= */
+.AgZ4Da_handle {
+  transition: background 160ms ease;
+}
+.AgZ4Da_handle:hover::after {
+  content: "";
+  position: absolute;
+  inset: 0 50%;
+  width: 2px;
+  border-radius: 2px;
+  background: color-mix(in oklab, currentColor 32%, transparent);
+  transform: translateX(-50%);
+}
 `
 
 function injectStyle(): void {
