@@ -188,7 +188,7 @@ const STYLE = `
   background: var(--dsw-alias-bg-base, transparent);
   overflow: hidden; position: relative;
 }
-.moyu-st-main { height: 100%; overflow: auto; transition: margin-right 220ms var(--moyu-ease-out); }
+.moyu-st-main { height: 100%; overflow: auto; transition: margin-right 240ms var(--moyu-ease-out); }
 .moyu-st-main[data-drawer="true"] { margin-right: min(520px, 38vw); }
 .moyu-st-shell { box-sizing: border-box; width: min(100%, 980px); margin: 0 auto; padding: 46px 34px 72px; }
 .moyu-st-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }

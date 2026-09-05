@@ -75,7 +75,7 @@ const MOYU_SETTINGS_CSS = `
 /* ===== 模态壳（覆盖 FGywRq_*） ===== */
 .FGywRq_overlay {
   padding: 32px;
-  animation: moyu-overlay-in 220ms var(--moyu-ease-out);
+  animation: moyu-overlay-in 200ms var(--moyu-ease-out);
 }
 @keyframes moyu-overlay-in { from { opacity: 0; } }
 
@@ -94,7 +94,7 @@ const MOYU_SETTINGS_CSS = `
     0 0 0 1px color-mix(in oklab, currentColor 4%, transparent),
     0 24px 64px -12px color-mix(in oklab, currentColor 28%, transparent),
     0 8px 24px -8px color-mix(in oklab, currentColor 18%, transparent);
-  animation: moyu-panel-enter 260ms var(--moyu-ease-out);
+  animation: moyu-panel-enter 240ms var(--moyu-ease-out);
   transform-origin: center;
 }
 @keyframes moyu-panel-enter {
@@ -176,7 +176,7 @@ const MOYU_SETTINGS_CSS = `
   scrollbar-gutter: stable;
 }
 .FGywRq_options > * {
-  animation: moyu-section-in 220ms var(--moyu-ease-out) both;
+  animation: moyu-section-in 200ms var(--moyu-ease-out) both;
 }
 @keyframes moyu-section-in {
   from { opacity: 0; transform: translateY(4px); }
@@ -216,16 +216,13 @@ const MOYU_SETTINGS_CSS = `
   }
 }
 
-/* ===== MOYU section 内容（去掉外框；模态就是框） ===== */
+/* ===== MOYU section 内容（去掉外框；模态就是框）
+ * 进场动画交给 .FGywRq_options > * 统一处理，避免同元素双动画。 ===== */
 .moyu-panel {
   padding: 0;
   margin: 0;
   border: none;
   background: transparent;
-  animation: moyu-panel-fade 260ms var(--moyu-ease-out);
-}
-@keyframes moyu-panel-fade {
-  from { opacity: 0; }
 }
 .moyu-panel + .moyu-panel { margin-top: 32px; }
 .moyu-panel-title {
@@ -338,7 +335,7 @@ const MOYU_SETTINGS_CSS = `
   border-radius: 999px;
   background: currentColor;
   opacity: 0.72;
-  transition: transform 220ms var(--moyu-ease-out), opacity 160ms ease;
+  transition: transform 200ms var(--moyu-ease-out), opacity 160ms ease;
 }
 .moyu-switch[data-on="true"] { background: color-mix(in oklab, var(--moyu-ok) 55%, transparent); border-color: color-mix(in oklab, var(--moyu-ok) 30%, transparent); }
 .moyu-switch[data-on="true"]::before { transform: translateX(14px); opacity: 1; }
@@ -509,7 +506,7 @@ const MOYU_SETTINGS_CSS = `
  * Composer / 新会话（_3q12Lq_*）
  * ======================================================= */
 ._3q12Lq_card {
-  transition: border-color 180ms ease, box-shadow 220ms var(--moyu-ease-out);
+  transition: border-color 180ms ease, box-shadow 200ms var(--moyu-ease-out);
 }
 ._3q12Lq_card:focus-within {
   border-color: color-mix(in oklab, var(--moyu-accent) 55%, currentColor) !important;
@@ -593,7 +590,7 @@ const MOYU_SETTINGS_CSS = `
  * 消息气泡（OdWf6W_*）
  * ======================================================= */
 .OdWf6W_bubble {
-  animation: moyu-bubble-in 260ms var(--moyu-ease-out);
+  animation: moyu-bubble-in 200ms var(--moyu-ease-out);
   transition: border-color 180ms ease;
 }
 @keyframes moyu-bubble-in {
@@ -604,8 +601,8 @@ const MOYU_SETTINGS_CSS = `
  * 工具/命令行卡片（zr3SYG_*）
  * ======================================================= */
 .zr3SYG_card {
-  animation: moyu-tool-in 240ms var(--moyu-ease-out);
-  transition: border-color 180ms ease, box-shadow 220ms var(--moyu-ease-out);
+  animation: moyu-tool-in 200ms var(--moyu-ease-out);
+  transition: border-color 180ms ease, box-shadow 200ms var(--moyu-ease-out);
 }
 @keyframes moyu-tool-in {
   from { opacity: 0; transform: translateY(3px); }
